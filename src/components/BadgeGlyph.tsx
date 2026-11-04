@@ -41,17 +41,6 @@ function Glyph({ series, size, color }: { series: keyof LogFacts; size: number; 
     case 'tonnage':
     case 'records':
       return <Icon name="trending-up" size={size} color={color} />;
-    case 'runs':
-      return <Icon name="flame" size={size} color={color} />;
-    case 'tasksDone':
-    case 'perfectDays':
-    case 'fullWeeks':
-      return <MaterialSymbol name="task_alt" size={size} color={color} filled />;
-    case 'amounts':
-    case 'spendDays':
-      return <MaterialSymbol name="payments" size={size} color={color} filled />;
-    default:
-      return <MaterialSymbol name="account_balance_wallet" size={size} color={color} filled />;
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * NavBar — the app's own section and Settings, on one pane of glass.
+ * NavBar — the training and Settings, on one pane of glass.
  *
  *   ╭──────────────────────────────╮
  *   │      🏋              ⚙       │
@@ -10,9 +10,9 @@
  *
  * From 2.0 to 2.10 the bar was four glyphs around a raised, gradient-filled
  * Home button: Momentum put a landing above three logs, and the way back to it
- * had to be one tap from anywhere. Each log is its own app now
- * (`lib/appVariant.ts`), the section is the landing, and the bar holds exactly
- * what the app has — its section and Settings (`variantSections`). They sit at
+ * had to be one tap from anywhere. The tasks and the money are apps of their
+ * own now, the training is the landing, and the bar holds exactly what the app
+ * has — the training and Settings (`lib/sectionNav.SECTIONS`). They sit at
  * the quarter points (`lib/sectionNav.navSlots`), each centred in the half it
  * owns. Rejected: keeping two of the old four positions (a hole in the middle
  * where a button used to be reads as something missing) and dropping the bar
@@ -66,16 +66,12 @@ import { palette, tint } from '../theme/tokens';
 
 const GLYPH: Record<SectionTab, SymbolName> = {
   Workout: 'fitness_center',
-  Tasks: 'task_alt',
-  Expenses: 'account_balance_wallet',
   Settings: 'settings',
 };
 
-/** The section's own name — printed under the glyph and spoken. Expenses as Finance. */
+/** The section's own name — printed under the glyph and spoken. */
 const LABEL: Record<SectionTab, string> = {
   Workout: 'Workout',
-  Tasks: 'Tasks',
-  Expenses: 'Finance',
   Settings: 'Settings',
 };
 
@@ -90,7 +86,7 @@ const LABEL_BOTTOM = 8;
 const LABEL_LINE = 16;
 
 interface NavBarProps {
-  /** The sections this app has, in bar order (`variantSections`). */
+  /** The sections, in bar order (`SECTIONS`). */
   sections: readonly SectionTab[];
   active: SectionTab;
   /**

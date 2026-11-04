@@ -59,6 +59,9 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86_400_000);
 }
 
+/** Monday = 0 … Sunday = 6, matching the Monday-first grid the app draws. */
+export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
 /** Monday-first weekday index: Mon = 0 … Sun = 6. Weeks start on Monday everywhere. */
 export function weekdayIndex(date: Date): number {
   return (date.getDay() + 6) % 7;
@@ -239,4 +242,16 @@ export function parseClockTime(value: unknown): { hour: number; minute: number }
   const minute = Number(match[2]);
   if (hour > 23 || minute > 59) return null;
   return { hour, minute };
+}
+
+/** "07 – 13 September", or "28 September – 04 October" across a seam. */
+export function formatWeek(day: string, lang: Language = 'en'): string {
+  const from = parseDay(weekStart(day));
+  const to = parseDay(weekEnd(day));
+  if (!from || !to) return day;
+  const monthName = (date: Date) => formatMonth(date.getFullYear(), date.getMonth(), lang).split(' ')[0];
+  if (from.getMonth() === to.getMonth()) {
+    return `${pad(from.getDate())} – ${pad(to.getDate())} ${monthName(to)}`;
+  }
+  return `${pad(from.getDate())} ${monthName(from)} – ${pad(to.getDate())} ${monthName(to)}`;
 }

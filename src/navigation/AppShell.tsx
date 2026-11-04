@@ -1,36 +1,25 @@
 /**
- * AppShell — one section, Settings, and a stack.
+ * AppShell — the training, Settings, and a stack.
  *
- *   tab:  Workout | Tasks | Expenses — whichever this app IS — and Settings
+ *   tab:  Workout | Settings
  *   stack: session · routineEditor · addExercise · createExercise · editExercise
- *          · exerciseHistory · sequence · workoutHistory · tasksHistory
- *          · moneyHistory · workoutSettings · taskSettings · moneySettings · budgets
- *          · recurring · goals
+ *          · exerciseHistory · sequence · routines · library · workoutHistory
+ *          · wrapped · workoutSettings · body · muscles · achievements
  *          · aiSettings · aiChat · aiReview
  *
- * ── ONE TREE, THREE APPS (3.0) ────────────────────────────────────────────
+ * ── TWO ROOTS ─────────────────────────────────────────────────────────────
  *
- * The same shell is built into the Workout, Tasks and Expenses APKs
- * (`lib/appVariant.ts`), and the build's variant decides which roots it has:
- * the app's own section, which it opens on and where Back arms the exit, and
- * Settings. The other two sections' roots are never rendered, never built as
- * spares, and their pushed screens are refused at the one door every push goes
- * through (`lib/shellRoutes.routeAllowed`, applied in `setStack`) — so a route
- * for another app's screen cannot be reached sideways, from the AI settings,
- * a Settings row or a session rehydrated from a store this app only keeps.
- * The Workout app still holds the old tasks and money on disk; it simply never
- * shows them. Until 3.0 a landing with three tiles sat above all four sections
- * (`screens/LandingScreen.tsx`, removed); with one log per app the section is
- * the landing.
+ * The training, which the app opens on and where Back arms the exit, and
+ * Settings. Until 3.0 a landing with three tiles sat above four sections
+ * (`screens/LandingScreen.tsx`, removed); the tasks and the money are apps of
+ * their own now, and the training is the landing.
  *
- * ── A SECTION IS A LOG, AND ITS PAST IS NOT A SECTION ──────────────────────
+ * ── ITS PAST IS NOT A ROOT ────────────────────────────────────────────────
  *
- * `History` used to be a root, which gave the training log a tab for its past
- * while the tasks' and the money's were buried at the bottom of their own
- * screens. Each section now carries a ⟲ in its corner and pushes its OWN history,
- * so the same glyph in the same place answers "how has this been going" for all
- * three. `More` is gone with it: it was a lobby, and Settings — the one screen
- * anybody actually went there for — is a root that leads with a row per section.
+ * `History` used to be a root of its own. The Workout screen now carries a ⟲ in
+ * its corner and pushes the history, so "how has this been going" is one tap
+ * from where the training is. `More` is gone with it: it was a lobby, and
+ * Settings — the one screen anybody actually went there for — is a root.
  *
  * ── THE BAR IS THE ONE WAY BETWEEN THEM ────────────────────────────────────
  *
@@ -41,7 +30,7 @@
  * order still lives in `lib/sectionNav.ts`, which is what makes a slide go the
  * way the blob does.
  *
- * Why not a router library: the app has five roots and six pushable screens, none
+ * Why not a router library: the app has two roots and a handful of pushable screens, none
  * of them deep-linked, none of them needing URL state. `expo-router` would add a
  * dependency, a file-system convention and a navigator config to express a
  * `Route[]` and two functions. When deep links or a native back-stack are actually
@@ -104,22 +93,8 @@ import { ShellStage, TRANSITION_MS, type ShellTransition } from './ShellStage';
 import { PushHost } from './PushHost';
 import { mayLeave } from './leaveGuard';
 import { WorkoutSettingsScreen } from '../screens/WorkoutSettingsScreen';
-import { TaskSettingsScreen } from '../screens/TaskSettingsScreen';
-import { MoneySettingsScreen } from '../screens/MoneySettingsScreen';
-import { BudgetsScreen } from '../screens/BudgetsScreen';
-import { RecurringScreen } from '../screens/RecurringScreen';
-import { GoalsScreen } from '../screens/GoalsScreen';
 import { BodyScreen } from '../screens/BodyScreen';
 import { MuscleMapScreen } from '../screens/MuscleMapScreen';
-import { InsightsScreen } from '../screens/InsightsScreen';
-import { AmountEditorScreen } from '../screens/AmountEditorScreen';
-import { CategoryDetailScreen } from '../screens/CategoryDetailScreen';
-import { MoneyScreen, type MoneyWindow } from '../screens/MoneyScreen';
-import { MoneyHistoryScreen, type MoneyHistoryView } from '../screens/MoneyHistoryScreen';
-import { DEFAULT_CATEGORY_FILTER, type CategoryFilter } from '../lib/moneyFilter';
-import { TaskDetailScreen } from '../screens/TaskDetailScreen';
-import { TasksScreen } from '../screens/TasksScreen';
-import { TasksHistoryScreen } from '../screens/TasksHistoryScreen';
 import { AiChatScreen } from '../screens/AiChatScreen';
 import { AiReviewScreen } from '../screens/AiReviewScreen';
 import { AiSettingsScreen } from '../screens/AiSettingsScreen';
@@ -154,24 +129,16 @@ import { useActiveWorkout } from '../state/activeWorkoutStore';
 import { routineUsageCount, useLibrary } from '../state/libraryStore';
 import { platesInForce, useSettings } from '../state/settingsStore';
 import { recentSummaries, useWorkoutHistory } from '../state/workoutHistoryStore';
-import { useMoney } from '../state/moneyStore';
-import { tickTaskSource, useTasks } from '../state/tasksStore';
-import { dayKey } from '../lib/days';
-import { libraryTabRoute, sectionSettingsRoute } from '../lib/discoverability';
+import { libraryTabRoute } from '../lib/discoverability';
 import { useLanguage, usePlural, useT } from '../hooks/useT';
-import { useToday } from '../hooks/useToday';
-import { isTransferCategory, type Direction, type Interval } from '../lib/money';
 import {
+  SECTIONS,
+  SHELL_ROOT,
   backAction,
-  shellRoot,
   slideDir,
   type SectionTab,
   type ShellRoute,
 } from '../lib/sectionNav';
-import { insightsOffered } from '../lib/insights';
-import { APP_VARIANT, hasSection, variantSection, variantSections } from '../lib/appVariant';
-import { allowedStack } from '../lib/shellRoutes';
-import { mountsFor } from '../lib/appEntry';
 import { seedUser } from '../data/seed';
 import { emptyWorkoutRoutine } from '../lib/workoutHome';
 import { pushRoute, reusesSession } from './sessionRoute';
@@ -221,79 +188,36 @@ type Route =
      workout section rather than owning roots of their own. */
   | { name: 'routines' }
   | { name: 'library' }
-  /* Each section's own past, pushed by the ⟲ in its corner. Three routes and not
-     one with a parameter: they render different screens over different stores,
-     and the only thing they share is where the tap came from. */
-  /* `view` opens it on Graphs (or Calendar) directly — the Workout section's
-     Progress card (2.9, #11). Absent = the Log, as the ⟲ opens it. */
+  /* The training's past, pushed by the ⟲ in the corner. `view` opens it on
+     Graphs (or Calendar) directly — the Workout screen's Progress card (2.9,
+     #11). Absent = the Log, as the ⟲ opens it. */
   | { name: 'workoutHistory'; view?: WorkoutHistoryView }
-  | { name: 'tasksHistory' }
-  | {
-      name: 'moneyHistory';
-      accountId: ID;
-      day: string;
-      /* Absent = the defaults (`Day`, every category this month): the ⟲ opens clean. */
-      view?: MoneyHistoryView;
-      filter?: CategoryFilter;
-    }
-  /* X1: a month or a year of the log, pushed from the foot of the section's
-     history above (the landing's card went with the landing in 3.0). */
+  /* X1: a month or a year of the log, pushed from the foot of the history
+     above (the landing's card went with the landing in 3.0). */
   | { name: 'wrapped'; period: WrappedPeriod }
-  /* One settings screen per section, pushed from the section list. */
+  /* Everything about training that is a setting, pushed from Settings. */
   | { name: 'workoutSettings' }
-  | { name: 'taskSettings' }
-  | { name: 'moneySettings' }
-  /* Wave 2's money plans, pushed from the row at the foot of Finance. */
-  | { name: 'budgets' }
-  | { name: 'recurring' }
-  | { name: 'goals' }
   /* W9: the tape-measure log, pushed from the Graphs view and from Workout
      settings → Body — the two places bodyweight already lives. */
   | { name: 'body' }
   /* W3: this week's sets on a body, from the sets-per-cluster card. */
   | { name: 'muscles' }
-  /* X2: patterns across the three logs, from the foot of each history. */
-  | { name: 'insights' }
   /* E1: the badge gallery, from Settings and the level sheet while Wave 3's
      switch is on. */
   | { name: 'achievements' }
-  | { name: 'taskDetail'; taskId: ID }
-  /* The window travels with the tap, so the category opens on the one the tile
-     was read through rather than resetting to this month. */
-  | { name: 'moneyCategory'; categoryId: ID; accountId: ID; interval: Interval; anchor: string }
-  /* `day` travels with the tap for the same reason the window does: a category
-     tapped while reading the 16th is an amount ON the 16th. */
-  | {
-      name: 'moneyAmount';
-      amountId: ID | null;
-      categoryId: ID | null;
-      accountId: ID | null;
-      direction?: Direction;
-      day?: string;
-      /* ⇄ — a new transfer out of `accountId`. Editing one needs no flag: the
-         amount's own `transferId` says so. */
-      transfer?: boolean;
-    }
-  /* The assistant. Settings is reached from a section's sparkle when no key is
-     connected, and carries the section and the question along so that passing
-     the test lands on the chat that was asked for. */
+  /* The assistant. Settings is reached from the sparkle when no key is
+     connected, and carries the question along so that passing the test lands
+     on the chat that was asked for. */
   | { name: 'aiSettings'; from?: AiSection; prompt?: string }
   | { name: 'aiChat'; section: AiSection; prompt?: string }
   | { name: 'aiReview'; proposalId: string };
 
-/** The app's own section: where it opens, and where Back from Settings lands. */
-const ROOT: SectionTab = shellRoot(APP_VARIANT);
-/** The roots this app has, in bar order: its section, then Settings. */
-const BAR = variantSections(APP_VARIANT);
-/** Whether a finished workout may go to Health Connect — Workout's APK alone has it. */
-const HEALTH_CONNECT = mountsFor(APP_VARIANT).healthConnect;
-
 /**
  * Where the shell was standing, outside React. The tree remounts when the theme
  * changes (`App.tsx`), and this is what lands it back on the same screen rather
- * than on the app's section — see `route` in the shell.
+ * than on the training — see `route` in the shell.
  */
-const remembered: { route: ShellRoute } = { route: ROOT };
+const remembered: { route: ShellRoute } = { route: SHELL_ROOT };
 
 /** From Save to the debrief sheet: the sparks' run, and a breath. */
 const DEBRIEF_DELAY_MS = 1500;
@@ -303,30 +227,6 @@ const UNDO_TOAST_MS = 4500;
 /** The one-time "workout still running" tip (redesign #7): a sentence and a door. */
 const LEAVE_RUNNING_TIP_MS = 6000;
 
-/**
- * The expenses window as entering the section puts it: today, in the default
- * interval and direction, on whichever subsection it was on. The SAME object
- * when it already stands there, so a re-seed that changes nothing re-renders
- * nothing.
- */
-function seedMoneyWindow(current: MoneyWindow): MoneyWindow {
-  const settings = useSettings.getState();
-  const anchor = dayKey(new Date());
-  if (
-    current.anchor === anchor &&
-    current.interval === settings.moneyDefaultInterval &&
-    current.direction === settings.moneyDefaultDirection
-  ) {
-    return current;
-  }
-  return {
-    ...current,
-    anchor,
-    interval: settings.moneyDefaultInterval,
-    direction: settings.moneyDefaultDirection,
-  };
-}
-
 export function AppShell() {
   const t = useT();
   const lang = useLanguage();
@@ -335,7 +235,7 @@ export function AppShell() {
    *
    * It lives HERE and not in the screen that raised it, because the whole point
    * of it is that it appears over the screen you land BACK on: the keypad is
-   * gone by the time the amount exists, and a toast rendered by a component
+   * gone by the time the thing it saved exists, and a toast rendered by a component
    * that has just unmounted is a toast nobody sees.
    */
   const [toast, setToastState] = useState<{
@@ -365,10 +265,9 @@ export function AppShell() {
    */
   const [justSaved, setJustSaved] = useState<{ id: ID; at: number } | null>(null);
   /**
-   * Where the shell is: the app's own section or Settings — never another
-   * app's section, which `setRoute` refuses (`hasSection`). `tab` is the same
-   * value under the name the rest of the shell reads; it used to differ on the
-   * landing, which was not a section.
+   * Where the shell is: the training or Settings. `tab` is the same value under
+   * the name the rest of the shell reads; it used to differ on the landing,
+   * which was not a section.
    *
    * Seeded from module scope rather than a constant, because the tree under
    * `App.tsx` REMOUNTS when the theme changes — and a theme is chosen in
@@ -376,9 +275,7 @@ export function AppShell() {
    */
   const [route, setRouteState] = useState<ShellRoute>(() => remembered.route);
   const tab: SectionTab = route;
-  const setRoute = useCallback((next: ShellRoute) => {
-    if (hasSection(APP_VARIANT, next)) setRouteState(next);
-  }, []);
+  const setRoute = setRouteState;
   useEffect(() => {
     remembered.route = route;
   }, [route]);
@@ -398,93 +295,7 @@ export function AppShell() {
    * opened.
    */
   const [focusWorkoutId, setFocusWorkoutId] = useState<ID | null>(null);
-  /**
-   * A past day the user has WALKED TO in the tasks section, or null for today.
-   *
-   * Held here and not in `TasksScreen` because the month grid — the one control
-   * that makes walking back three weeks one tap instead of twenty-one — is a
-   * PUSHED screen now, and a day picked in it has to outlive the screen that
-   * picked it. Everything else about the tasks belongs to the store.
-   *
-   * NULL RATHER THAN TODAY'S KEY, and it is not a detail. This state used to live
-   * in the screen, where it was re-seeded from the clock every time the screen
-   * mounted — which is to say every time the tab changed. Lifting it up here made
-   * it outlive that, and a stored `2026-09-13` would have gone stale in two ways:
-   * the app left open past midnight would keep offering yesterday's circles to
-   * tick, and coming back to the section days later would land on whatever day was
-   * last read rather than on today. Null is "follow the clock", so both answer
-   * themselves, and `leaveSection` below drops the pin on the way out so the old
-   * behaviour — leave the section, come back to today — is exactly preserved.
-   */
-  const [pinnedTaskDay, setPinnedTaskDay] = useState<string | null>(null);
-  /* STATE, not `dayKey(new Date())` inline: "follow the clock" only follows it
-     if something re-renders when the date turns. See `hooks/useToday.ts`. */
-  const today = useToday();
-  const taskDay = pinnedTaskDay ?? today;
-  /**
-   * What the expenses section is reading: the subsection, the window and the
-   * direction.
-   *
-   * Lifted here for the same reason `pinnedTaskDay` is, and it took the same
-   * bug to find out: a pushed route replaces the tab root, so opening the ⟲ from
-   * July and coming back re-mounted `MoneyScreen` and re-seeded its anchor from
-   * the clock. The window you were reading is a place you walked to inside the
-   * section, and a detour into that section's own past must not lose it.
-   *
-   * `leaveSection` below drops it, so the old behaviour — leave the section,
-   * come back to this month — is exactly preserved.
-   */
-  const [moneyWindow, setMoneyWindow] = useState<MoneyWindow>(() => ({
-    accountId: null,
-    interval: useSettings.getState().moneyDefaultInterval,
-    anchor: dayKey(new Date()),
-    direction: useSettings.getState().moneyDefaultDirection,
-  }));
-  const changeMoneyWindow = useCallback(
-    (patch: Partial<MoneyWindow>) => setMoneyWindow((current) => ({ ...current, ...patch })),
-    [],
-  );
-  /*
-   * Past midnight, a window that was reading TODAY moves on to the new today.
-   * One that was walked somewhere else stays where it was put — the same line
-   * the tasks' pin draws, with "was on today" standing in for null.
-   */
-  const previousToday = useRef(today);
-  useEffect(() => {
-    const was = previousToday.current;
-    previousToday.current = today;
-    if (was === today) return;
-    setMoneyWindow((current) => (current.anchor === was ? { ...current, anchor: today } : current));
-  }, [today]);
-  /*
-   * The same re-seed once the section has been LEFT and the slide is over. The
-   * stage builds the next Expenses ahead of time (`navigation/ShellStage.tsx`),
-   * from the window as it stands then — so it has to stand where the way in
-   * would put it, or the re-seed on arrival would roll every total on screen
-   * from the old window's numbers, where a mount at arrival just showed them.
-   * And again when a default is edited in Settings, which is next door, for the
-   * same reason. The way-in re-seed stays as the backstop, a no-op otherwise.
-   */
-  const moneyDefaultInterval = useSettings((s) => s.moneyDefaultInterval);
-  const moneyDefaultDirection = useSettings((s) => s.moneyDefaultDirection);
-  useEffect(() => {
-    if (transition == null && tab !== 'Expenses') setMoneyWindow(seedMoneyWindow);
-  }, [moneyDefaultDirection, moneyDefaultInterval, tab, transition]);
-  /*
-   * The stack, through the one door: every write is filtered by
-   * `allowedStack`, so a screen that belongs to another app is dropped however
-   * it was asked for — `push`, `replaceTop`, or one of the updaters below that
-   * build the next stack by hand. Same array back when nothing was dropped, so
-   * a no-op push stays a no-op render.
-   */
-  const [stack, setStackState] = useState<Route[]>([]);
-  const setStack = useCallback(
-    (next: Route[] | ((current: Route[]) => Route[])) =>
-      setStackState((current) =>
-        allowedStack(APP_VARIANT, typeof next === 'function' ? next(current) : next),
-      ),
-    [],
-  );
+  const [stack, setStack] = useState<Route[]>([]);
   const [query, setQuery] = useState('');
   /*
    * Which library sections are open. Held here rather than in the screen so a trip
@@ -627,43 +438,20 @@ export function AppShell() {
   /** Every pushed screen dismissed at once, back to the tab bar. */
   const popToRoot = useCallback(() => setStack([]), [setStack]);
 
-  /**
-   * Changing section, by the bar or back — the one path, so neither can leave
-   * different state behind. Another app's section is refused here as well as in
-   * `setRoute`: a slide towards a root that will never arrive would leave the
-   * stage half-way to nothing.
-   *
-   * It does one thing beyond `setTab`: LEAVING the tasks unpins the day. Walking
-   * back to last Tuesday is a thing you do inside that section, not a place you
-   * want the app to still be sitting in the next time you open it — and before
-   * this state was lifted out of `TasksScreen`, the unmount did exactly this for
-   * free. Pushing a screen (the month grid, a task's own screen) is not leaving,
-   * so the pin survives the trip that sets it.
-   */
+  /** Changing root, by the bar or back — the one path, so neither can leave different state behind. */
   const navigate = useCallback(
     (next: ShellRoute) => {
-      if (next === route || !hasSection(APP_VARIANT, next)) return;
-      if (tab === 'Tasks' && next !== 'Tasks') setPinnedTaskDay(null);
-      /* Same rule, same reason: the window is somewhere you walked to inside the
-         section, not somewhere the app should still be standing next time it is
-         opened. Pushing a screen — the history, a category, the keypad — is not
-         leaving, so the window survives the trip that needed it.
-
-         Re-seeded on the way IN, from the settings as they are NOW. It used to
-         reset only the anchor on the way out, so `Opens on: Week` changed in
-         Settings did nothing until the next launch — the one moment the shell
-         read it. */
-      if (next === 'Expenses' && tab !== 'Expenses') setMoneyWindow(seedMoneyWindow);
-      /* The way the bar's blob goes, on the bar this app draws. */
-      setTransition({ kind: 'slide', from: route, to: next, dir: slideDir(BAR, route, next) });
+      if (next === route) return;
+      /* The way the bar's blob goes. */
+      setTransition({ kind: 'slide', from: route, to: next, dir: slideDir(SECTIONS, route, next) });
       setRoute(next);
     },
-    [route, setRoute, tab],
+    [route, setRoute],
   );
   /*
    * The transition starts when it is ON STAGE, not when it is asked for: a
-   * clock started in `navigate` would run while the incoming section rendered,
-   * and a slow render (Money, Home) ate the first part of the 640 ms.
+   * clock started in `navigate` would run while the incoming root rendered,
+   * and a slow render (Home) ate the first part of the 640 ms.
    */
   useLayoutEffect(() => {
     if (!transition) return;
@@ -678,9 +466,8 @@ export function AppShell() {
   }, [progress, transition]);
   /** A section by name, from anywhere — the nav bar, a deep jump. */
   const selectTab = useCallback((next: SectionTab) => navigate(next), [navigate]);
-  /* The jumps that land in a section from UNDER a pushed screen: nothing on
-     stage to animate, so the route just changes. Another app's section is
-     refused by `setRoute`. */
+  /* The jumps that land on a root from UNDER a pushed screen: nothing on
+     stage to animate, so the route just changes. */
   const setTab = useCallback((next: SectionTab) => setRoute(next), [setRoute]);
 
   /**
@@ -710,17 +497,6 @@ export function AppShell() {
   /** X1: Wrapped goes on top of wherever it was opened, and ✕ / Back come back there. */
   const openWrapped = useCallback(
     (period: WrappedPeriod) => push({ name: 'wrapped', period }),
-    [push],
-  );
-
-  /*
-   * The Insights door, only in the app that has something to compare. Every
-   * insight but one compared two sections, so only the Expenses app has one
-   * left (`insights.insightsOffered`); elsewhere the door could only ever open
-   * on "Not enough data yet", and a door to nothing is no door.
-   */
-  const openInsights = useMemo(
-    () => (insightsOffered(APP_VARIANT) ? () => push({ name: 'insights' }) : undefined),
     [push],
   );
 
@@ -809,8 +585,8 @@ export function AppShell() {
   /*
    * ANDROID BACK, in the design's order (`lib/sectionNav.backAction`): a sheet
    * closes itself — overlays register their own handler, later and so first —
-   * then a pushed screen pops, then Settings goes back to the app's section,
-   * and the section asks for a second press within two seconds before it lets
+   * then a pushed screen pops, then Settings goes back to the training, and
+   * the training asks for a second press within two seconds before it lets
    * the app go.
    *
    * Registered ONCE, at mount, so it is always the earliest listener and every
@@ -820,7 +596,7 @@ export function AppShell() {
   const backState = useRef({ depth: stack.length, route });
   backState.current = { depth: stack.length, route };
   const goRootRef = useRef<() => void>(() => {});
-  goRootRef.current = () => navigate(ROOT);
+  goRootRef.current = () => navigate(SHELL_ROOT);
   const armExitRef = useRef<() => void>(() => {});
   armExitRef.current = () => setToast(t('Press back again to exit'));
   useEffect(() => {
@@ -829,7 +605,7 @@ export function AppShell() {
         sheetOpen: isOverlayOpen(),
         stackDepth: backState.current.depth,
         route: backState.current.route,
-        root: ROOT,
+        root: SHELL_ROOT,
         exitArmedAt: exitArmedAt.current,
         now: Date.now(),
       });
@@ -887,14 +663,6 @@ export function AppShell() {
   }, [workouts]);
 
   const recent = useMemo(() => recentSummaries(workouts), [workouts]);
-
-  /* The two other logs. Read here rather than in the screens only where a
-     PUSHED route needs to resolve its subject — the tab roots read the stores
-     themselves, like `SettingsScreen` does. */
-  const tasks = useTasks((s) => s.tasks);
-  const moneyAccounts = useMoney((s) => s.accounts);
-  const categories = useMoney((s) => s.categories);
-  const amounts = useMoney((s) => s.amounts);
 
   /**
    * Every workout's ordinal — "workout 92" — from the one pinned pair.
@@ -1270,15 +1038,13 @@ export function AppShell() {
   );
 
   /**
-   * A section's sparkle or chip. With a key that passed its test it opens that
-   * section's chat — asking the chip's question, if a chip was tapped. Without
-   * one it opens the AI settings, carrying both along, so the test's ready screen
-   * can finish the trip the user started.
+   * The sparkle or a chip. With a key that passed its test it opens the chat —
+   * asking the chip's question, if a chip was tapped. Without one it opens the
+   * AI settings, carrying both along, so the test's ready screen can finish the
+   * trip the user started.
    */
   const openAi = useCallback(
-    (asked: AiSection, prompt?: string) => {
-      /* Another app's chat is not this app's to open: ask the question here. */
-      const section = ownAiSection(asked);
+    (section: AiSection, prompt?: string) => {
       if (useAi.getState().status === 'ready') push({ name: 'aiChat', section, prompt });
       else push({ name: 'aiSettings', from: section, prompt });
     },
@@ -1348,11 +1114,8 @@ export function AppShell() {
           onOpenChat={(section) => {
             /* The ready screen's button: the settings screen is REPLACED by the
              chat, so back from the chat lands where the trip began. */
-            /* `from` is absent when the trip began in Settings, and the screen
-               then offers Workout's chat — this app's own is the one it means. */
-            const own = ownAiSection(section);
-            setTab(own);
-            replaceTop({ name: 'aiChat', section: own, prompt: route.prompt });
+            setTab('Workout');
+            replaceTop({ name: 'aiChat', section, prompt: route.prompt });
           }}
         />
       );
@@ -1490,19 +1253,6 @@ export function AppShell() {
                   if (saved) advanceSequence(saved.routineId);
 
                   /*
-                   * ...and the day's `Gym / Boxing` task answers itself.
-                   *
-                   * On the day the workout STARTED, not today: a session begun at
-                   * 23:40 and finished after midnight is Tuesday's training, and the
-                   * tick belongs on the square the calendar will draw it on.
-                   *
-                   * It never overrules a day already answered — see
-                   * `tasksStore.tickAuto` — so a day marked "missed on purpose" that
-                   * then turns into a workout keeps the mark the user chose.
-                   */
-                  if (saved) tickTaskSource('workout', dayKey(saved.startedAt));
-
-                  /*
                    * ...and the rest of the phone is told a workout happened, if the user
                    * has switched that on and granted it.
                    *
@@ -1513,7 +1263,7 @@ export function AppShell() {
                    * line. `lib/healthConnect.ts` has the argument for why it writes a
                    * session and nothing else.
                    */
-                  if (saved && HEALTH_CONNECT && useSettings.getState().shareToHealthConnect) {
+                  if (saved && useSettings.getState().shareToHealthConnect) {
                     void writeWorkoutToHealthConnect(saved);
                   }
 
@@ -1894,34 +1644,8 @@ export function AppShell() {
       return <WorkoutSettingsScreen onBack={pop} onOpenBody={() => push({ name: 'body' })} />;
     }
 
-    if (top?.name === 'taskSettings') {
-      return (
-        <View className="flex-1">
-          <TaskSettingsScreen onBack={pop} onToast={setToast} />
-          {/* The pause's Undo (T3): the tab root's toast is not on screen here. */}
-          {toast ? <Toast key={toast.key} label={toast.text} action={toast.action} /> : null}
-        </View>
-      );
-    }
-
-    if (top?.name === 'moneySettings') {
-      return <MoneySettingsScreen onBack={pop} />;
-    }
-
-    if (top?.name === 'budgets') {
-      return <BudgetsScreen onBack={pop} />;
-    }
-
-    if (top?.name === 'recurring') {
-      return <RecurringScreen onBack={pop} />;
-    }
-
     if (top?.name === 'body') {
       return <BodyScreen onBack={pop} />;
-    }
-
-    if (top?.name === 'insights') {
-      return <InsightsScreen onBack={pop} />;
     }
 
     if (top?.name === 'achievements') {
@@ -1932,83 +1656,8 @@ export function AppShell() {
       return <MuscleMapScreen workouts={workouts} exercisesById={exercisesById} onBack={pop} />;
     }
 
-    if (top?.name === 'goals') {
-      return <GoalsScreen onBack={pop} />;
-    }
-
-    if (top?.name === 'taskDetail') {
-      const task = tasks.find((row) => row.id === top.taskId);
-      if (!task) return <Fallback onBack={pop} />;
-      return (
-        <View className="flex-1">
-          <TaskDetailScreen task={task} onBack={pop} onToast={setToast} />
-          {/* The pause's Undo (T3), over this pushed screen. */}
-          {toast ? <Toast key={toast.key} label={toast.text} action={toast.action} /> : null}
-        </View>
-      );
-    }
-
-    if (top?.name === 'moneyCategory') {
-      const category = categories.find((row) => row.id === top.categoryId);
-      const account = moneyAccounts.find((row) => row.id === top.accountId);
-      if (!category || !account) return <Fallback onBack={pop} />;
-      return (
-        <View className="flex-1">
-          <CategoryDetailScreen
-            category={category}
-            account={account}
-            interval={top.interval}
-            anchor={top.anchor}
-            /* The category's own side now, not the grid's: a category is only
-               ever one of the two. */
-            direction={category.direction}
-            onBack={pop}
-            onOpenAmount={(amountId) =>
-              push({ name: 'moneyAmount', amountId, categoryId: null, accountId: null })
-            }
-            /* The window this screen was opened with decides the day, exactly as the
-             tile that opened it does. */
-            onAddAmount={(day) =>
-              push({
-                name: 'moneyAmount',
-                amountId: null,
-                categoryId: category.id,
-                accountId: account.id,
-                direction: category.direction,
-                day,
-                // `+` under the Transfer tile is a new transfer, never a lone half.
-                transfer: isTransferCategory(category.id),
-              })
-            }
-          />
-          {/* The keypad pops back HERE when it was opened from this screen, and the
-            toast the tab root renders is not on screen to say so. */}
-          {toast ? <Toast key={toast.key} label={toast.text} /> : null}
-        </View>
-      );
-    }
-
-    if (top?.name === 'moneyAmount') {
-      const amount = top.amountId ? (amounts.find((row) => row.id === top.amountId) ?? null) : null;
-      if (top.amountId && !amount) return <Fallback onBack={pop} />;
-      return (
-        <AmountEditorScreen
-          amount={amount}
-          categoryId={top.categoryId}
-          accountId={top.accountId}
-          direction={top.direction}
-          day={top.day}
-          transfer={top.transfer || Boolean(amount?.transferId)}
-          onBack={(saved, summary) => {
-            pop();
-            if (saved) setToast(summary ?? (amount ? t('Saved') : t('Written down')));
-          }}
-        />
-      );
-    }
-
     /* ------------------------------------------------------------------ */
-    /* The past of each section, behind its own ⟲                          */
+    /* The training's past, behind its ⟲                                   */
     /* ------------------------------------------------------------------ */
 
     if (top?.name === 'workoutHistory') {
@@ -2041,66 +1690,14 @@ export function AppShell() {
           onAddExercise={(workoutId) => {
             push({ name: 'addExercise', routineId: null, target: 'history', workoutId });
           }}
-          onOpenSettings={() => push({ name: sectionSettingsRoute('Workout') })}
+          onOpenSettings={() => push({ name: 'workoutSettings' })}
           onOpenWrapped={openWrapped}
           onOpenBody={() => push({ name: 'body' })}
           onOpenMuscles={() => push({ name: 'muscles' })}
-          onOpenInsights={openInsights}
           /* A calendar day's `Open ›` (redesign #12): the same door Home's recent
              rows use, so the Log opens with that workout expanded. */
           onOpenWorkout={setFocusWorkoutId}
         />
-      );
-    }
-
-    if (top?.name === 'tasksHistory') {
-      return (
-        <TasksHistoryScreen
-          selected={taskDay}
-          onBack={pop}
-          /* A square tapped is a day to ANSWER, so it lands on the screen where the
-           circles are rather than leaving the grid open over it. */
-          onPickDay={(day) => {
-            setPinnedTaskDay(day);
-            pop();
-          }}
-          onOpenSettings={() => push({ name: sectionSettingsRoute('Tasks') })}
-          onOpenWrapped={openWrapped}
-          onOpenInsights={openInsights}
-        />
-      );
-    }
-
-    if (top?.name === 'moneyHistory') {
-      const account = moneyAccounts.find((row) => row.id === top.accountId);
-      if (!account) return <Fallback onBack={pop} />;
-      return (
-        <View className="flex-1">
-          <MoneyHistoryScreen
-            account={account}
-            /* The day the money screen was reading when the ⟲ was tapped. */
-            day={top.day}
-            /* On the route rather than in the screen, so a trip into the editor and
-             back returns to the day the list had stepped to. */
-            onChangeDay={(day, view) => replaceTop({ ...top, day, view: view ?? top.view })}
-            /* The tab and the categories filter, on the route for the same reason. */
-            view={top.view ?? 'day'}
-            onChangeView={(view) => replaceTop({ ...top, view })}
-            filter={top.filter ?? DEFAULT_CATEGORY_FILTER}
-            onChangeFilter={(filter) => replaceTop({ ...top, filter })}
-            onBack={pop}
-            /* A row of the day list is an amount, and the editor is where an amount
-             is read and corrected — the same route the category screen pushes. */
-            onOpenAmount={(amountId) =>
-              push({ name: 'moneyAmount', amountId, categoryId: null, accountId: null })
-            }
-            onOpenSettings={() => push({ name: sectionSettingsRoute('Expenses') })}
-            onOpenWrapped={openWrapped}
-            onOpenInsights={openInsights}
-          />
-          {/* Same: an amount corrected from the day list lands back here. */}
-          {toast ? <Toast key={toast.key} label={toast.text} /> : null}
-        </View>
       );
     }
 
@@ -2142,69 +1739,9 @@ export function AppShell() {
         />
       );
     }
-    if (r === 'Tasks') {
-      return (
-        <TasksScreen
-          onOpenTask={(taskId) => push({ name: 'taskDetail', taskId })}
-          onOpenHistory={() => push({ name: 'tasksHistory' })}
-          /* The day lives HERE rather than in the screen: the month grid is a
-                 pushed route, and a day picked in it has to survive the screen
-                 that picked it being unmounted. */
-          day={taskDay}
-          onChangeDay={setPinnedTaskDay}
-          aiReady={aiReady}
-          onOpenAi={(prompt) => openAi('Tasks', prompt)}
-          onToast={setToast}
-        />
-      );
-    }
-    if (r === 'Expenses') {
-      return (
-        <MoneyScreen
-          /* The window lives here so a trip into the section's own past
-                 comes back to the day it left from. See `moneyWindow`. */
-          window={moneyWindow}
-          onChangeWindow={changeMoneyWindow}
-          onOpenCategory={(categoryId, accountId, interval, anchor) =>
-            push({ name: 'moneyCategory', categoryId, accountId, interval, anchor })
-          }
-          onAddAmount={(categoryId, accountId, direction, day) =>
-            push({
-              name: 'moneyAmount',
-              amountId: null,
-              categoryId,
-              accountId,
-              direction,
-              day,
-            })
-          }
-          onOpenHistory={(accountId, anchor) =>
-            push({ name: 'moneyHistory', accountId, day: anchor })
-          }
-          onOpenBudgets={() => push({ name: 'budgets' })}
-          onOpenRecurring={() => push({ name: 'recurring' })}
-          onOpenGoals={() => push({ name: 'goals' })}
-          onToast={setToast}
-          onTransfer={(accountId, day) =>
-            push({
-              name: 'moneyAmount',
-              amountId: null,
-              categoryId: null,
-              accountId,
-              day,
-              transfer: true,
-            })
-          }
-          aiReady={aiReady}
-          onOpenAi={(prompt) => openAi('Expenses', prompt)}
-        />
-      );
-    }
     return (
       <SettingsHomeScreen
         onOpenWorkoutSettings={() => push({ name: 'workoutSettings' })}
-        onOpenTaskSettings={() => push({ name: 'taskSettings' })}
-        onOpenMoneySettings={() => push({ name: 'moneySettings' })}
         onOpenAiSettings={() => push({ name: 'aiSettings' })}
         onOpenAchievements={() => push({ name: 'achievements' })}
       />
@@ -2236,7 +1773,7 @@ export function AppShell() {
         <BlurGate.Provider value={!rootsCovered}>
           <Hold frozen={rootsCovered}>
             <ShellStage
-              sections={BAR}
+              sections={SECTIONS}
               route={route}
               transition={transition}
               progress={progress}
@@ -2248,7 +1785,7 @@ export function AppShell() {
       </View>
 
       <NavBar
-        sections={BAR}
+        sections={SECTIONS}
         active={tab}
         /* A sheet being up hides it as well; the pill subscribes to that
            itself, so a sheet opening does not re-render the shell. */
@@ -2280,22 +1817,10 @@ export function AppShell() {
 /* ------------------------------------------------------------------ */
 
 /**
- * The chat a section's sparkle may open in THIS app: the one asked for when it
- * is this app's, else this app's own. The only caller that asks for another is
- * the AI settings' ready screen opened from Settings, which offers Workout's by
- * default — in the Tasks app that means the tasks chat.
- */
-function ownAiSection(section: AiSection): AiSection {
-  return hasSection(APP_VARIANT, section) ? section : variantSection(APP_VARIANT);
-}
-
-/**
  * The training log's past: the sessions, the lines, or the days.
  *
- * PUSHED by the ⟲ on the workout section rather than owning a root, because it is
- * the past of one section and not a fourth section — the daily tasks and the
- * money each have exactly the same thing behind exactly the same glyph. The three
- * views are one question at three zoom levels, so they stay one screen with a
+ * PUSHED by the ⟲ on the Workout screen rather than owning a root, because it is
+ * the training's past and not a section of its own. The three views are one question at three zoom levels, so they stay one screen with a
  * `Segmented` under the shared header, which is where all three screens' own
  * `toolbar` slot puts it: the control does not move as the view changes under it.
  *
@@ -2326,7 +1851,6 @@ function WorkoutHistory({
   onOpenWrapped,
   onOpenBody,
   onOpenMuscles,
-  onOpenInsights,
   onOpenWorkout,
 }: {
   /** The view it opens on — Graphs, from the Progress card. */
@@ -2353,7 +1877,6 @@ function WorkoutHistory({
   onOpenWrapped: (period: WrappedPeriod) => void;
   onOpenBody: () => void;
   onOpenMuscles: () => void;
-  onOpenInsights?: () => void;
   /** Open one workout in the Log — a calendar day's preview row. */
   onOpenWorkout: (workoutId: ID) => void;
 }) {
@@ -2430,7 +1953,6 @@ function WorkoutHistory({
       onOpenSettings={onOpenSettings}
       onOpenWrapped={onOpenWrapped}
       onOpenMuscles={onOpenMuscles}
-      onOpenInsights={onOpenInsights}
       toolbar={toolbar}
     />
   );
@@ -2438,9 +1960,8 @@ function WorkoutHistory({
 
 /*
  * Three views of one log: the sessions, the lines, and the days. `Calendar` in
- * full (redesign #12): `Cal` saved four letters and cost the word — it is the
- * one name the Tasks and Finance calendars already use, and three labels at 15
- * px still fit a 360 dp segmented control.
+ * full (redesign #12): `Cal` saved four letters and cost the word, and three
+ * labels at 15 px still fit a 360 dp segmented control.
  */
 // English keys, translated where they are rendered: `Segmented` prints labels as
 // given, so these reached a Russian phone in English.

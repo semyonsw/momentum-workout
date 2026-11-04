@@ -12,10 +12,10 @@
  * ── TYPED BLOCKS, NOT PROSE ────────────────────────────────────────────────
  *
  * A chat that renders free text would be a chat whose numbers sit in sentences
- * the screen cannot lay out: a month of spending as a paragraph, a proposal as a
+ * the screen cannot lay out: a month of training as a paragraph, a proposal as a
  * list the user has to retype. So the model answers in three shapes the chat
  * already knows how to draw — a short text, a summary (stats, rows, bars, notes)
- * and, in the workout section only, a routine proposal — and anything else is
+ * and a routine proposal — and anything else is
  * dropped rather than shown.
  *
  * ── ONE FLAT OBJECT, BECAUSE GEMINI'S SCHEMA HAS NO `oneOf` ────────────────
@@ -47,9 +47,14 @@ import { MUSCLE_GROUPS } from '../muscles';
 import { keepSteps } from './sequenceCursor';
 import type { MuscleGroup } from '../../types/models';
 
-export type AiSection = 'Workout' | 'Tasks' | 'Expenses';
+/**
+ * The chat the assistant keeps. One — the training — but still a key: the
+ * persisted chats are `{ Workout: [...] }` on disk and in every backup since
+ * 2.x, when Momentum kept a chat per log, so the name is the storage format.
+ */
+export type AiSection = 'Workout';
 
-export const AI_SECTIONS: readonly AiSection[] = ['Workout', 'Tasks', 'Expenses'];
+export const AI_SECTIONS: readonly AiSection[] = ['Workout'];
 
 export interface TextBlock {
   type: 'text';
@@ -116,7 +121,7 @@ export interface ProposalBlock {
 /**
  * A new TRAINING LOOP: the whole list of routine ids in order (repeats allowed —
  * Push at steps 1 and 4 is the point of a loop), and which step is up next.
- * Applied only on a tap, like a routine proposal, and only in the Workout chat.
+ * Applied only on a tap, like a routine proposal.
  */
 export interface SequenceProposal {
   routineIds: string[];
@@ -133,7 +138,7 @@ export interface SequenceBlock {
 /**
  * A SETTINGS CHANGE: the numbers and switches the user can set by hand outside a
  * routine's rows — an exercise's rest, ladder, cue; the app's rest and weekly
- * goal; a task's schedule; a category's budget. `lib/ai/aiChanges.ts` owns what
+ * goal. `lib/ai/aiChanges.ts` owns what
  * each one means, how it is checked, and how it is applied (on a tap, with Undo).
  * The block carries them raw; the validator here only keeps the shape.
  */
@@ -301,36 +306,21 @@ export const responseSchema = {
                   properties: {
                     target: {
                       type: 'string',
-                      enum: [
-                        'exercise',
-                        'setting',
-                        'task',
-                        'budget',
-                        'amount',
-                        'bodyweight',
-                        'workout_set',
-                      ],
+                      enum: ['exercise', 'setting', 'bodyweight', 'workout_set'],
                     },
                     id: {
                       type: 'string',
                       description:
-                        'exerciseId, taskId, categoryId or workout id from CONTEXT; omit for setting, a new task and bodyweight.',
+                        'exerciseId or workout id from CONTEXT; omit for setting and bodyweight.',
                     },
                     exerciseId: {
                       type: 'string',
                       description: 'For workout_set: the exercise id inside that workout.',
                     },
-                    day: { type: 'string', description: 'A date, YYYY-MM-DD; omit for today.' },
-                    account: {
-                      type: 'string',
-                      description:
-                        'For amount: an account id from CONTEXT.accounts, only when named.',
-                    },
                     field: { type: 'string' },
                     number: { type: 'number' },
                     text: { type: 'string' },
                     on: { type: 'boolean' },
-                    days: { type: 'array', items: { type: 'integer' } },
                   },
                   required: ['target', 'field'],
                 },
@@ -364,7 +354,6 @@ export const responseSchema = {
 /* ------------------------------------------------------------------ */
 
 export interface ValidateContext {
-  section: AiSection;
   /** The routine ids the context named. An `edit` must point at one of them. */
   routineIds: ReadonlySet<string>;
   /**
@@ -633,17 +622,16 @@ export function validateBlocks(raw: unknown, ctx: ValidateContext): AiBlock[] {
     if (!isRecord(item)) continue;
 
     if (item.type === 'routine_proposal' || (item.type == null && isRecord(item.proposal))) {
-      // Workout only, and one per reply: two suggestions at once is a choice
-      // the model should have made, not the user.
-      const proposal =
-        ctx.section === 'Workout' && proposals === 0 ? validateProposal(item.proposal, ctx) : null;
+      // One per reply: two suggestions at once is a choice the model should
+      // have made, not the user.
+      const proposal = proposals === 0 ? validateProposal(item.proposal, ctx) : null;
       if (proposal) {
         out.push({ type: 'routine_proposal', proposal });
         proposals += 1;
         continue;
       }
       // A suggestion that cannot be applied — an edit of a routine id the phone
-      // never named, one in a chat that cannot hold one — still carried its reason.
+      // never named — still carried its reason.
       // Said as text, rather than dropped along with everything it explained.
       // A second one in the same reply is simply the one too many.
       const why =
@@ -653,10 +641,9 @@ export function validateBlocks(raw: unknown, ctx: ValidateContext): AiBlock[] {
     }
 
     if (item.type === 'sequence_proposal' || (item.type == null && isRecord(item.sequence))) {
-      const sequence =
-        ctx.section === 'Workout' && !out.some((b) => b.type === 'sequence_proposal')
-          ? validateSequence(item.sequence, ctx)
-          : null;
+      const sequence = !out.some((b) => b.type === 'sequence_proposal')
+        ? validateSequence(item.sequence, ctx)
+        : null;
       if (sequence) {
         out.push({ type: 'sequence_proposal', sequence });
         continue;

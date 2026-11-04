@@ -111,7 +111,7 @@ import {
   notificationsGranted,
   openNotificationSettings,
 } from '../lib/notify';
-import type { Weekday } from '../lib/tasks';
+import type { Weekday } from '../lib/days';
 import { bumpRestBetweenSets, setRestBetweenSets } from '../state/restSync';
 import { LADDER_SETS, describeLadder, ladderForMax } from '../lib/repLadder';
 import { commit, countFinal, countTick, tap } from '../lib/feedback';

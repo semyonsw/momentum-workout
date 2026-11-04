@@ -20,10 +20,7 @@
  * and is dropped with the other idle work (`dropGone`) — where it costs a frame
  * nobody is watching.
  *
- * Only the sections the app's bar shows get spares — its own and Settings
- * (`appVariant.variantSections`). Building the other apps' screens hidden would
- * be paying for a mount nobody can ever arrive at, and a hidden Tasks screen
- * inside the Workout app is still a Tasks screen subscribed to a store.
+ * There are two roots (`SECTIONS`), so the spare is whichever one is not up.
  */
 
 import { SECTIONS, type SectionTab, type ShellRoute } from './sectionNav';
@@ -84,8 +81,7 @@ export function dropGone(stage: StageBuilds): StageBuilds {
 /**
  * The section to build next, or null when every one of `sections` is mounted:
  * the nearest to `route` first, since the neighbours are the likeliest taps.
- * `sections` is the bar the app draws; it defaults to all four only so the
- * bookkeeping can be tested on its own.
+ * `sections` is the bar the app draws.
  */
 export function nextSpare(
   stage: StageBuilds,

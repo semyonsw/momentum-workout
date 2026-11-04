@@ -1,15 +1,14 @@
 /**
- * Whether a section shows the assistant's entry card (U2).
+ * Whether the Workout screen shows the assistant's entry card (U2).
  *
  * The card is how somebody finds out the assistant exists; the ✦ in the top bar
  * is how somebody who knows goes back. Once they know — they closed the card,
- * or they have had a chat in that section — the card is a second copy of the
- * orb, 60 dp under it, pushing the section's own content down. So it shows
- * until either happens, per section, and then never again.
+ * or they have had a chat — the card is a second copy of the orb, 60 dp under
+ * it, pushing the screen's own content down. So it shows until either happens,
+ * and then never again.
  *
- * Per SECTION rather than once for the app: the three chats are different
- * questions, and having asked about money says nothing about knowing that the
- * habits have an assistant too.
+ * The dismissal is stored as a list of chat keys (`aiCardsDismissed`), as it
+ * was when Momentum kept a chat per log; `Workout` in it is this card closed.
  *
  * Rejected: hiding it after N views (a card that leaves on a counter nobody can
  * see reads as a bug), and deriving it from the chats alone (deleting the last

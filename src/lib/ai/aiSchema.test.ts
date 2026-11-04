@@ -8,8 +8,9 @@ import { clampWeight, validateBlocks, type ValidateContext } from './aiSchema';
  * drawable, drop the rest, never throw.
  */
 
-const workout: ValidateContext = { section: 'Workout', routineIds: new Set(['r_push']) };
-const tasks: ValidateContext = { section: 'Tasks', routineIds: new Set() };
+const workout: ValidateContext = { routineIds: new Set(['r_push']) };
+/** A phone with no routines: nothing an edit or a loop could point at. */
+const bare: ValidateContext = { routineIds: new Set() };
 
 const proposal = (over: Record<string, unknown> = {}) => ({
   type: 'routine_proposal',
@@ -44,7 +45,7 @@ describe('a valid reply', () => {
   });
 
   it('reads a bare array of blocks too', () => {
-    expect(validateBlocks([{ type: 'text', text: 'Hi' }], tasks)).toEqual([
+    expect(validateBlocks([{ type: 'text', text: 'Hi' }], bare)).toEqual([
       { type: 'text', text: 'Hi' },
     ]);
   });
@@ -63,14 +64,14 @@ describe('malformed shapes are dropped', () => {
           { type: 'text', text: 'kept' },
         ],
       },
-      tasks,
+      bare,
     );
     expect(blocks).toEqual([{ type: 'text', text: 'kept' }]);
   });
 
   it('anything that is not a reply at all', () => {
     for (const raw of [null, undefined, 42, '   ', {}, { blocks: [] }]) {
-      expect(validateBlocks(raw, tasks)).toEqual([]);
+      expect(validateBlocks(raw, bare)).toEqual([]);
     }
   });
 });
@@ -86,21 +87,21 @@ describe('malformed shapes are dropped', () => {
  */
 describe('near-misses are read as what they meant', () => {
   it('a bare sentence in the list, or as the whole reply', () => {
-    expect(validateBlocks({ blocks: ['Yes, I see it.'] }, tasks)).toEqual([
+    expect(validateBlocks({ blocks: ['Yes, I see it.'] }, bare)).toEqual([
       { type: 'text', text: 'Yes, I see it.' },
     ]);
-    expect(validateBlocks('Yes.', tasks)).toEqual([{ type: 'text', text: 'Yes.' }]);
+    expect(validateBlocks('Yes.', bare)).toEqual([{ type: 'text', text: 'Yes.' }]);
   });
 
   it('a list serialised into a string', () => {
     expect(
-      validateBlocks({ blocks: JSON.stringify([{ type: 'text', text: 'Inside.' }]) }, tasks),
+      validateBlocks({ blocks: JSON.stringify([{ type: 'text', text: 'Inside.' }]) }, bare),
     ).toEqual([{ type: 'text', text: 'Inside.' }]);
   });
 
   it('one block with no wrapper, or under another key', () => {
-    expect(validateBlocks({ type: 'text', text: 'Solo.' }, tasks)).toHaveLength(1);
-    expect(validateBlocks({ answer: { blocks: [{ type: 'text', text: 'A.' }] } }, tasks)).toEqual([
+    expect(validateBlocks({ type: 'text', text: 'Solo.' }, bare)).toHaveLength(1);
+    expect(validateBlocks({ answer: { blocks: [{ type: 'text', text: 'A.' }] } }, bare)).toEqual([
       { type: 'text', text: 'A.' },
     ]);
   });
@@ -108,7 +109,7 @@ describe('near-misses are read as what they meant', () => {
   it('numbers where strings go', () => {
     const [summary] = validateBlocks(
       { blocks: [{ type: 'summary', title: 'Week', stats: [{ label: 'Sets', value: 42 }] }] },
-      tasks,
+      bare,
     );
     expect(summary).toEqual({
       type: 'summary',
@@ -119,12 +120,12 @@ describe('near-misses are read as what they meant', () => {
 
   it('a summary with its numbers and no title', () => {
     expect(
-      validateBlocks({ blocks: [{ type: 'summary', stats: [{ label: 'a', value: 'b' }] }] }, tasks),
+      validateBlocks({ blocks: [{ type: 'summary', stats: [{ label: 'a', value: 'b' }] }] }, bare),
     ).toEqual([{ type: 'summary', title: '', stats: [{ label: 'a', value: 'b' }] }]);
   });
 
   it('prose under an unknown type or another field name', () => {
-    expect(validateBlocks({ blocks: [{ type: 'paragraph', content: 'Words.' }] }, tasks)).toEqual([
+    expect(validateBlocks({ blocks: [{ type: 'paragraph', content: 'Words.' }] }, bare)).toEqual([
       { type: 'text', text: 'Words.' },
     ]);
   });
@@ -147,7 +148,7 @@ describe('malformed parts of a good block are dropped', () => {
           },
         ],
       },
-      tasks,
+      bare,
     );
     expect(summary).toEqual({
       type: 'summary',
@@ -174,7 +175,7 @@ describe('caps and clamps', () => {
           },
         ],
       },
-      tasks,
+      bare,
     );
     expect(summary).toMatchObject({ title: 'padded' });
     if (summary.type !== 'summary') throw new Error('expected a summary');
@@ -228,13 +229,6 @@ describe('caps and clamps', () => {
 });
 
 describe('proposals', () => {
-  it('are never proposals outside the Workout section — only their reason, as text', () => {
-    for (const ctx of [tasks, { ...tasks, section: 'Expenses' as const }]) {
-      const blocks = validateBlocks({ blocks: [proposal()] }, ctx);
-      expect(blocks.every((b) => b.type === 'text')).toBe(true);
-    }
-  });
-
   it('offer an edit of a routine the phone cannot find as a NEW routine, not nothing', () => {
     const [gone] = validateBlocks(
       { blocks: [proposal({ kind: 'edit', targetRoutineId: 'r_gone' })] },
@@ -305,7 +299,6 @@ describe('proposals', () => {
 
 describe('a suggested training loop', () => {
   const loopCtx: ValidateContext = {
-    section: 'Workout',
     routineIds: new Set(['r_push', 'r_pull']),
   };
   const loop = (sequence: unknown) => ({ type: 'sequence_proposal', sequence });
@@ -339,10 +332,10 @@ describe('a suggested training loop', () => {
     });
   });
 
-  it('is never a loop outside the Workout chat, nor with no valid step — only its reason', () => {
-    expect(
-      validateBlocks({ blocks: [loop({ routineIds: ['r_push'], why: 'W.' })] }, tasks),
-    ).toEqual([{ type: 'text', text: 'W.' }]);
+  it('is never a loop with no valid step — only its reason', () => {
+    expect(validateBlocks({ blocks: [loop({ routineIds: ['r_push'], why: 'W.' })] }, bare)).toEqual(
+      [{ type: 'text', text: 'W.' }],
+    );
     expect(
       validateBlocks({ blocks: [loop({ routineIds: ['nope'], why: 'W.' })] }, loopCtx),
     ).toEqual([{ type: 'text', text: 'W.' }]);
@@ -399,8 +392,8 @@ describe('a rep range and a superset on a row', () => {
 describe('a changes_proposal block', () => {
   const item = { target: 'exercise', id: 'ex_bench', field: 'rest', number: 90 };
 
-  it('keeps the items raw and the reason, in any section', () => {
-    for (const ctx of [workout, tasks]) {
+  it('keeps the items raw and the reason, routines or not', () => {
+    for (const ctx of [workout, bare]) {
       expect(
         validateBlocks(
           [{ type: 'changes_proposal', changes: { items: [item], why: 'Faster.' } }],

@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CompletedWorkout } from './completedWorkout';
-import type { Amount, MoneyCategory } from './money';
-import type { Task, TaskLog } from './tasks';
 import type { SetHistory } from '../types/models';
 import {
   CAR_KG,
@@ -23,7 +21,7 @@ import {
 
 /**
  * Wrapped (X1). What matters: every figure is a fact on a fixture you can count
- * by hand; a log with nothing in the period has NO card; both languages have
+ * by hand; a card with nothing behind it is not drawn; both languages have
  * every word; and it is offered exactly in the windows IMPLEMENTATION_DECISIONS
  * names.
  */
@@ -91,48 +89,7 @@ function workout(
   };
 }
 
-function task(id: string, name: string, order: number, over: Partial<Task> = {}): Task {
-  return {
-    id,
-    name,
-    schedule: { kind: 'daily' },
-    auto: null,
-    startedOn: '2026-08-01',
-    reminder: null,
-    archivedAt: null,
-    order,
-    ...over,
-  };
-}
-
-const mark = (log: TaskLog, taskId: string, days: string[], value: 'done' | 'missed' = 'done') => {
-  log[taskId] = { ...(log[taskId] ?? {}) };
-  for (const day of days) log[taskId][day] = { mark: value, note: '' };
-};
-
-const septDays = (from: number, to: number) =>
-  Array.from({ length: to - from + 1 }, (_, i) => `2026-09-${String(from + i).padStart(2, '0')}`);
-
-let amountSeq = 0;
-function amount(over: Partial<Amount> & Pick<Amount, 'categoryId' | 'value' | 'when'>): Amount {
-  amountSeq += 1;
-  return {
-    id: `a${amountSeq}`,
-    accountId: 'cash',
-    direction: 'expense',
-    note: '',
-    createdAt: '2026-09-01T00:00:00.000Z',
-    ...over,
-  };
-}
-
-const categories: MoneyCategory[] = [
-  { id: 'food', name: 'Food', glyph: '🛒', direction: 'expense', order: 0, archivedAt: null },
-  { id: 'cafe', name: 'Cafe', glyph: '☕', direction: 'expense', order: 1, archivedAt: null },
-  { id: 'home', name: 'Home', glyph: '🏠', direction: 'expense', order: 2, archivedAt: null },
-];
-
-/** The fixture: an August to compare with, and a September with a bit of everything. */
+/** The fixture: an August to compare with, and a September of three workouts. */
 function fixture(): WrappedInput {
   const workouts = [
     // August: the bar.
@@ -149,45 +106,15 @@ function fixture(): WrappedInput {
     // October: not September's.
     workout('w6', '2026-10-02', 9999, [set('', '2026-10-02', 'bench', 90, 5)]),
   ];
-  const tasks = [task('read', 'Reading', 0), task('walk', 'Walk', 1)];
-  const log: TaskLog = {};
-  mark(log, 'read', septDays(1, 12)); // 12 in a row
-  mark(log, 'read', ['2026-09-13'], 'missed'); // excused: steps over
-  mark(log, 'read', septDays(14, 20)); // …19 in a row through the 20th
-  mark(log, 'walk', septDays(1, 25));
-  const amounts = [
-    amount({ categoryId: 'food', value: 30000, when: { kind: 'day', date: '2026-09-03' } }),
-    amount({ categoryId: 'cafe', value: 10000, when: { kind: 'day', date: '2026-09-04' } }),
-    amount({ categoryId: 'home', value: 60000, when: { kind: 'month', year: 2026, month: 8 } }),
-    // Out: a transfer, an income, another month, another month's rent.
-    amount({
-      categoryId: 'transfer_out',
-      value: 99999,
-      when: { kind: 'day', date: '2026-09-05' },
-      transferId: 'x',
-    }),
-    amount({
-      categoryId: 'food',
-      value: 5000,
-      direction: 'income',
-      when: { kind: 'day', date: '2026-09-06' },
-    }),
-    amount({ categoryId: 'food', value: 7777, when: { kind: 'day', date: '2026-10-01' } }),
-    amount({ categoryId: 'home', value: 60000, when: { kind: 'month', year: 2026, month: 9 } }),
-  ];
   return {
     period: SEPT,
     today: TODAY,
     workouts: [...workouts].reverse(),
     numbers: { w1: 86, w2: 87, w3: 88, w4: 89, w5: 90, w6: 91 },
-    tasks,
-    log,
-    amounts,
-    categories,
   };
 }
 
-const EN: WrappedWords = { unitSystem: 'metric', currency: 'AMD', scale: 0, lang: 'en' };
+const EN: WrappedWords = { unitSystem: 'metric', lang: 'en' };
 const RU: WrappedWords = { ...EN, lang: 'ru' };
 
 describe('periods and offers', () => {
@@ -259,98 +186,48 @@ describe('wrappedStats on the fixture', () => {
     expect(stats.record?.record).toMatchObject({ kind: 'e1rm', value: 96.25, weightKg: 82.5 });
   });
 
-  it('takes the longest run of any task, excused days stepped over', () => {
-    expect(stats.streak).toMatchObject({
-      taskName: 'Walk',
-      days: 25,
-      from: '2026-09-01',
-      to: '2026-09-25',
-    });
-    const input = fixture();
-    mark(input.log, 'read', septDays(21, 30));
-    // Reading: 1–12, (13 excused), 14–30 = 29 days, now the longer one.
-    expect(wrappedStats(input)!.streak).toMatchObject({ taskName: 'Reading', days: 29 });
-  });
-
-  it('shares tasks done over asked, excused days out of both', () => {
-    // Asked: 30 + 30 − 1 excused = 59. Done: 19 + 25 = 44.
-    expect(stats.tasks).toEqual({ done: 44, asked: 59, percent: 75 });
-  });
-
-  it('finds the top category, with rent counted in its month and transfers out', () => {
-    expect(stats.spending).toEqual({
-      total: 100000,
-      count: 3,
-      wholeMonth: true,
-      top: { name: 'Home', glyph: '🏠', value: 60000, share: 0.6 },
-    });
-  });
-
   it('reads the busiest weekday off the workouts', () => {
     expect(stats.weekday).toMatchObject({ weekday: 0, workouts: 2 });
   });
 
-  it('reads it off the tasks when there are too few workouts', () => {
+  it('has no busiest weekday under three workouts', () => {
     const input = fixture();
-    input.workouts = [];
-    const log: TaskLog = {};
-    // Every Tuesday done, everything else half done.
-    for (const day of septDays(1, 30)) {
-      const tuesday = new Date(`${day}T12:00:00`).getDay() === 2;
-      log.read = { ...(log.read ?? {}), [day]: { mark: 'done', note: '' } };
-      if (tuesday) log.walk = { ...(log.walk ?? {}), [day]: { mark: 'done', note: '' } };
-    }
-    input.log = log;
-    const weekday = wrappedStats(input)!.weekday!;
-    expect(weekday.weekday).toBe(1);
-    expect(weekday.tasksPercent).toBe(100);
-    expect(weekday.quietest?.percent).toBe(50);
+    input.workouts = input.workouts.filter((w) => w.id !== 'w5');
+    expect(wrappedStats(input)!.weekday).toBeNull();
   });
 
   it('covers a year as one period', () => {
     const year = wrappedStats({ ...fixture(), period: { kind: 'year', year: 2026 } })!;
     expect(year.workouts?.count).toBe(6);
     expect(year.workouts?.previous).toBeNull();
-    expect(year.spending?.total).toBe(100000 + 7777 + 60000);
   });
 });
 
-describe('empty domains', () => {
-  it('is null when the period has nothing in any log', () => {
+describe('empty cards', () => {
+  it('is null when the period has nothing in it', () => {
     expect(
       wrappedStats({ ...fixture(), period: { kind: 'month', year: 2025, month: 0 } }),
     ).toBeNull();
   });
 
-  it('draws no card for a log with nothing in the period', () => {
-    const input = fixture();
-    input.workouts = [];
-    input.tasks = [];
-    const keys = wrappedCards(wrappedStats(input)!, EN).map((c) => c.key);
-    expect(keys).toEqual(['title', 'category', 'summary']);
-    const summary = wrappedSummary(wrappedStats(input)!, EN);
-    expect(summary.cells.map((c) => c.key)).toEqual(['spent']);
-    expect(summary.record).toBeNull();
-  });
-
-  it('draws every card when every log had something', () => {
+  it('draws every card when there is something behind each', () => {
     expect(wrappedCards(wrappedStats(fixture())!, EN).map((c) => c.key)).toEqual([
       'title',
       'tonnage',
       'workouts',
       'record',
-      'streak',
-      'category',
       'weekday',
       'summary',
     ]);
   });
 
-  it('drops a streak of a single day', () => {
+  it('a month with no records draws no record card, and no record line', () => {
     const input = fixture();
-    input.log = {};
-    mark(input.log, 'read', ['2026-09-03', '2026-09-05']);
-    expect(wrappedStats(input)!.streak).toBeNull();
+    input.workouts = input.workouts.filter((w) => w.startedAt >= at('2026-09-01', 0));
+    const stats = wrappedStats(input)!;
+    expect(stats.record).toBeNull();
+    expect(wrappedCards(stats, EN).map((c) => c.key)).not.toContain('record');
+    expect(wrappedSummary(stats, EN).record).toBeNull();
   });
 });
 
@@ -362,7 +239,7 @@ describe('the words', () => {
     expect(cards.title).toMatchObject({
       kicker: 'September 2026',
       big: 'Your month',
-      line: '3 workouts, 44 tasks done and 3 amounts.',
+      line: '3 workouts.',
     });
     expect(cards.tonnage).toMatchObject({
       big: '61,480',
@@ -381,16 +258,7 @@ describe('the words', () => {
       line: 'Bench press · 82.5 × 5 on 7 September.',
       sub: 'e1RM is an estimate (Epley).',
     });
-    expect(cards.streak).toMatchObject({ big: '25', unit: 'days' });
-    expect(cards.category).toMatchObject({
-      big: '60,000',
-      unit: 'AMD',
-      line: '🏠 Home · 60% of everything that went out.',
-    });
-    expect(cards.weekday).toMatchObject({
-      big: 'Monday',
-      line: '2 workouts and 63% of tasks done.',
-    });
+    expect(cards.weekday).toMatchObject({ big: 'Monday', line: '2 workouts.' });
   });
 
   it('compares the tonnage with cars honestly: rounded, "about", nothing under half a car', () => {
@@ -415,9 +283,6 @@ describe('the words', () => {
     expect(summary.cells.map((c) => [c.label, c.value])).toEqual([
       ['Workouts', '3'],
       ['Tonnage', '61.5 t'],
-      ['Tasks done', '75%'],
-      ['Longest streak', '25 d'],
-      ['Spent', '100k AMD'],
     ]);
     expect(summary.record).toBe('Bench press · 82.5 × 5 · e1RM 96.3 kg');
   });
@@ -437,11 +302,9 @@ describe('the words', () => {
   });
 
   it('has every word of every card in Russian', () => {
-    // The user's own names (exercise, task, category) and `e1RM` stay as written.
-    const own = ['Bench press', 'Reading', 'Walk', 'Home', 'e1RM', 'AMD'];
-    // …and so do the compact money suffixes, Latin in both languages (T-06).
-    const latin = (text: string) =>
-      own.reduce((rest, word) => rest.split(word).join(''), text).replace(/\d[kM]\b/g, '');
+    // The user's own names (the exercise) and `e1RM` stay as written.
+    const own = ['Bench press', 'e1RM'];
+    const latin = (text: string) => own.reduce((rest, word) => rest.split(word).join(''), text);
     const ru = wrappedCards(stats, RU);
     for (const card of ru) {
       for (const field of [card.kicker, card.big, card.unit, card.line, card.sub]) {
@@ -465,73 +328,7 @@ describe('the words', () => {
 
   it('speaks Russian plurals', () => {
     const cards = Object.fromEntries(wrappedCards(stats, RU).map((c) => [c.key, c]));
-    expect(cards.title.line).toBe('3 тренировки, 44 выполненные задачи и 3 суммы.');
-    expect(cards.streak.unit).toBe('дней');
+    expect(cards.title.line).toBe('3 тренировки.');
     expect(cards.workouts.line).toBe('На 1 больше, чем месяцем раньше.');
-  });
-});
-
-describe('one log per app (3.0.0)', () => {
-  const keys = (input: WrappedInput) => {
-    const stats = wrappedStats(input);
-    return stats ? wrappedCards(stats, EN).map((card) => card.key) : [];
-  };
-
-  it('the combined fixture has every card (so the cuts below are real)', () => {
-    expect(keys(fixture())).toEqual([
-      'title',
-      'tonnage',
-      'workouts',
-      'record',
-      'streak',
-      'category',
-      'weekday',
-      'summary',
-    ]);
-  });
-
-  it('Workout: training only — no streak, no money, even though the store holds them', () => {
-    expect(keys({ ...fixture(), variant: 'workout' })).toEqual([
-      'title',
-      'tonnage',
-      'workouts',
-      'record',
-      'weekday',
-      'summary',
-    ]);
-    const stats = wrappedStats({ ...fixture(), variant: 'workout' });
-    expect(stats?.tasks).toBeNull();
-    expect(stats?.spending).toBeNull();
-    expect(stats?.weekday?.tasksPercent).toBeNull();
-    expect(wrappedCards(stats!, EN)[0].line).toBe('3 workouts.');
-    expect(wrappedSummary(stats!, EN).cells.map((cell) => cell.key)).toEqual([
-      'workouts',
-      'tonnage',
-    ]);
-  });
-
-  it('Tasks: the streak and the tasks, nothing about training or money', () => {
-    const stats = wrappedStats({ ...fixture(), variant: 'tasks' });
-    expect(stats?.workouts).toBeNull();
-    expect(stats?.tonnage).toBeNull();
-    expect(stats?.record).toBeNull();
-    expect(stats?.spending).toBeNull();
-    expect(keys({ ...fixture(), variant: 'tasks' })).toEqual([
-      'title',
-      'streak',
-      'weekday',
-      'summary',
-    ]);
-    expect(stats?.weekday?.workouts).toBe(0);
-  });
-
-  it('Expenses: the money only', () => {
-    expect(keys({ ...fixture(), variant: 'expenses' })).toEqual(['title', 'category', 'summary']);
-    const stats = wrappedStats({ ...fixture(), variant: 'expenses' });
-    expect(wrappedSummary(stats!, EN).cells.map((cell) => cell.key)).toEqual(['spent']);
-  });
-
-  it('an app whose own log is empty in the period has no Wrapped at all', () => {
-    expect(wrappedStats({ ...fixture(), amounts: [], variant: 'expenses' })).toBeNull();
   });
 });

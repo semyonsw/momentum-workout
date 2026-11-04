@@ -7,7 +7,6 @@ import {
   exportBackupText,
   exportCsvText,
 } from './dataTransfer';
-import { seedCategories, useMoney } from './moneyStore';
 import { useLibrary } from './libraryStore';
 import { DEFAULT_SETTINGS, useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
@@ -336,46 +335,21 @@ describe('a backup is refused when the log could not be read', () => {
 
 /* ------------------------------------------------------------------ */
 
-describe('the CSV exports read the stores', () => {
+describe('the CSV export reads the stores', () => {
   it('workouts: one row per logged set, refused on an unreadable log', () => {
     useWorkoutHistory.getState().saveSession(loggedDraft('2026-08-17T17:00:00.000Z'));
     useWorkoutHistory.setState({ loadFailed: false });
     const sets = useWorkoutHistory.getState().workouts[0].sets.length;
-    const lines = exportCsvText('workouts')
+    const lines = exportCsvText()
       .split('\r\n')
       .filter((l) => l !== '');
     expect(lines).toHaveLength(1 + sets);
 
     useWorkoutHistory.setState({ workouts: [], loadFailed: true });
-    expect(() => exportCsvText('workouts')).toThrow(UnreadableLogError);
+    expect(() => exportCsvText()).toThrow(UnreadableLogError);
     useWorkoutHistory.setState({ loadFailed: false });
   });
 
-  it('amounts: in the pinned scale and the label the user counts in', () => {
-    useSettings.setState({ currencyCode: 'USD' });
-    useMoney.getState().importMoney({
-      scale: 2,
-      accounts: [{ id: 'cash', name: 'Cash', glyph: '💵', order: 0, opening: 0, archivedAt: null }],
-      categories: [
-        { id: 'food', name: 'Food', glyph: '🍜', direction: 'expense', order: 0, archivedAt: null },
-      ],
-      amounts: [
-        {
-          id: 'a1',
-          categoryId: 'food',
-          accountId: 'cash',
-          direction: 'expense',
-          value: 1250,
-          when: { kind: 'day', date: '2026-10-03' },
-          note: '',
-          createdAt: '2026-10-03T10:00:00.000Z',
-        },
-      ],
-    });
-    expect(exportCsvText('amounts')).toContain(
-      '\r\n2026-10-03,Cash,expense,Food,-12.50,USD,,false\r\n',
-    );
-  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -390,13 +364,13 @@ describe('what the assistant leaves out of a backup', () => {
     const marker = 'CHAT-MARKER-7f3kQ2';
     const past = 'PAST-CHAT-MARKER-9x';
     useAi.setState(sanitizeAi({}));
-    useAi.getState().appendMessage('Tasks', {
+    useAi.getState().appendMessage('Workout', {
       id: 'p1',
       role: 'user',
       text: past,
       at: '2026-09-26T18:00:00.000Z',
     });
-    useAi.getState().clearChat('Tasks');
+    useAi.getState().clearChat('Workout');
     useAi.getState().appendMessage('Workout', {
       id: 'm1',
       role: 'user',
@@ -414,25 +388,15 @@ describe('what the assistant leaves out of a backup', () => {
     expect(Object.keys(useAi.getState())).not.toContain('key');
     expect(Object.keys(useAi.getState())).not.toContain('apiKey');
 
-    // Restored onto a phone with nothing: each app gets its own conversation
-    // back, visible — Workout the open chat, Tasks the past one the Workout
-    // app's file still carried from before the split.
+    // Restored onto a phone with nothing: the open chat and the past one back.
     useAi.setState(sanitizeAi({}));
     const parsed = parseBackup(text);
     if (!parsed.ok) throw new Error(parsed.error);
-    expect(parsed.counts.chats).toBe(1);
+    expect(parsed.counts.chats).toBe(2);
     const applied = applyBackup(parsed.envelope);
-    expect(applied.chats).toBe(1);
+    expect(applied.chats).toBe(2);
     expect(useAi.getState().chats.Workout.map((m) => m.id)).toEqual(['m1']);
-    expect(useAi.getState().archive.Tasks).toEqual([]);
-
-    const forTasks = parseBackup(text, 'en', 'tasks');
-    if (!forTasks.ok) throw new Error(forTasks.error);
-    expect(forTasks.counts.chats).toBe(1);
-    expect(applyBackup(forTasks.envelope, 'tasks').chats).toBe(1);
-    expect(useAi.getState().archive.Tasks[0].title).toBe(past);
-    // And restoring Tasks left the Workout chat where the Workout restore put it.
-    expect(useAi.getState().chats.Workout.map((m) => m.id)).toEqual(['m1']);
+    expect(useAi.getState().archive.Workout[0].title).toBe(past);
     // The connection is the phone's own, not the file's.
     expect(useAi.getState().status).toBe('off');
     useAi.setState(sanitizeAi({}));
@@ -493,7 +457,7 @@ describe('the debriefs', () => {
 
 describe('the closed assistant cards', () => {
   it('travel in a backup and come back', () => {
-    useSettings.getState().dismissAiCard('Tasks');
+    useSettings.getState().dismissAiCard('Workout');
     const text = exportBackupText();
     useSettings.getState().importSettings(DEFAULT_SETTINGS);
     expect(useSettings.getState().aiCardsDismissed).toBeUndefined();
@@ -501,7 +465,7 @@ describe('the closed assistant cards', () => {
     const parsed = parseBackup(text);
     if (!parsed.ok) throw new Error(parsed.error);
     applyBackup(parsed.envelope);
-    expect(useSettings.getState().aiCardsDismissed).toEqual(['Tasks']);
+    expect(useSettings.getState().aiCardsDismissed).toEqual(['Workout']);
   });
 
   it('a 2.2.0 backup, written before the key existed, imports unchanged and shows every card', () => {
@@ -509,7 +473,7 @@ describe('the closed assistant cards', () => {
     const v220 = JSON.stringify({
       format: 'workout-tracker-backup',
       version: 1,
-      settings: { restSecondsBetweenSets: 90, autoTickTasks: false },
+      settings: { restSecondsBetweenSets: 90 },
       exercises: [],
       routines: [],
       workouts: [],
@@ -519,7 +483,6 @@ describe('the closed assistant cards', () => {
     applyBackup(parsed.envelope);
 
     expect(useSettings.getState().restSecondsBetweenSets).toBe(90);
-    expect(useSettings.getState().autoTickTasks).toBe(false);
     expect(useSettings.getState().aiCardsDismissed).toBeUndefined();
     expect(useSettings.getState().weeklyReviewDismissed).toBeUndefined();
   });
@@ -639,204 +602,6 @@ describe('the milestone stamp (E4)', () => {
   });
 });
 
-describe('the money scale (U25)', () => {
-  it('a 2.2.0 backup with amounts imports them unchanged, in whole units', async () => {
-    const { useMoney } = await import('./moneyStore');
-    useMoney.getState().pinScale(2);
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 2,
-      exercises: [],
-      routines: [],
-      workouts: [],
-      money: {
-        accounts: [{ id: 'cash', name: 'Cash', glyph: '💵', order: 0, opening: 0 }],
-        categories: [{ id: 'food', name: 'Food', glyph: '🧊', order: 0, direction: 'expense' }],
-        amounts: [
-          {
-            id: 'a1',
-            categoryId: 'food',
-            accountId: 'cash',
-            direction: 'expense',
-            value: 12500,
-            when: { kind: 'day', date: '2026-09-01' },
-            note: '',
-            createdAt: '2026-09-01T10:00:00.000Z',
-          },
-        ],
-      },
-    });
-    const parsed = parseBackup(v220, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-
-    expect(useMoney.getState().amounts.map((amount) => amount.value)).toEqual([12500]);
-    expect(useMoney.getState().scale).toBeUndefined();
-  });
-
-  it('a pinned scale travels in a backup and comes back', async () => {
-    const { useMoney } = await import('./moneyStore');
-    useMoney.getState().importMoney({});
-    useMoney.getState().pinScale(2);
-    const text = exportBackupText(undefined, 'expenses');
-    useMoney.getState().importMoney({});
-    expect(useMoney.getState().scale).toBeUndefined();
-
-    const parsed = parseBackup(text, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().scale).toBe(2);
-  });
-});
-
-describe('budgets (M1)', () => {
-  it('travel in a backup and come back', () => {
-    useMoney.getState().importMoney({ categories: seedCategories, amounts: [] });
-    useMoney.getState().setBudget('food', 80000, true);
-    const text = exportBackupText(undefined, 'expenses');
-    useMoney.getState().importMoney({});
-    expect(useMoney.getState().budgets).toBeUndefined();
-
-    const parsed = parseBackup(text, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().budgets).toEqual([
-      { categoryId: 'food', monthly: 80000, alerts: true },
-    ]);
-  });
-
-  it('a 2.2.0 backup, written before budgets existed, imports unchanged with none', () => {
-    useMoney.getState().importMoney({});
-    useMoney.getState().setBudget('food', 80000);
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 2,
-      exercises: [],
-      routines: [],
-      workouts: [],
-      money: {
-        accounts: [{ id: 'cash', name: 'Cash', glyph: '💵', order: 0, opening: 1000 }],
-        categories: [{ id: 'food', name: 'Food', glyph: '🧊', order: 0, direction: 'expense' }],
-        amounts: [
-          {
-            id: 'a1',
-            categoryId: 'food',
-            accountId: 'cash',
-            direction: 'expense',
-            value: 12500,
-            when: { kind: 'month', year: 2026, month: 8 },
-            note: 'rent',
-            createdAt: '2026-09-01T10:00:00.000Z',
-          },
-        ],
-      },
-    });
-    const parsed = parseBackup(v220, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-
-    const money = useMoney.getState();
-    expect(money.budgets).toBeUndefined();
-    expect(money.budgetAlertsFired).toBeUndefined();
-    expect(money.amounts).toHaveLength(1);
-    expect(money.amounts[0]).toMatchObject({ value: 12500, note: 'rent' });
-    expect(money.accounts[0].opening).toBe(1000);
-  });
-});
-
-describe('recurring payments (M2)', () => {
-  it('travel in a backup with every answer, and come back', () => {
-    useMoney.getState().importMoney({ categories: seedCategories, amounts: [] });
-    const id =
-      useMoney.getState().addRecurring(
-        {
-          name: 'Rent',
-          categoryId: 'family',
-          accountId: 'cash',
-          value: 150000,
-          schedule: { kind: 'monthly', day: 5 },
-          wholeMonth: true,
-        },
-        '2026-09-01',
-      ) ?? '';
-    useMoney.getState().confirmRecurring(id, '2026-09-05');
-    useMoney.getState().skipRecurring(id, '2026-10-05');
-    const before = useMoney.getState().recurring;
-    const text = exportBackupText(undefined, 'expenses');
-    useMoney.getState().importMoney({});
-    expect(useMoney.getState().recurring).toBeUndefined();
-
-    const parsed = parseBackup(text, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().recurring).toEqual(before);
-    expect(useMoney.getState().amounts).toHaveLength(1);
-  });
-
-  it('a 2.2.0 backup imports unchanged, with none', () => {
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 2,
-      exercises: [],
-      routines: [],
-      workouts: [],
-      money: { categories: seedCategories, amounts: [] },
-    });
-    const parsed = parseBackup(v220, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().recurring).toBeUndefined();
-    expect(useMoney.getState().categories.map((c) => c.id)).toEqual(
-      seedCategories.map((c) => c.id),
-    );
-  });
-});
-
-describe('savings goals (M5)', () => {
-  it('travel in a backup and come back', () => {
-    useMoney.getState().importMoney({ categories: seedCategories, amounts: [] });
-    useMoney.getState().addGoal({
-      name: 'Trip',
-      glyph: '🚆',
-      target: 200000,
-      by: '2026-12-15',
-      accountId: 'online',
-    });
-    const before = useMoney.getState().goals;
-    const text = exportBackupText(undefined, 'expenses');
-    useMoney.getState().importMoney({});
-    expect(useMoney.getState().goals).toBeUndefined();
-
-    const parsed = parseBackup(text, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().goals).toEqual(before);
-  });
-
-  it('a 2.2.0 backup imports unchanged, with none', () => {
-    useMoney.getState().importMoney({ categories: seedCategories, amounts: [] });
-    useMoney.getState().addGoal({
-      name: 'Trip',
-      glyph: '🚆',
-      target: 200000,
-      by: null,
-      accountId: 'online',
-    });
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 2,
-      exercises: [],
-      routines: [],
-      workouts: [],
-      money: { categories: seedCategories, amounts: [] },
-    });
-    const parsed = parseBackup(v220, 'en', 'expenses');
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope, 'expenses');
-    expect(useMoney.getState().goals).toBeUndefined();
-  });
-});
-
 describe('the weekly training goal (W8)', () => {
   it('the goal and the excused weeks travel in a backup and come back', () => {
     useSettings.getState().importSettings(DEFAULT_SETTINGS);
@@ -941,5 +706,123 @@ describe('a backup from the weekly auto-backup era', () => {
     const text = exportBackupText();
     expect(text).not.toContain('autoBackupIntervalDays');
     expect(text).not.toContain('autoBackupUris');
+  });
+});
+
+/*
+ * THE FILES THIS APP MUST STILL OPEN, AND THE FILE IT MUST STILL WRITE. The phone
+ * has Momentum 2.x combined backups and 3.0.0 Workout backups on it, and a
+ * 3.0.0 Workout app may be handed what this one exports. Each shape is spelled
+ * out here as the JSON those builds wrote, not built through today's code.
+ */
+describe('backups from Momentum 2.x and 3.0.0', () => {
+  const workoutRow = {
+    id: 'w_old',
+    title: 'Push',
+    startedAt: '2026-09-01T17:00:00.000Z',
+    endedAt: '2026-09-01T18:00:00.000Z',
+    durationMinutes: 60,
+    setCount: 0,
+    totalVolumeKg: 0,
+    volumeIsPartial: false,
+    exercises: [],
+    sets: [],
+  };
+
+  it('a combined 2.x file restores its training and leaves the tasks and money unread', () => {
+    useAi.setState(sanitizeAi({}));
+    const combined = JSON.stringify({
+      format: 'workout-tracker-backup',
+      version: 2,
+      settings: { restSecondsBetweenSets: 100, currencyCode: 'EUR', autoTickTasks: false },
+      exercises: seedExercises.slice(0, 2),
+      routines: [],
+      workouts: [workoutRow],
+      tasks: { tasks: [{ id: 't1', name: 'Read' }], log: {} },
+      money: { accounts: [], categories: [], amounts: [{ id: 'a1' }] },
+      aiChats: {
+        chats: {
+          Workout: [{ id: 'mw', role: 'user', text: 'bench?', at: '2026-09-01' }],
+          Tasks: [{ id: 'mt', role: 'user', text: 'tasks?', at: '2026-09-01' }],
+          Expenses: [{ id: 'me', role: 'user', text: 'money?', at: '2026-09-01' }],
+        },
+        archive: { Workout: [], Tasks: [], Expenses: [] },
+        proposals: {},
+      },
+    });
+    const parsed = parseBackup(combined);
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(parsed.counts).toEqual({ exercises: 2, routines: 0, workouts: 1, sets: 0, chats: 1 });
+    expect(parsed.envelope).not.toHaveProperty('tasks');
+    expect(parsed.envelope).not.toHaveProperty('money');
+
+    applyBackup(parsed.envelope);
+    expect(useWorkoutHistory.getState().workouts.map((w) => w.id)).toEqual(['w_old']);
+    expect(useSettings.getState().restSecondsBetweenSets).toBe(100);
+    expect(useAi.getState().chats.Workout.map((m) => m.id)).toEqual(['mw']);
+    expect(Object.keys(useAi.getState().chats)).toEqual(['Workout']);
+    // Nothing from the other logs rides back out in this app's own file.
+    const text = exportBackupText();
+    expect(text).not.toContain('tasks?');
+    expect(text).not.toContain('money?');
+    useAi.setState(sanitizeAi({}));
+  });
+
+  it('a 3.0.0 Workout file restores whole', () => {
+    const v300 = JSON.stringify({
+      format: 'workout-tracker-backup',
+      version: 2,
+      exportedAt: '2026-11-04T10:00:00.000Z',
+      counts: { exercises: 1, routines: 0, workouts: 1, sets: 0 },
+      settings: { restSecondsBetweenSets: 80 },
+      exercises: seedExercises.slice(0, 1),
+      routines: [],
+      workouts: [workoutRow],
+      sequence: { isActive: false, routineIds: [], cursor: 0 },
+      numbering: null,
+      debriefs: [],
+    });
+    const parsed = parseBackup(v300);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const applied = applyBackup(parsed.envelope);
+    expect(applied).toMatchObject({ settingsApplied: true, exercises: 1, workouts: 1 });
+    expect(useSettings.getState().restSecondsBetweenSets).toBe(80);
+  });
+
+  it('a 3.0.0 Tasks or Expenses file is refused in words, before anything is applied', () => {
+    useSettings.getState().setNumber('restSecondsBetweenSets', 70);
+    for (const other of [
+      { tasks: { tasks: [], log: {} } },
+      { money: { accounts: [], categories: [], amounts: [] } },
+    ]) {
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: 'workout-tracker-backup',
+          version: 2,
+          settings: { restSecondsBetweenSets: 200 },
+          ...other,
+        }),
+      );
+      expect(parsed.ok).toBe(false);
+      if (parsed.ok) return;
+      expect(parsed.error).toMatch(/no exercises, routines or workouts/);
+    }
+    expect(useSettings.getState().restSecondsBetweenSets).toBe(70);
+  });
+
+  it('writes the version-2 envelope a 3.0.0 Workout app reads: the training, no other log', () => {
+    useWorkoutHistory.getState().saveSession(loggedDraft('2026-08-17T17:00:00.000Z'));
+    const file = JSON.parse(exportBackupText()) as Record<string, unknown>;
+    expect(file.format).toBe('workout-tracker-backup');
+    expect(file.version).toBe(2);
+    for (const key of ['settings', 'exercises', 'routines', 'workouts', 'sequence', 'numbering']) {
+      expect(file).toHaveProperty(key);
+    }
+    expect(Array.isArray(file.exercises)).toBe(true);
+    expect(Array.isArray(file.workouts)).toBe(true);
+    expect(file).not.toHaveProperty('tasks');
+    expect(file).not.toHaveProperty('money');
+    const chats = file.aiChats as { chats: Record<string, unknown> };
+    expect(Object.keys(chats.chats)).toEqual(['Workout']);
   });
 });

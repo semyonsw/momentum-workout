@@ -41,7 +41,7 @@
 import { dayKey, formatLongDay } from './days';
 import type { CompletedWorkout } from './completedWorkout';
 import { t, type Language } from './i18n';
-import { formatValue } from './money';
+import { formatValue } from './units';
 
 /** Whether workout `n` is a milestone: 50, 100, 250, 500, then every 500. */
 export function isMilestone(n: number): boolean {

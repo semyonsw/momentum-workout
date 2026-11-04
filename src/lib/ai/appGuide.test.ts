@@ -2,7 +2,6 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { APP_VARIANTS } from '../appVariant';
 import { APP_GUIDE_RULES, appGuide } from './appGuide';
 import { systemPrompt } from './aiPrompts';
 
@@ -39,70 +38,33 @@ describe('the app guide', () => {
     [...guide.matchAll(/"([^"\n]+)"/g)].map((m) => m[1]).filter(checkable);
 
   it('quotes a real number of labels', () => {
-    expect(quoted(appGuide('workout')).length).toBeGreaterThan(150);
-    expect(quoted(appGuide('tasks')).length).toBeGreaterThan(20);
-    expect(quoted(appGuide('expenses')).length).toBeGreaterThan(30);
+    expect(quoted(appGuide()).length).toBeGreaterThan(150);
   });
 
-  it.each(APP_VARIANTS)('quotes only labels that still exist in the source (%s)', (variant) => {
-    const missing = [...new Set(quoted(appGuide(variant)))].filter(
-      (label) => !SOURCE.includes(label),
-    );
+  it('quotes only labels that still exist in the source', () => {
+    const missing = [...new Set(quoted(appGuide()))].filter((label) => !SOURCE.includes(label));
     expect(missing).toEqual([]);
   });
 
-  it('goes with every section, after that section’s own rules, as that app’s map', () => {
-    const app = { Workout: 'workout', Tasks: 'tasks', Expenses: 'expenses' } as const;
-    for (const section of ['Workout', 'Tasks', 'Expenses'] as const) {
-      const prompt = systemPrompt(section, 'en');
-      expect(prompt).toContain(APP_GUIDE_RULES);
-      expect(prompt.endsWith(appGuide(app[section]))).toBe(true);
-    }
+  it('goes with the chat, after the chat’s own rules', () => {
+    const prompt = systemPrompt('en');
+    expect(prompt).toContain(APP_GUIDE_RULES);
+    expect(prompt.endsWith(appGuide())).toBe(true);
   });
 
   it('describes the warm-up toggle, the question the 2.8 fix was for', () => {
-    expect(appGuide('workout')).toMatch(/W warm-up toggle/);
+    expect(appGuide()).toMatch(/W warm-up toggle/);
   });
 
-  /*
-   * THE SPLIT (3.0.0): each app's assistant describes that app and no other. A
-   * path of taps into a section the APK does not have is a wrong answer.
-   */
-  it('describes only its own app', () => {
-    const workout = appGuide('workout');
-    const tasks = appGuide('tasks');
-    const expenses = appGuide('expenses');
-
-    expect(workout).toContain('### Live session screen');
-    expect(workout).not.toContain('### Tasks screen');
-    expect(workout).not.toContain('### Finance screen');
-
-    expect(tasks).toContain('### Tasks screen');
-    expect(tasks).not.toMatch(/routine|Finance|Health Connect/i);
-
-    expect(expenses).toContain('### Finance screen');
-    expect(expenses).not.toMatch(/routine|workout|### Tasks screen|Daily tasks settings/i);
+  it('has no Home landing, and two nav items', () => {
+    expect(appGuide()).not.toMatch(/\bHome\b/);
+    expect(appGuide()).toContain('Two items: "Workout"');
   });
 
-  it('has no Home landing and no nav item for another section', () => {
-    for (const variant of APP_VARIANTS) {
-      const guide = appGuide(variant);
-      expect(guide).not.toMatch(/\bHome\b/);
-      expect(guide).toContain('Two items:');
-    }
-    expect(appGuide('tasks')).toContain('Two items: "Tasks"');
-    expect(appGuide('expenses')).toContain('Two items: "Finance"');
-  });
-
-  it('lists only what that app’s assistant can change', () => {
-    expect(appGuide('tasks')).not.toMatch(/log an amount|body weight/);
-    expect(appGuide('expenses')).not.toMatch(/tick|training loop/);
-    expect(appGuide('workout')).not.toMatch(/log an amount|tick, excuse/);
-  });
-
-  it('offers the spreadsheet export only where there is a log for it', () => {
-    expect(appGuide('tasks')).not.toContain('CSV');
-    expect(appGuide('workout')).toContain('CSV');
-    expect(appGuide('expenses')).toContain('CSV');
+  it('lists what the assistant can change, and nothing it cannot', () => {
+    expect(appGuide()).toContain("log today's body weight");
+    expect(appGuide()).not.toMatch(
+      /log an amount|tick, excuse|### Tasks screen|### Finance screen/,
+    );
   });
 });

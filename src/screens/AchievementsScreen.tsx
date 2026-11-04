@@ -13,11 +13,7 @@
  *   ● Bronze  ● Silver  ● Gold
  *
  * One LADDER, from its first step to its last, so the next one up is always
- * beside the last one earned. Since 3.0.0 it is this app's log's ladder only
- * (`badgeDomain`, `lib/achievements.ts`) — the Workout app shows the workout
- * badges, Tasks the task ones, Expenses the money ones — so the gallery is one
- * kicker and one grid; the per-domain loop stays because the kicker is still
- * the right heading for it. A locked badge is a dashed
+ * beside the last one earned — one kicker and one grid. A locked badge is a dashed
  * outline with where the log stands under it — progress, never a lock icon or a
  * "you have not" sentence. Tapping any badge opens `BadgeSheet`.
  *
@@ -39,28 +35,16 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { Kicker } from '../components/primitives';
 import { pressedStyle } from '../components/motion';
 import { useBadges } from '../hooks/useEngagement';
-import { APP_VARIANT } from '../lib/appVariant';
 import { useLanguage, useT } from '../hooks/useT';
 import {
-  badgeDomain,
   describeBadgeProgress,
   describeGallery,
   tierName,
   type Badge,
-  type BadgeDomain,
   type BadgeTier,
 } from '../lib/achievements';
 import { tap } from '../lib/feedback';
 import { glass, palette, radius } from '../theme/tokens';
-
-const ALL_DOMAINS: { domain: BadgeDomain; label: string }[] = [
-  { domain: 'workout', label: 'Workout' },
-  { domain: 'tasks', label: 'Tasks' },
-  { domain: 'money', label: 'Finance' },
-];
-
-/** This app's one ladder — `useBadges` already returns only its badges. */
-const DOMAINS = ALL_DOMAINS.filter(({ domain }) => domain === badgeDomain(APP_VARIANT));
 
 /** Rows of three; the last row padded so its tiles keep a third each. */
 function rowsOf<T>(list: readonly T[]): (T | null)[][] {
@@ -96,35 +80,33 @@ export function AchievementsScreen({ onBack }: { onBack: () => void }) {
           {t('Worked out from your logs, so days before the switch count too.')}
         </Text>
 
-        {DOMAINS.map(({ domain, label }) => (
-          <View key={domain}>
-            <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t(label)}</Kicker>
-            <View className="mx-lg" style={{ gap: 8 }}>
-              {rowsOf(badges.filter((badge) => badge.domain === domain)).map((row) => (
-                <View
-                  key={row.map((badge) => badge?.id ?? '-').join()}
-                  className="flex-row"
-                  style={{ gap: 8 }}
-                >
-                  {row.map((badge, i) =>
-                    badge ? (
-                      <Tile
-                        key={badge.id}
-                        badge={badge}
-                        onPress={() => {
-                          tap();
-                          setOpen(badge);
-                        }}
-                      />
-                    ) : (
-                      <View key={`pad${i}`} className="flex-1" />
-                    ),
-                  )}
-                </View>
-              ))}
-            </View>
+        <View>
+          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('Workout')}</Kicker>
+          <View className="mx-lg" style={{ gap: 8 }}>
+            {rowsOf(badges).map((row) => (
+              <View
+                key={row.map((badge) => badge?.id ?? '-').join()}
+                className="flex-row"
+                style={{ gap: 8 }}
+              >
+                {row.map((badge, i) =>
+                  badge ? (
+                    <Tile
+                      key={badge.id}
+                      badge={badge}
+                      onPress={() => {
+                        tap();
+                        setOpen(badge);
+                      }}
+                    />
+                  ) : (
+                    <View key={`pad${i}`} className="flex-1" />
+                  ),
+                )}
+              </View>
+            ))}
           </View>
-        ))}
+        </View>
 
         <View className="mx-lg mt-lg flex-row" style={{ gap: 14 }}>
           {([1, 2, 3] as BadgeTier[]).map((tier) => (

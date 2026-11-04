@@ -37,13 +37,12 @@ beforeEach(() => {
 });
 
 describe('the chats', () => {
-  it('are one per section and capped', () => {
+  it('are capped', () => {
     for (let i = 0; i < CHAT_CAP + 5; i += 1)
-      useAi.getState().appendMessage('Tasks', user(`m${i}`));
-    const chat = useAi.getState().chats.Tasks;
+      useAi.getState().appendMessage('Workout', user(`m${i}`));
+    const chat = useAi.getState().chats.Workout;
     expect(chat).toHaveLength(CHAT_CAP);
     expect(chat[0].id).toBe('m5');
-    expect(useAi.getState().chats.Workout).toEqual([]);
   });
 
   it('drop a proposal once no message points at it', () => {
@@ -111,7 +110,8 @@ describe('rehydration', () => {
             ],
           },
         ],
-        Tasks: 'not a list',
+        // A 2.x chat about another log: not this app's, so not kept.
+        Tasks: [{ id: 'other', role: 'user', text: 'habits?', at: '2026-01-01T00:00:00Z' }],
       },
       proposals: { junk: { proposal: { kind: 'new', rows: [] } } },
       unseenRoutineIds: ['r1', 7],
@@ -120,7 +120,7 @@ describe('rehydration', () => {
     expect(clean.chats.Workout.map((m) => m.id)).toEqual(['ok', 'ans']);
     const answer = clean.chats.Workout[1];
     expect(answer.role === 'model' && answer.blocks).toEqual([{ type: 'text', text: 'kept' }]);
-    expect(clean.chats.Tasks).toEqual([]);
+    expect(Object.keys(clean.chats)).toEqual(['Workout']);
     expect(clean.proposals).toEqual({});
     expect(clean.unseenRoutineIds).toEqual(['r1']);
   });
@@ -149,20 +149,20 @@ describe('the history of past chats', () => {
   });
 
   it('files nothing for a chat nobody asked anything in', () => {
-    useAi.getState().clearChat('Tasks');
-    expect(useAi.getState().archive.Tasks).toEqual([]);
+    useAi.getState().clearChat('Workout');
+    expect(useAi.getState().archive.Workout).toEqual([]);
   });
 
   it('reopens a past chat, and files the open one in its place', () => {
     const store = useAi.getState();
-    store.appendMessage('Tasks', user('old', 'Old question'));
-    useAi.getState().clearChat('Tasks');
-    const oldId = useAi.getState().archive.Tasks[0].id;
-    useAi.getState().appendMessage('Tasks', user('new', 'New question'));
-    useAi.getState().openArchived('Tasks', oldId);
+    store.appendMessage('Workout', user('old', 'Old question'));
+    useAi.getState().clearChat('Workout');
+    const oldId = useAi.getState().archive.Workout[0].id;
+    useAi.getState().appendMessage('Workout', user('new', 'New question'));
+    useAi.getState().openArchived('Workout', oldId);
     const { chats, archive } = useAi.getState();
-    expect(chats.Tasks.map((m) => m.id)).toEqual(['old']);
-    expect(archive.Tasks.map((c) => c.title)).toEqual(['New question']);
+    expect(chats.Workout.map((m) => m.id)).toEqual(['old']);
+    expect(archive.Workout.map((c) => c.title)).toEqual(['New question']);
   });
 
   it('deletes one, and with it any proposal only it pointed at', () => {
@@ -214,23 +214,19 @@ describe('the history of past chats', () => {
   });
 
   it('returns null for a past chat that is not there', () => {
-    expect(useAi.getState().deleteArchived('Tasks', 'nope')).toBeNull();
+    expect(useAi.getState().deleteArchived('Workout', 'nope')).toBeNull();
   });
 
   it('survives a relaunch, and caps how many it keeps', () => {
     for (let i = 0; i < ARCHIVE_CAP + 3; i += 1) {
-      useAi.getState().appendMessage('Expenses', user(`q${i}`, `Q${i}`));
-      useAi.getState().clearChat('Expenses');
+      useAi.getState().appendMessage('Workout', user(`q${i}`, `Q${i}`));
+      useAi.getState().clearChat('Workout');
     }
     const blob = JSON.parse(JSON.stringify(useAi.getState()));
     const back = sanitizeAi(blob);
-    expect(back.archive.Expenses).toHaveLength(ARCHIVE_CAP);
-    expect(back.archive.Expenses[0].title).toBe(`Q${ARCHIVE_CAP + 2}`);
-    expect(sanitizeAi({ archive: 'junk' }).archive).toEqual({
-      Workout: [],
-      Tasks: [],
-      Expenses: [],
-    });
+    expect(back.archive.Workout).toHaveLength(ARCHIVE_CAP);
+    expect(back.archive.Workout[0].title).toBe(`Q${ARCHIVE_CAP + 2}`);
+    expect(sanitizeAi({ archive: 'junk' }).archive).toEqual({ Workout: [] });
   });
 });
 
@@ -307,12 +303,12 @@ describe('a settings-changes card', () => {
   });
 
   it('survives a relaunch exactly, status and all', () => {
-    useAi.getState().appendMessage('Tasks', answer('a1'));
-    useAi.getState().setChangesStatus('Tasks', 'a1', 'accepted');
+    useAi.getState().appendMessage('Workout', answer('a1'));
+    useAi.getState().setChangesStatus('Workout', 'a1', 'accepted');
     const back = roundTrip();
-    expect(blockOf(back.chats.Tasks[0])).toEqual({ ...changesBlock, status: 'accepted' });
-    useAi.getState().setChangesStatus('Tasks', 'a1', 'discarded');
-    expect(blockOf(roundTrip().chats.Tasks[0])).toMatchObject({ status: 'discarded' });
+    expect(blockOf(back.chats.Workout[0])).toEqual({ ...changesBlock, status: 'accepted' });
+    useAi.getState().setChangesStatus('Workout', 'a1', 'discarded');
+    expect(blockOf(roundTrip().chats.Workout[0])).toMatchObject({ status: 'discarded' });
   });
 
   it('rehydrates a damaged card to what Apply can read, or drops it', () => {

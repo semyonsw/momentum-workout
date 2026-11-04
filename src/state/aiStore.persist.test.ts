@@ -49,8 +49,8 @@ const proposal: ReviewProposal = {
 beforeEach(async () => {
   useAi.setState({
     ...sanitizeAi({}),
-    pending: { Workout: false, Tasks: false, Expenses: false },
-    retrying: { Workout: false, Tasks: false, Expenses: false },
+    pending: { Workout: false },
+    retrying: { Workout: false },
   });
   await AsyncStorage.removeItem('ai');
 });
@@ -105,11 +105,6 @@ describe('a question in flight', () => {
     expect(useAi.getState().retrying.Workout).toBe(false);
   });
 
-  it('starting one leaves another section alone', () => {
-    useAi.getState().setPending('Tasks', true);
-    expect(useAi.getState().pending).toEqual({ Workout: false, Tasks: true, Expenses: false });
-  });
-
   it('is not written to disk — a killed app is not waiting for anything', async () => {
     useAi.getState().appendMessage('Workout', user('q'));
     useAi.getState().setPending('Workout', true);
@@ -119,14 +114,14 @@ describe('a question in flight', () => {
   });
 
   it('blocks reopening a past chat, so the answer cannot land in the wrong one', () => {
-    useAi.getState().appendMessage('Tasks', user('old', 'Old'));
-    useAi.getState().clearChat('Tasks');
-    const id = useAi.getState().archive.Tasks[0].id;
-    useAi.getState().appendMessage('Tasks', user('now', 'Now'));
-    useAi.getState().setPending('Tasks', true);
-    useAi.getState().openArchived('Tasks', id);
-    expect(useAi.getState().chats.Tasks.map((m) => m.id)).toEqual(['now']);
-    expect(useAi.getState().archive.Tasks).toHaveLength(1);
+    useAi.getState().appendMessage('Workout', user('old', 'Old'));
+    useAi.getState().clearChat('Workout');
+    const id = useAi.getState().archive.Workout[0].id;
+    useAi.getState().appendMessage('Workout', user('now', 'Now'));
+    useAi.getState().setPending('Workout', true);
+    useAi.getState().openArchived('Workout', id);
+    expect(useAi.getState().chats.Workout.map((m) => m.id)).toEqual(['now']);
+    expect(useAi.getState().archive.Workout).toHaveLength(1);
   });
 });
 
@@ -178,14 +173,13 @@ describe('restoring from a backup', () => {
     const count = useAi.getState().importChats({
       model: 'gemini-theirs',
       status: 'error',
-      chats: { Tasks: [user('there')] },
-      archive: { Expenses: [{ id: 'c1', messages: [user('past')] }] },
+      chats: { Workout: [user('there')] },
+      archive: { Workout: [{ id: 'c1', messages: [user('past')] }] },
     });
     expect(count).toBe(2);
     const state = useAi.getState();
-    expect(state.chats.Workout).toEqual([]);
-    expect(state.chats.Tasks.map((m) => m.id)).toEqual(['there']);
-    expect(state.archive.Expenses.map((c) => c.id)).toEqual(['c1']);
+    expect(state.chats.Workout.map((m) => m.id)).toEqual(['there']);
+    expect(state.archive.Workout.map((c) => c.id)).toEqual(['c1']);
     expect(state).toMatchObject({ model: 'gemini-mine', status: 'ready' });
   });
 
@@ -208,7 +202,6 @@ describe('the conversations survive a relaunch', () => {
     useAi.getState().appendMessage('Workout', user('q2', 'And arms?'));
     useAi.getState().putProposal('p2', proposal);
     useAi.getState().appendMessage('Workout', model('a2', 'p2'));
-    useAi.getState().appendMessage('Expenses', user('q3', 'Where did it go?'));
     useAi.getState().markRoutineAi('r1');
 
     const before = sanitizeAi(useAi.getState());
@@ -223,7 +216,7 @@ describe('the conversations survive a relaunch', () => {
     expect(useAi.getState()).toMatchObject({
       model: DEFAULT_MODEL,
       status: 'off',
-      chats: { Workout: [], Tasks: [], Expenses: [] },
+      chats: { Workout: [] },
       proposals: {},
     });
   });

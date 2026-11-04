@@ -10,13 +10,12 @@ import {
   type CurrentValues,
 } from './aiChanges';
 import type { Exercise } from '../../types/models';
-import type { Task } from '../tasks';
 
 /**
  * The settings card, from what the model wrote to what Apply writes. The model's
  * items are untrusted, so every test here is a shape it could send — and the
  * rule is the one every suggestion keeps: an id the context never named, a field
- * the exercise cannot take, a change for another section, is dropped, never
+ * the exercise cannot take, a target the app does not have, is dropped, never
  * forced; a number is held to its own editor's range.
  */
 
@@ -65,29 +64,8 @@ const DIPS = exercise({ id: 'ex_dips', name: 'Dips', countToMax: true, defaultCo
 const OLD = exercise({ id: 'ex_old', name: 'Old row', isArchived: true });
 const EXERCISES = [BENCH, PULL, PLANK, DIPS, OLD];
 
-type TaskRow = Pick<Task, 'id' | 'name' | 'schedule' | 'target' | 'archivedAt'>;
-const TASKS: TaskRow[] = [
-  {
-    id: 't_read',
-    name: 'Read',
-    schedule: { kind: 'daily' },
-    target: { count: 20, unit: 'pages' },
-    archivedAt: null,
-  },
-  { id: 't_run', name: 'Run', schedule: { kind: 'weekdays', days: [0, 2] }, archivedAt: null },
-  { id: 't_gone', name: 'Gone', schedule: { kind: 'daily' }, archivedAt: '2026-09-01T00:00:00Z' },
-];
-const CATEGORIES = [{ id: 'c_food', name: 'Food' }];
-
-const ctx = (section: ChangeContext['section']): ChangeContext => ({
-  section,
-  exercises: EXERCISES,
-  tasks: TASKS,
-  categories: CATEGORIES,
-});
-const workout = (items: unknown[]) => validateChanges(items, ctx('Workout'));
-const tasks = (items: unknown[]) => validateChanges(items, ctx('Tasks'));
-const expenses = (items: unknown[]) => validateChanges(items, ctx('Expenses'));
+const ctx: ChangeContext = { exercises: EXERCISES };
+const workout = (items: unknown[]) => validateChanges(items, ctx);
 
 /** The one change an item validates to, or undefined. */
 const one = (item: Record<string, unknown>) => workout([item])[0];
@@ -168,7 +146,7 @@ describe('exercise changes', () => {
     const blank = exercise({ id: 'ex_blank', name: 'Blank' });
     expect(
       validateChanges([{ target: 'exercise', id: 'ex_blank', field: 'ladder', on: true }], {
-        ...ctx('Workout'),
+        ...ctx,
         exercises: [blank],
       }),
     ).toEqual([]);
@@ -266,22 +244,16 @@ describe('app settings', () => {
   });
 });
 
-describe('each section changes its own things', () => {
-  const mixed = [
-    { target: 'exercise', id: 'ex_bench', field: 'rest', number: 60 },
-    { target: 'setting', field: 'auto_rest', on: true },
-    { target: 'task', id: 't_read', field: 'archive' },
-    { target: 'budget', id: 'c_food', field: 'monthly', number: 300 },
-  ];
-
-  it('the Workout chat: exercises and settings', () => {
+describe('only the training is changed', () => {
+  it('drops the targets the combined 2.x assistant had — a task, a budget, an amount', () => {
+    const mixed = [
+      { target: 'exercise', id: 'ex_bench', field: 'rest', number: 60 },
+      { target: 'setting', field: 'auto_rest', on: true },
+      { target: 'task', id: 't_read', field: 'archive' },
+      { target: 'budget', id: 'c_food', field: 'monthly', number: 300 },
+      { target: 'amount', id: 'c_food', field: 'add', number: 12 },
+    ];
     expect(workout(mixed).map((c) => c.target)).toEqual(['exercise', 'setting']);
-  });
-  it('the Tasks chat: tasks', () => {
-    expect(tasks(mixed).map((c) => c.target)).toEqual(['task']);
-  });
-  it('the Expenses chat: budgets', () => {
-    expect(expenses(mixed).map((c) => c.target)).toEqual(['budget']);
   });
 });
 
@@ -306,159 +278,13 @@ describe('the same thing twice in one card', () => {
     ]);
     expect(out).toHaveLength(3);
   });
-
-  it('one new task of a name, whatever its case', () => {
-    const out = tasks([
-      { target: 'task', field: 'add', text: 'Stretch' },
-      { target: 'task', field: 'add', text: 'stretch', number: 3 },
-    ]);
-    expect(out).toEqual([
-      { target: 'task', field: 'add', value: 'stretch', schedule: { kind: 'weekly', times: 3 } },
-    ]);
-  });
-});
-
-describe('tasks', () => {
-  const task = (item: Record<string, unknown>) =>
-    tasks([{ target: 'task', ...item }])[0] as Extract<AiChange, { target: 'task' }> | undefined;
-
-  it('add: a name, daily when nothing says otherwise', () => {
-    expect(task({ field: 'add', text: '  Drink  water ' })).toEqual({
-      target: 'task',
-      field: 'add',
-      value: 'Drink water',
-      schedule: { kind: 'daily' },
-    });
-    expect(task({ field: 'create', text: 'Meditate' })?.field).toBe('add');
-    expect(task({ field: 'new', text: '' })).toBeUndefined();
-    expect(task({ field: 'add' })).toBeUndefined();
-  });
-
-  it('add: days make weekdays, all seven make daily, a number makes N a week', () => {
-    expect(task({ field: 'add', text: 'Gym', days: [4, 0, 2, 2] })?.schedule).toEqual({
-      kind: 'weekdays',
-      days: [0, 2, 4],
-    });
-    expect(task({ field: 'add', text: 'Gym', days: [0, 1, 2, 3, 4, 5, 6] })?.schedule).toEqual({
-      kind: 'daily',
-    });
-    expect(task({ field: 'add', text: 'Gym', number: 3 })?.schedule).toEqual({
-      kind: 'weekly',
-      times: 3,
-    });
-    expect(task({ field: 'add', text: 'Gym', number: 7 })?.schedule).toEqual({ kind: 'daily' });
-    expect(task({ field: 'add', text: 'Gym', number: 12 })?.schedule).toEqual({ kind: 'daily' });
-    // Days that are not days are dropped; a number-ish string is read.
-    expect(task({ field: 'add', text: 'Gym', days: [7, -1, 1.5, '2', 'x'] })?.schedule).toEqual({
-      kind: 'weekdays',
-      days: [2],
-    });
-    // Nothing usable in days: falls back to daily.
-    expect(task({ field: 'add', text: 'Gym', days: [9] })?.schedule).toEqual({ kind: 'daily' });
-  });
-
-  it('add: refused when a live task already has the name; an archived one does not count', () => {
-    expect(task({ field: 'add', text: 'read' })).toBeUndefined();
-    expect(task({ field: 'add', text: ' READ ' })).toBeUndefined();
-    expect(task({ field: 'add', text: 'Gone' })?.value).toBe('Gone');
-  });
-
-  it('name: a new name only, on a live task the context named', () => {
-    expect(task({ id: 't_read', field: 'rename', text: 'Read a book' })).toEqual({
-      target: 'task',
-      id: 't_read',
-      field: 'name',
-      value: 'Read a book',
-    });
-    expect(task({ id: 't_read', field: 'name', text: 'Read' })).toBeUndefined();
-    expect(task({ id: 't_nope', field: 'name', text: 'X' })).toBeUndefined();
-    expect(task({ id: 't_gone', field: 'name', text: 'Back' })).toBeUndefined();
-    expect(task({ field: 'name', text: 'No id' })).toBeUndefined();
-  });
-
-  it('schedule: days, a number, or the word daily — nothing is no change', () => {
-    expect(task({ id: 't_read', field: 'schedule', days: [1, 3] })?.schedule).toEqual({
-      kind: 'weekdays',
-      days: [1, 3],
-    });
-    expect(task({ id: 't_run', field: 'schedule', text: 'daily' })?.schedule).toEqual({
-      kind: 'daily',
-    });
-    expect(task({ id: 't_run', field: 'schedule', text: 'every day' })?.schedule).toEqual({
-      kind: 'daily',
-    });
-    expect(task({ id: 't_run', field: 'schedule', number: 2 })?.schedule).toEqual({
-      kind: 'weekly',
-      times: 2,
-    });
-    expect(task({ id: 't_run', field: 'schedule', days: [0, 1, 2, 3, 4, 5, 6] })?.schedule).toEqual(
-      { kind: 'daily' },
-    );
-    expect(task({ id: 't_run', field: 'schedule' })).toBeUndefined();
-    expect(task({ id: 't_run', field: 'schedule', number: 0 })).toBeUndefined();
-  });
-
-  it('target: a count with its unit; zero removes one that is there', () => {
-    expect(task({ id: 't_run', field: 'target', number: 8, text: 'glasses' })).toEqual({
-      target: 'task',
-      id: 't_run',
-      field: 'target',
-      value: 8,
-      unit: 'glasses',
-    });
-    // No unit said: the one it has.
-    expect(task({ id: 't_read', field: 'target', number: 30 })?.unit).toBe('pages');
-    expect(task({ id: 't_run', field: 'target', number: 5 })?.unit).toBe('');
-    expect(task({ id: 't_read', field: 'target', number: 5000 })?.value).toBe(999);
-    expect(task({ id: 't_read', field: 'target', number: 0 })?.value).toBeNull();
-    // Nothing to remove.
-    expect(task({ id: 't_run', field: 'target', number: 0 })).toBeUndefined();
-    expect(task({ id: 't_run', field: 'target' })).toBeUndefined();
-  });
-
-  it('archive: on a live task', () => {
-    expect(task({ id: 't_run', field: 'stop' })).toEqual({
-      target: 'task',
-      id: 't_run',
-      field: 'archive',
-      value: true,
-    });
-    expect(task({ id: 't_gone', field: 'archive' })).toBeUndefined();
-  });
-});
-
-describe('budgets', () => {
-  const budget = (item: Record<string, unknown>) => expenses([{ target: 'budget', ...item }])[0];
-
-  it('a whole number on an expense category the context named', () => {
-    expect(budget({ id: 'c_food', field: 'monthly', number: 299.6 })).toEqual({
-      target: 'budget',
-      id: 'c_food',
-      field: 'monthly',
-      value: 300,
-    });
-    expect(budget({ id: 'c_food', field: 'Budget', number: '150' })?.value).toBe(150);
-    // Zero is "no budget" — a request too.
-    expect(budget({ id: 'c_food', field: 'monthly', number: 0 })?.value).toBe(0);
-  });
-
-  it('refuses an income category (never in the context), a negative, a wrong field', () => {
-    expect(budget({ id: 'c_salary', field: 'monthly', number: 300 })).toBeUndefined();
-    expect(budget({ id: 'c_food', field: 'monthly', number: -1 })).toBeUndefined();
-    expect(budget({ id: 'c_food', field: 'limit', number: 300 })).toBeUndefined();
-    expect(budget({ id: 'c_food', field: 'monthly' })).toBeUndefined();
-  });
 });
 
 /* ------------------------------------------------------------------ */
 
 const NOW: CurrentValues = {
   exercises: EXERCISES,
-  tasks: TASKS,
-  categories: [...CATEGORIES, { id: 'c_fun', name: 'Fun' }],
   settings: { restSecondsBetweenSets: 90, restSecondsBetweenExercises: 120, autoStartRest: true },
-  budgets: { c_food: 400 },
-  formatMoney: (value) => `$${value}`,
 };
 const rows = (changes: AiChange[]) => describeChanges(changes, NOW, 'en');
 const ex = (id: string, field: string, value: unknown): AiChange =>
@@ -520,64 +346,8 @@ describe('what the card says', () => {
     ]);
   });
 
-  it('budgets: a change, a first one, a removal', () => {
-    const out = rows([
-      { target: 'budget', id: 'c_food', field: 'monthly', value: 300 },
-      { target: 'budget', id: 'c_fun', field: 'monthly', value: 50 },
-      { target: 'budget', id: 'c_food', field: 'monthly', value: 0 },
-    ]);
-    expect(out.map(({ subject, from, to }) => [subject, from, to])).toEqual([
-      ['Food', '$400', '$300'],
-      ['Fun', '', '$50'],
-      ['Food', '$400', 'None'],
-    ]);
-  });
-
-  it('tasks: add, rename, schedule, target, archive', () => {
-    const out = rows([
-      { target: 'task', field: 'add', value: 'Stretch', schedule: { kind: 'weekly', times: 3 } },
-      { target: 'task', field: 'add', value: 'Floss' },
-      { target: 'task', id: 't_read', field: 'name', value: 'Read a book' },
-      {
-        target: 'task',
-        id: 't_run',
-        field: 'schedule',
-        value: null,
-        schedule: { kind: 'daily' },
-      },
-      {
-        target: 'task',
-        id: 't_read',
-        field: 'schedule',
-        value: null,
-        schedule: { kind: 'weekdays', days: [0, 4] },
-      },
-      { target: 'task', id: 't_read', field: 'target', value: 30, unit: 'pages' },
-      { target: 'task', id: 't_read', field: 'target', value: null },
-      { target: 'task', id: 't_run', field: 'target', value: 5, unit: '' },
-      { target: 'task', id: 't_run', field: 'archive', value: true },
-    ]);
-    expect(out.map(({ subject, label, from, to }) => [subject, label, from, to])).toEqual([
-      ['Stretch', 'New task', '', '3× a week'],
-      ['Floss', 'New task', '', 'Every day'],
-      ['Read', 'Name', 'Read', 'Read a book'],
-      ['Run', 'Schedule', 'Mon Wed', 'Every day'],
-      ['Read', 'Schedule', 'Every day', 'Mon Fri'],
-      ['Read', 'Daily target', '20 pages', '30 pages'],
-      ['Read', 'Daily target', '20 pages', 'None'],
-      ['Run', 'Daily target', 'None', '5'],
-      ['Run', 'Stop this task', '', 'Archived'],
-    ]);
-  });
-
   it('draws no row for something that is not there', () => {
-    expect(
-      rows([
-        ex('ex_nope', 'sets', 4),
-        { target: 'budget', id: 'c_nope', field: 'monthly', value: 10 },
-        { target: 'task', id: 't_nope', field: 'archive', value: true },
-      ]),
-    ).toEqual([]);
+    expect(rows([ex('ex_nope', 'sets', 4)])).toEqual([]);
   });
 
   it('is translated', () => {

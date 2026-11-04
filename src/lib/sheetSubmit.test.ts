@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { sheetNumber, taskSavable } from './sheetSubmit';
+import { sheetNumber } from './sheetSubmit';
 
 /**
  * U8: the return key saves when — and only when — the button would. These are
@@ -44,22 +44,5 @@ describe('sheetNumber — what NumberSheet’s return and Save accept', () => {
     expect(sheetNumber('62.55', { decimal: true })).toBeNull();
     expect(sheetNumber('.5', { decimal: true })).toBeNull();
     expect(sheetNumber('6.2.5', { decimal: true })).toBeNull();
-  });
-});
-
-describe('taskSavable — what the task editor’s return and Save accept', () => {
-  it('needs a name', () => {
-    expect(taskSavable('', null)).toBe(false);
-    expect(taskSavable('   ', null)).toBe(false);
-    expect(taskSavable('Stretch', null)).toBe(true);
-  });
-
-  it('needs at least one day when the days are picked', () => {
-    expect(taskSavable('Stretch', [])).toBe(false);
-    expect(taskSavable('Stretch', [2])).toBe(true);
-  });
-
-  it('ignores the day chips when they are not the schedule', () => {
-    expect(taskSavable('Stretch', null)).toBe(true);
   });
 });

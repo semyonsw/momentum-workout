@@ -10,7 +10,7 @@
  *   │ │          [▓▓ …     ] [▓▓ …      ]        │ │
  *   │ │ Custom · pick your own three   ● ● ●     │ │
  *   │ └──────────────────────────────────────────┘ │
- *   │ WORKOUT                                      │  ← this app's section
+ *   │ WORKOUT                                      │  ← the training's own row
  *   │ ┌──────────────────────────────────────────┐ │
  *   │ │ ▣ Workout settings                     › │ │
  *   │ └──────────────────────────────────────────┘ │
@@ -26,25 +26,19 @@
  * the whole app, and a picker that wrote per tap would close itself under the
  * thumb. The theme names are data in `lib/theme.ts` and go through `t()` here.
  *
- * ── ONE SECTION ROW, AND WHY IT IS THE WHOLE STRUCTURE ────────────────────
+ * ── ONE SECTION ROW ───────────────────────────────────────────────────────
  *
  * Settings used to be one scroll holding every log's preferences in whatever
  * order they were added, so the rest step and the plate list sat between the
- * user and anything about their money. A row per section fixed that: "where do
- * I change this" got the same answer as "which part of the app is it about".
- *
- * Since 3.0.0 each APK is ONE log (`lib/appVariant.ts`), so this screen leads
- * with that log's row and no other — `settingsRoutes` in `lib/discoverability`
- * and the copy in `lib/settingsScope.ts` decide which, by variant. The Workout
- * app still holds the 2.x tasks and money and their settings; they are not
- * offered here, and not deleted either. Everything below the row is shared by
- * all three apps: the assistant's key, the game layer, the backup, the reset.
+ * user and anything else. Everything about training is behind ONE row, `Workout
+ * settings`; what is left here is about the whole app: the look, the language,
+ * the assistant's key, the game layer, the backup, the reset.
  *
  * ── AND ONE OF EACH, UNDERNEATH ────────────────────────────────────────────
  *
  * There were eight data rows across this screen and three more elsewhere: a
  * whole-phone export, a CSV export, a replace, a merge, a CSV import, and an
- * export-and-import pair for each of the three sections. Every one of them
+ * export-and-import pair for each log the app then held. Every one of them
  * worked. Together they made the one that matters — everything, out to a file
  * you can read — just another row in a list of things to be careful about, and a
  * backup you have to choose between is a backup you put off.
@@ -52,14 +46,12 @@
  * So: one file holds the log and the settings. `Export everything` writes it,
  * `Replace everything from a file` reads it back, and `Reset every setting` puts
  * the preferences back to their defaults WITHOUT touching a single logged row.
- * The reset is here rather than in the section because it also resets the
- * shared ones — and, in a split app, it leaves every OTHER section's settings
- * exactly as they were (`settingsStore.resetToDefaults(variant)`).
+ * The reset is here rather than in Workout settings because it also resets the
+ * look and the language.
  *
  * ONE QUIET ROW MORE, for spreadsheets (M7): `Export a spreadsheet (CSV)` opens
- * a sheet offering this app's log (`csvExports`: the workouts, or the amounts;
- * the Tasks app has no CSV and so no row). One row and a sheet rather than a row
- * per log, so the data card still reads as one export, one import; muted rather
+ * a sheet offering the workouts, one row per set. A row and a sheet, so the data
+ * card still reads as one export, one import; muted rather
  * than green, because it is a way to READ the log in a spreadsheet, not a way to
  * keep it — a CSV restores nothing, and there is no CSV import (`lib/csv.ts`).
  *
@@ -117,7 +109,7 @@ import {
 } from '../components/primitives';
 import { LevelSheet } from '../components/LevelSheet';
 import { useBadges, useLevel } from '../hooks/useEngagement';
-import { formatValue } from '../lib/money';
+import { formatValue } from '../lib/units';
 import { describeNextLevel } from '../lib/xp';
 import { describeGallery } from '../lib/achievements';
 import { engagementOn, engagementView } from '../lib/engagement';
@@ -141,17 +133,6 @@ import {
   saveCsvFile,
 } from '../lib/backupFile';
 import { csvBaseName } from '../lib/csv';
-import { APP_VARIANT } from '../lib/appVariant';
-import { settingsRoutes, type SectionSettingsRoute } from '../lib/discoverability';
-import {
-  backupHoldsNote,
-  csvExports,
-  replaceNote,
-  resetConfirmBody,
-  resetNote,
-  sectionRowCopy,
-  type CsvKind,
-} from '../lib/settingsScope';
 import { useLanguage, useT } from '../hooks/useT';
 import { commit, tap } from '../lib/feedback';
 import { LANGUAGES, LANGUAGE_LABELS, LANGUAGE_NAMES, type Language } from '../lib/i18n';
@@ -185,48 +166,21 @@ interface Status {
  * Read at the moment it is needed rather than subscribed to: it is only ever used
  * inside a sentence about something the user just did, and a count that re-rendered
  * this screen on every logged set would be a subscription bought for nothing.
- *
- * Two countings, because a backup and a restore no longer cover the same ground:
- * the Workout app's file still carries the 2.x tasks and money (`backupSlices`),
- * but a restore replaces only this app's own section. "Backed up …" counts what
- * went into the file; "This phone has …, and all of it goes" counts only what
- * the import would actually replace.
  */
 function onThisPhone(): BackupCounts {
   return countPayload(currentSnapshot());
 }
 
-function replacedByImport(): BackupCounts {
-  return restorableCounts(APP_VARIANT);
-}
+/** What a backup holds, said under the backup rows. */
+const BACKUP_HOLDS =
+  'A backup is plain JSON, so you can read it, keep it anywhere, and move it to another phone. It holds your training and every setting.';
 
-/** Each section's settings row: its label and the nav bar's own glyph for it. */
-const SECTION_ROW: Record<SectionSettingsRoute, { label: string; symbol: SymbolName }> = {
-  workoutSettings: { label: 'Workout settings', symbol: 'fitness_center' },
-  taskSettings: { label: 'Daily tasks settings', symbol: 'task_alt' },
-  moneySettings: { label: 'Finance settings', symbol: 'account_balance_wallet' },
-};
-
-/** The CSV sheet's rows, drawn only for the kinds this app offers. */
-const CSV_ROW: Record<CsvKind, { label: string; detail: string }> = {
-  amounts: {
-    label: 'Export amounts (CSV)',
-    detail: 'One row per amount, transfers included.',
-  },
-  workouts: {
-    label: 'Export workouts (CSV)',
-    detail: 'One row per set, warm-ups marked.',
-  },
-};
+/** The sentence after `Replace everything`. */
+const REPLACE_NOTE =
+  'makes this phone look like the file, so export first if there is anything here you would miss. A backup from Momentum 2.x also holds daily tasks and finance; this app reads only the training from it. A workout in progress is not part of a backup: it carries a running clock.';
 
 interface SettingsHomeScreenProps {
-  /**
-   * All three stay in the props so one shell can wire every app the same way;
-   * only the one `settingsRoutes(APP_VARIANT)` names is ever drawn.
-   */
   onOpenWorkoutSettings: () => void;
-  onOpenTaskSettings: () => void;
-  onOpenMoneySettings: () => void;
   /** `AI assistant` — the key, the model, the test. */
   onOpenAiSettings: () => void;
   /** E1: the badge gallery. Only reachable while the Wave 3 switch is on. */
@@ -235,8 +189,6 @@ interface SettingsHomeScreenProps {
 
 export function SettingsHomeScreen({
   onOpenWorkoutSettings,
-  onOpenTaskSettings,
-  onOpenMoneySettings,
   onOpenAiSettings,
   onOpenAchievements,
 }: SettingsHomeScreenProps) {
@@ -244,13 +196,6 @@ export function SettingsHomeScreen({
   const t = useT();
   const language = useLanguage();
   const bars = useBarInsets();
-  const open: Record<SectionSettingsRoute, () => void> = {
-    workoutSettings: onOpenWorkoutSettings,
-    taskSettings: onOpenTaskSettings,
-    moneySettings: onOpenMoneySettings,
-  };
-  const rowCopy = sectionRowCopy(APP_VARIANT);
-  const csvKinds = csvExports(APP_VARIANT);
 
   const [status, setStatus] = useState<Status | null>(null);
   /**
@@ -389,14 +334,14 @@ export function SettingsHomeScreen({
    * "backed up" over a file that cannot be restored would be the one lie this
    * screen must not tell.
    */
-  const exportCsv = async (kind: CsvKind) => {
+  const exportCsv = async () => {
     setChoosingCsv(false);
     if (busy) return;
     tap();
     setBusy(true);
     setStatus(null);
     try {
-      const outcome = await saveCsvFile(csvBaseName(kind), exportCsvText(kind), language);
+      const outcome = await saveCsvFile(csvBaseName(), exportCsvText(), language);
       if (!outcome.saved) {
         setStatus({ tone: 'quiet', text: t('No folder picked, so nothing was saved.') });
         return;
@@ -557,24 +502,16 @@ export function SettingsHomeScreen({
             )}
           </Text>
 
-          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t(rowCopy.kicker)}</Kicker>
-          {/* The row that IS the app, behind its section's mark — the same
-              Material Symbol the nav bar draws for it. One since 3.0.0: the
-              other two sections are other apps (`settingsRoutes`). Still a
-              list, split by hairlines inset 68 so they start where the words
-              do, in case a variant ever has more than one. */}
+          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('Workout')}</Kicker>
+          {/* The row that IS the app, behind the training's mark — the same
+              Material Symbol the nav bar draws for it. */}
           <GlassSurface tier="card" radius={radius.row} shadow="e1" flat className="mx-lg">
-            {settingsRoutes(APP_VARIANT).map((route, index) => (
-              <View key={route}>
-                {index > 0 ? <View className="ml-[68px] h-hairline bg-hairline" /> : null}
-                <SectionRow
-                  label={t(SECTION_ROW[route].label)}
-                  hint={t(rowCopy.hint)}
-                  symbol={SECTION_ROW[route].symbol}
-                  onPress={open[route]}
-                />
-              </View>
-            ))}
+            <SectionRow
+              label={t('Workout settings')}
+              hint={t('Rest, plates, weekly targets')}
+              symbol="fitness_center"
+              onPress={onOpenWorkoutSettings}
+            />
           </GlassSurface>
 
           {/* THE ASSISTANT, between the section it reads and the general
@@ -685,20 +622,15 @@ export function SettingsHomeScreen({
               onPress={() => void importEverything()}
             />
             <Separator inset={0} />
-            {/* Muted: a way to READ the log elsewhere, not a way to keep it.
-                Absent in an app whose log has no spreadsheet (`csvExports`). */}
-            {csvKinds.length > 0 ? (
-              <>
-                <TextButton
-                  label={t('Export a spreadsheet (CSV)')}
-                  onPress={() => {
-                    tap();
-                    setChoosingCsv(true);
-                  }}
-                />
-                <Separator inset={0} />
-              </>
-            ) : null}
+            {/* Muted: a way to READ the log elsewhere, not a way to keep it. */}
+            <TextButton
+              label={t('Export a spreadsheet (CSV)')}
+              onPress={() => {
+                tap();
+                setChoosingCsv(true);
+              }}
+            />
+            <Separator inset={0} />
           </GlassSurface>
 
           {status ? (
@@ -713,15 +645,16 @@ export function SettingsHomeScreen({
           ) : null}
 
           <Text className="mx-lg mt-md text-label text-ink-faint">
-            {t(backupHoldsNote(APP_VARIANT))}{' '}
+            {t(BACKUP_HOLDS)}{' '}
             {t('Your AI chats and past chats travel with it too; the AI key never does.')}{' '}
-            <Text className="text-ink-muted">{t('Replace everything')}</Text>{' '}
-            {t(replaceNote(APP_VARIANT))}
+            <Text className="text-ink-muted">{t('Replace everything')}</Text> {t(REPLACE_NOTE)}
           </Text>
 
           <Text className="mx-lg mt-md text-label text-ink-faint">
             <Text className="text-ink-muted">{t('Reset every setting')}</Text>{' '}
-            {t(resetNote(APP_VARIANT))}
+            {t(
+              'puts this app’s settings back to their defaults at once. It does not touch a single thing you have logged — not an exercise, not a routine, not a workout.',
+            )}
           </Text>
 
           {/* THE FOOT OF THE SCREEN (U19): the one action here that cannot be
@@ -773,7 +706,7 @@ export function SettingsHomeScreen({
               counts: describeCounts(pending.counts, language),
             }),
             t('This phone has {counts}, and all of it goes.', {
-              counts: describeCounts(replacedByImport(), language),
+              counts: describeCounts(restorableCounts(), language),
             }),
             t('This cannot be undone.'),
           ].join(' ')}
@@ -788,13 +721,13 @@ export function SettingsHomeScreen({
         <ConfirmSheet
           tone="danger"
           title={t('Reset every setting?')}
-          body={t(resetConfirmBody(APP_VARIANT))}
+          body={t(
+            'Every duration, switch, target and default in this app goes back to how it shipped. Your exercises, routines, history, gyms and bodyweight are untouched.',
+          )}
           confirmLabel={t('Reset settings')}
           cancelLabel={t('Keep mine')}
           onConfirm={() => {
-            // This app's settings and the shared ones; another section's,
-            // hidden here, are kept (`sectionSettingsKept`).
-            settings.resetToDefaults(APP_VARIANT);
+            settings.resetToDefaults();
             setConfirmingReset(false);
             setStatus({ tone: 'ok', text: t('Every setting is back to its default.') });
           }}
@@ -805,16 +738,11 @@ export function SettingsHomeScreen({
       {choosingCsv ? (
         <Sheet title={t('Export as a spreadsheet')} onDismiss={() => setChoosingCsv(false)}>
           <View className="overflow-hidden rounded-surface bg-surface-alt">
-            {csvKinds.map((kind, index) => (
-              <View key={kind}>
-                {index > 0 ? <Separator inset={16} /> : null}
-                <ExportRow
-                  label={t(CSV_ROW[kind].label)}
-                  detail={t(CSV_ROW[kind].detail)}
-                  onPress={() => void exportCsv(kind)}
-                />
-              </View>
-            ))}
+            <ExportRow
+              label={t('Export workouts (CSV)')}
+              detail={t('One row per set, warm-ups marked.')}
+              onPress={() => void exportCsv()}
+            />
           </View>
           <Text className="mx-xs mt-md text-label text-ink-faint">
             {t(

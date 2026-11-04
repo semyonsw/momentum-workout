@@ -1,19 +1,6 @@
 /**
  * App entry — providers, the boundary, the notification handler, and the shell.
  *
- * ── ONE ENTRY, THREE APPS (3.0) ───────────────────────────────────────────
- *
- * This file is the entry of the Workout, Tasks and Expenses APKs alike
- * (`lib/appVariant.ts`), and the background work below is mounted only in the
- * app it belongs to — `mountsFor` in `lib/appEntry.ts` decides, so the rule is
- * tested for all three without a build. The session clock, the history re-read
- * and migration are the training log's, so Workout's; the budget alerts are the
- * money's, so Expenses'. The reminder sync runs everywhere and decides inside
- * `useReminders` which reminders are this app's. Backups and notifications are
- * every app's. Mounting them all everywhere would have been wasteful at best —
- * and at worst the Workout app, which still holds the old money on disk,
- * raising a budget alert for an app the user is not in.
- *
  * Everything about WHICH screen is showing lives in `src/navigation/AppShell`;
  * everything about WHAT the data is lives in the three stores under `src/state`
  * (the library and routines, the settings, the finished workouts).
@@ -43,8 +30,8 @@
  *     key, and it stays quiet either way: a migration that could not run tries
  *     again next launch, and a dialog on launch about a storage system the user has
  *     never heard of is worse than a History tab that fills itself in tomorrow.
- *   • the REMINDER SYNC, which makes Android's notification queue match the tasks
- *     that asked to speak and the workout schedule. Also here rather than in a
+ *   • the REMINDER SYNC, which makes Android's notification queue match the
+ *     workout schedule. Also here rather than in a
  *     screen, and also silent: a reminder that cannot be armed — no permission,
  *     exact alarms refused — must not become a dialog in front of somebody who
  *     opened the app to train, and the settings screen reports it instead.
@@ -89,12 +76,9 @@ import { reportRootHeight } from './src/hooks/useKeyboard';
 import { useSettings } from './src/state/settingsStore';
 import { prepareAudio } from './src/lib/beeper';
 import { rgbChannels, themeColors } from './src/lib/theme';
-import { APP_VARIANT } from './src/lib/appVariant';
-import { mountsFor } from './src/lib/appEntry';
 import { applyTheme } from './src/theme/tokens';
 import {
   REMINDER_KIND,
-  BUDGET_KIND,
   dismissTimerAlerts,
   ensureTimerChannels,
   notificationKind,
@@ -104,7 +88,6 @@ import { migrateHistoryIfNeeded, useWorkoutHistory } from './src/state/workoutHi
 import { useAutoBackup } from './src/hooks/useAutoBackup';
 import { useAutoRounds } from './src/hooks/useAutoRounds';
 import { useReminders } from './src/hooks/useReminders';
-import { useBudgetAlerts } from './src/hooks/useBudgetAlerts';
 import { useTimerAlerts } from './src/hooks/useTimerAlerts';
 import { useSetTimerCommit } from './src/hooks/useSetTimerCommit';
 
@@ -123,9 +106,9 @@ import { useSetTimerCommit } from './src/hooks/useSetTimerCommit';
  * background left the alert as a banner that vanished — a rest-over nobody
  * could find once they looked down).
  *
- * A REMINDER IS NOT A TIMER. It used to go through the same rule, so "Read
- * before sleep" firing at 22:30 while the app happened to be open was swallowed
- * whole — no banner, no list entry, nothing. Nothing on screen said it either:
+ * A REMINDER IS NOT A TIMER. It used to go through the same rule, so "Time to
+ * train" firing at 18:00 while the app happened to be open was swallowed whole —
+ * no banner, no list entry, nothing. Nothing on screen said it either:
  * the pill only counts rests. So a reminder always shows, whatever is in front.
  *
  * Wrapped because this runs at module scope, before any boundary exists. A throw
@@ -135,8 +118,7 @@ try {
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const kind = notificationKind(notification.request.content.data);
-      // A budget alert (M1) is a message too, raised by a save made in the app.
-      const reminder = kind === REMINDER_KIND || kind === BUDGET_KIND;
+      const reminder = kind === REMINDER_KIND;
       const foreground = AppState.currentState === 'active';
       const show = reminder || !foreground;
       return {
@@ -157,9 +139,6 @@ try {
  * replay it; only a cold start, which is a new process, can.
  */
 let launchPlayed = false;
-
-/** What this app mounts in the background — see `lib/appEntry.ts`. */
-const MOUNTS = mountsFor(APP_VARIANT);
 
 export default function App() {
   const [launching, setLaunching] = useState(() => !launchPlayed);
@@ -197,17 +176,16 @@ export default function App() {
      * equals the old one re-rendered every history subscriber and re-ran every
      * overload verdict in the middle of the launch animation, to learn nothing.
      */
-    if (MOUNTS.history && useWorkoutHistory.getState().loadFailed) {
+    if (useWorkoutHistory.getState().loadFailed) {
       useWorkoutHistory.getState().reloadHistory();
     }
     /*
      * Once, on the first launch after upgrading. In an effect rather than at module
      * scope because it is async and it touches two storage systems, and a side
      * effect that size hiding inside an import is how a launch crash becomes hard
-     * to place. Only the Workout app has a 0.10-era log to bring across: it is the
-     * one install that ever ran 0.10.
+     * to place.
      */
-    if (MOUNTS.history) void migrateHistoryIfNeeded();
+    void migrateHistoryIfNeeded();
 
     /*
      * Back in front: the timer alerts in the shade are stale news — the session
@@ -222,8 +200,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      {MOUNTS.reminders ? <Reminders /> : null}
-      {MOUNTS.budgetAlerts ? <BudgetAlerts /> : null}
+      <Reminders />
       <Themed>
         {(themeKey) => (
           <>
@@ -331,7 +308,7 @@ function Root() {
   if (asking && !chosen) return <LanguageChoiceScreen />;
   return (
     <>
-      {MOUNTS.sessionClock ? <SessionClock /> : null}
+      <SessionClock />
       <AppShell />
       {/* Above the shell, so it outlives whichever route is on top. */}
       <DebriefHost />
@@ -342,26 +319,14 @@ function Root() {
 /**
  * The reminder sync, mounted with `App` for the same reason the backup is: a
  * reminder the user set has to be armed on the launches where they never open
- * the tasks section, which is most of them. `hooks/useReminders.ts` has the rest.
+ * its settings, which is most of them. `hooks/useReminders.ts` has the rest.
  *
  * A sibling rendering nothing rather than a hook in `App`, because it subscribes
- * to the tasks and the settings — and in `App` every tick of a task re-rendered
- * the whole tree, shell and all, to arm a debounced timer.
+ * to the settings — and in `App` every change would re-render the whole tree,
+ * shell and all, to arm a debounced timer.
  */
 function Reminders() {
   useReminders();
-  return null;
-}
-
-/**
- * The budget alerts (M1), mounted beside the reminders for the same reason: an
- * amount saved anywhere — the keypad, a confirmed recurring payment — can be
- * the one that crosses 80%. Off unless a budget opted in. Expenses only: the
- * Workout app keeps the old money on disk, and an alert about it would be for
- * an app the user is not in.
- */
-function BudgetAlerts() {
-  useBudgetAlerts();
   return null;
 }
 

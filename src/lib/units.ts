@@ -332,3 +332,14 @@ export function formatVolumeKg(kg: number, lang: Language = 'en'): string {
   }
   return `${grouped} ${term('unit', 'kg', lang)}`;
 }
+
+/**
+ * `9,020` — a whole number with its thousands grouped, for the figures the app
+ * counts (XP, sets, tonnes). Always `en-US` grouping: a figure that changed its
+ * separator with the phone's locale would read differently on the same screen
+ * as the numbers the app formats itself.
+ */
+export function formatValue(value: number): string {
+  const rounded = Math.round(Math.abs(value));
+  return (value < 0 ? '-' : '') + rounded.toLocaleString('en-US');
+}

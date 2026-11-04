@@ -1,5 +1,5 @@
 /**
- * AiChatScreen — one section's conversation with the assistant.
+ * AiChatScreen — the conversation with the assistant.
  *
  *   ‹  AI · WORKOUT                                  +
  *      Gemini · reads your training log on this phone
@@ -11,15 +11,11 @@
  *   [Last 4 weeks] [Squat trend] [Suggest a routine] →
  *   ( Ask, or say what to change…                    ➤ )
  *
- * ── ONE CHAT PER SECTION, AND IT SAYS WHICH ────────────────────────────────
+ * ── ONE CHAT, AND IT SAYS WHAT IT READS ────────────────────────────────────
  *
- * One chat per log, because the context sent with a question is that log alone.
- * Since 3.0.0 each app is one log (`lib/appVariant.ts`), so each app has exactly
- * one of these chats — `lib/ai/aiScope.ts` names it, and `state/aiActions.ts`
- * refuses to ask or apply from any other. The Workout app's store still holds
- * the 2.x Tasks and Finance chats; they are kept, never opened here. The kicker
- * names the section and the line under it names what is read, so there is never
- * a question about what the assistant can see.
+ * The context sent with a question is the training log alone. The kicker names
+ * it and the line under it names what is read, so there is never a question
+ * about what the assistant can see.
  *
  * ── THE SCREEN IS COMPOSITION ──────────────────────────────────────────────
  *
@@ -58,7 +54,7 @@ import { dayKey, formatShortDay } from '../lib/days';
 import type { AiSection } from '../lib/ai/aiSchema';
 import { tap } from '../lib/feedback';
 import { liftedBottom } from '../lib/keyboard';
-import { discardChanges, discardSequence, sectionContext, sendMessage } from '../state/aiActions';
+import { chatContext, discardChanges, discardSequence, sendMessage } from '../state/aiActions';
 import { useAi, type AiMessage } from '../state/aiStore';
 import { glassTier, gradientFill, motion, palette, radius } from '../theme/tokens';
 
@@ -68,31 +64,12 @@ const COMPOSER_MAX_LINES = 4;
 /** The composer's foot above the gesture strip — or above the keyboard. */
 const COMPOSER_GAP = 12;
 
-const META: Record<
-  AiSection,
-  { kicker: string; line: string; title: string; body: string; placeholder: string }
-> = {
-  Workout: {
-    kicker: 'AI coach · Workout',
-    line: 'Reads your training log on this phone',
-    title: 'Ask about your training',
-    body: 'Answers come from your own log on this phone. It can also log your weight, fix a set that was really a warm-up, or show where anything is in the app. Nothing changes until you tap Apply. To talk instead of type, tap the mic on your keyboard.',
-    placeholder: 'Ask, or say what to change…',
-  },
-  Tasks: {
-    kicker: 'AI coach · Tasks',
-    line: 'Reads your task answers on this phone',
-    title: 'Ask about your habits',
-    body: 'Reads your daily tasks and how each day was answered, including the days you excused on purpose. Tell it what you did and it will tick the day for you once you tap Apply. The mic on your keyboard works here too.',
-    placeholder: 'Ask, or say what you did…',
-  },
-  Expenses: {
-    kicker: 'AI coach · Finance',
-    line: 'Reads your amounts on this phone',
-    title: 'Ask about your money',
-    body: 'Reads your amounts by day and month, with categories. Whole-month amounts like rent are counted per month, never per day. Say what you spent or earned and it will log it once you tap Apply. The mic on your keyboard works here too.',
-    placeholder: 'Ask, or say what you spent…',
-  },
+const META = {
+  kicker: 'AI coach · Workout',
+  line: 'Reads your training log on this phone',
+  title: 'Ask about your training',
+  body: 'Answers come from your own log on this phone. It can also log your weight, fix a set that was really a warm-up, or show where anything is in the app. Nothing changes until you tap Apply. To talk instead of type, tap the mic on your keyboard.',
+  placeholder: 'Ask, or say what to change…',
 };
 
 export interface AiChatScreenProps {
@@ -127,12 +104,12 @@ export function AiChatScreen({
   const lang = useLanguage();
   const plural = usePlural();
   const insets = useSafeAreaInsets();
-  const meta = META[section];
+  const meta = META;
   const messages = useAi((s) => s.chats[section]);
   const proposals = useAi((s) => s.proposals);
   const pending = useAi((s) => s.pending[section]);
   const retrying = useAi((s) => s.retrying[section]);
-  const prompts = useAiPrompts(section);
+  const prompts = useAiPrompts();
   /* Filled in by the composer, which owns the draft — see `Composer`. */
   const clearDraft = useRef<() => void>(() => undefined);
   const [showingHistory, setShowingHistory] = useState(false);
@@ -151,24 +128,12 @@ export function AiChatScreen({
   /* How much is being read, counted once per question rather than per render. */
   const reading = useMemo(() => {
     if (!pending) return '';
-    const count = sectionContext(section).count;
-    if (section === 'Workout') {
-      return t('Reading {count} {noun}…', {
-        count,
-        noun: plural(count, { one: t('workout'), few: 'тренировки', many: t('workouts') }),
-      });
-    }
-    if (section === 'Tasks') {
-      return t('Reading {count} {noun} of tasks…', {
-        count,
-        noun: plural(count, { one: t('day'), few: 'дня', many: t('days') }),
-      });
-    }
-    return t('Reading {count} {noun} of amounts…', {
+    const count = chatContext().count;
+    return t('Reading {count} {noun}…', {
       count,
-      noun: plural(count, { one: t('month'), few: 'месяца', many: t('months') }),
+      noun: plural(count, { one: t('workout'), few: 'тренировки', many: t('workouts') }),
     });
-  }, [pending, plural, section, t]);
+  }, [pending, plural, t]);
 
   const ask = (text: string) => {
     const question = text.trim();

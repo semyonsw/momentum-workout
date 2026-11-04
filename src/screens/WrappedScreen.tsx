@@ -53,18 +53,17 @@ import { useMotionScale } from '../hooks/useMotionScale';
 import { useT } from '../hooks/useT';
 import { useWrapped } from '../hooks/useWrapped';
 import { tap } from '../lib/feedback';
-import { APP_VARIANT } from '../lib/appVariant';
-import { launchBrand } from '../lib/launchReady';
+import { LAUNCH_BRAND } from '../lib/launchReady';
 import type { WrappedCard, WrappedPeriod, WrappedSummary } from '../lib/wrapped';
 import { curve, glass, motion, palette, radius, stopTint, tint } from '../theme/tokens';
 
 /*
  * The name on the story's header and on the summary card is the app's own, the
  * same untranslated name the launcher and the launch screen show. It said
- * "Momentum" while one app held all three logs; a Tasks Wrapped signed by a
- * name that is no longer on the phone would be a card from somewhere else.
+ * "Momentum" while one app held three logs; a card signed by a name that is no
+ * longer on the phone would be a card from somewhere else.
  */
-const APP_NAME = launchBrand(APP_VARIANT).wordmark;
+const APP_NAME = LAUNCH_BRAND.wordmark;
 
 /** The share of the width that steps BACK; the rest steps on. */
 const BACK_ZONE = 0.35;

@@ -60,13 +60,9 @@ import {
   updateGym,
   type Gym,
 } from '../lib/gyms';
-import { formatClockTime, parseClockTime, parseDay, weekStart } from '../lib/days';
+import { formatClockTime, parseClockTime, parseDay, weekStart, type Weekday } from '../lib/days';
 import { AI_SECTIONS, type AiSection } from '../lib/ai/aiSchema';
-import { hasSection, type AppVariant } from '../lib/appVariant';
 import { usableLanguage, type Language } from '../lib/i18n';
-import { INTERVALS, type Direction, type Interval } from '../lib/money';
-import type { Weekday } from '../lib/tasks';
-import { TREND_RANGES, type TrendRange } from '../lib/trends';
 import { usableEngagement } from '../lib/engagement';
 import { milestoneAfterSave, usableMilestone } from '../lib/milestones';
 import {
@@ -230,17 +226,6 @@ export interface Settings {
   /** `HH:MM`, 24-hour. The wheel writes it; `lib/reminders.ts` reads it. */
   workoutReminderTime: string;
 
-  /* --- the daily tasks: see `screens/TaskSettingsScreen.tsx` ---------- */
-  /**
-   * Let the rest of the app answer the two tasks it can answer.
-   *
-   * Finishing a workout ticks the training task; recording an amount ticks the
-   * money one (`tickTaskSource`). ON by default, because a tick you did not have
-   * to give is the whole reason those two tasks are worth having — and OFF is a
-   * real preference: a tick nobody can account for is a tick you stop trusting,
-   * and somebody who wants the row to mean "I said so" can have that.
-   */
-  autoTickTasks: boolean;
   /**
    * One-time tips, each shown until it is answered once (redesign #1, #7): the
    * set-type legend above the first set rows, and "the workout keeps running"
@@ -249,28 +234,6 @@ export interface Settings {
    */
   seenSetTypeTip: boolean;
   seenLeaveRunningTip: boolean;
-  /** Which range the task history opens on. A default, not a lock. */
-  tasksTrendRange: TrendRange;
-
-  /* --- the expenses: see `screens/MoneySettingsScreen.tsx` ------------ */
-  /**
-   * What the amounts are counted in, as a label.
-   *
-   * A LABEL AND NOT A RATE. Every amount is stored as a plain integer with no
-   * currency on it, and changing this does not convert anything — it changes the
-   * three letters printed after the number, which is the whole of what the app
-   * knows about money units. Converting would mean a rate, a date for that rate,
-   * and a second opinion about what last March's taxi cost; the app has none of
-   * those and is not going to invent them.
-   */
-  currencyCode: string;
-  /** The window the expenses section opens on. */
-  moneyDefaultInterval: Interval;
-  /** Which of the two tiles is selected when the section opens. */
-  moneyDefaultDirection: Direction;
-  /** Which range the expense history opens on. */
-  moneyTrendRange: TrendRange;
-
   /* --- automatic backup: see `lib/autoBackup.ts` --------------------- */
   /**
    * Rewrite the backup file after every change, without being asked.
@@ -414,23 +377,8 @@ export const DEFAULT_SETTINGS: Settings = {
   workoutReminderEnabled: false,
   workoutReminderDays: [0, 2, 4],
   workoutReminderTime: '18:00',
-  autoTickTasks: true,
   seenSetTypeTip: false,
   seenLeaveRunningTip: false,
-  tasksTrendRange: 'month',
-  currencyCode: 'AMD',
-  /*
-   * ONE DAY, not one month.
-   *
-   * The question this section is opened with is "what did I spend today" — it is
-   * asked on the way home from the shop, with the receipt still in a pocket, and
-   * a month total cannot answer it. The month is one tap away on the picker and
-   * the balance above it was never windowed at all, so nothing is hidden by this;
-   * what changes is which question the section answers before you touch it.
-   */
-  moneyDefaultInterval: 'day',
-  moneyDefaultDirection: 'expense',
-  moneyTrendRange: 'month',
   autoBackupEnabled: true,
   autoBackupFolderUri: undefined,
   shareToHealthConnect: false,
@@ -446,52 +394,6 @@ export const DEFAULT_SETTINGS: Settings = {
   weeklyWorkoutGoal: undefined,
   excusedWeeks: undefined,
 };
-
-/**
- * The settings that belong to ONE section — read only by that section's screens.
- * Everything not listed is shared (the look, the language, the backup, the game
- * layer) or a record the reset never touches anyway (the gyms, the logs).
- */
-export const SECTION_SETTING_KEYS: Record<AiSection, readonly (keyof Settings)[]> = {
-  Workout: [
-    'restSecondsBetweenSets',
-    'restSecondsBetweenExercises',
-    'prepareSeconds',
-    'beepSeconds',
-    'adjustStepSeconds',
-    'autoStartRest',
-    'soundEnabled',
-    'hapticsEnabled',
-    'keepAwakeEnabled',
-    'notifyOnTimerEnd',
-    'askAfterWorkout',
-    'ladderAllExercises',
-    'unitSystem',
-    'weeklySetTargets',
-    'workoutReminderEnabled',
-    'workoutReminderDays',
-    'workoutReminderTime',
-    'seenSetTypeTip',
-    'seenLeaveRunningTip',
-    'shareToHealthConnect',
-    'weeklyWorkoutGoal',
-  ],
-  Tasks: ['autoTickTasks', 'tasksTrendRange'],
-  Expenses: ['currencyCode', 'moneyDefaultInterval', 'moneyDefaultDirection', 'moneyTrendRange'],
-};
-
-/**
- * Which section settings a reset pressed in `variant` keeps: every section that
- * app does not show. Since 3.0.0 each APK is one section (`lib/appVariant.ts`),
- * and the Workout app still holds the 2.x tasks and money with their settings —
- * hidden, kept, and carried by its backup to the app that shows them. A reset
- * pressed to fix a rest timer must not quietly reprint those amounts in AMD.
- */
-export function sectionSettingsKept(variant: AppVariant): (keyof Settings)[] {
-  return AI_SECTIONS.filter((section) => !hasSection(variant, section)).flatMap((section) => [
-    ...SECTION_SETTING_KEYS[section],
-  ]);
-}
 
 /**
  * Allowed range per numeric setting, and the step the settings screen nudges by.
@@ -607,16 +509,8 @@ export function sanitizeSettings(input: Partial<Settings> | undefined | null): S
     workoutReminderEnabled: raw.workoutReminderEnabled === true,
     workoutReminderDays: sanitizeWeekdays(raw.workoutReminderDays),
     workoutReminderTime: usableClockTime(raw.workoutReminderTime),
-    autoTickTasks: raw.autoTickTasks !== false,
     seenSetTypeTip: raw.seenSetTypeTip === true,
     seenLeaveRunningTip: raw.seenLeaveRunningTip === true,
-    tasksTrendRange: usableRange(raw.tasksTrendRange),
-    currencyCode: usableCurrency(raw.currencyCode),
-    moneyDefaultInterval: INTERVALS.includes(raw.moneyDefaultInterval as Interval)
-      ? (raw.moneyDefaultInterval as Interval)
-      : DEFAULT_SETTINGS.moneyDefaultInterval,
-    moneyDefaultDirection: raw.moneyDefaultDirection === 'income' ? 'income' : 'expense',
-    moneyTrendRange: usableRange(raw.moneyTrendRange),
     autoBackupEnabled: raw.autoBackupEnabled !== false,
     autoBackupFolderUri: usableFolderUri(raw.autoBackupFolderUri),
     // `=== true`, not `!== false`: this one defaults OFF, so a device upgrading
@@ -708,26 +602,6 @@ function usableClockTime(value: unknown): string {
     : DEFAULT_SETTINGS.workoutReminderTime;
 }
 
-/** A trend range this build knows, or the middle one. */
-function usableRange(value: unknown): TrendRange {
-  return TREND_RANGES.includes(value as TrendRange) ? (value as TrendRange) : 'month';
-}
-
-/**
- * A currency label: up to four visible characters, trimmed, uppercased.
- *
- * Capped and not validated against a list, because the app does not convert and
- * therefore has no reason to care whether `AMD` is a real code — somebody
- * counting in `PTS` is counting in points, and that is their business. Empty
- * falls back to the default rather than printing a bare number, which would make
- * two different totals on the same screen indistinguishable.
- */
-function usableCurrency(value: unknown): string {
-  if (typeof value !== 'string') return 'AMD';
-  const trimmed = value.trim().toUpperCase().slice(0, 4);
-  return trimmed === '' ? 'AMD' : trimmed;
-}
-
 /**
  * Known sections, once each, in the app's own order — or `undefined` for none,
  * so a device that never dismissed a card writes no key at all.
@@ -758,7 +632,6 @@ interface SettingsState extends Settings {
       | 'notifyOnTimerEnd'
       | 'askAfterWorkout'
       | 'ladderAllExercises'
-      | 'autoTickTasks'
       | 'seenSetTypeTip'
       | 'seenLeaveRunningTip',
     value: boolean,
@@ -805,14 +678,6 @@ interface SettingsState extends Settings {
   /** A weekly set target for one cluster. `undefined` clears it. */
   setWeeklyTarget: (cluster: MuscleCluster, sets: number | undefined) => void;
 
-  /* --- the two sections that are not the training log ---------------- */
-  setTasksTrendRange: (range: TrendRange) => void;
-  /** The label after every amount. Sanitized, so a blank one cannot land. */
-  setCurrencyCode: (code: string) => void;
-  setMoneyDefaultInterval: (interval: Interval) => void;
-  setMoneyDefaultDirection: (direction: Direction) => void;
-  setMoneyTrendRange: (range: TrendRange) => void;
-
   /* --- automatic backup: see `lib/autoBackup.ts` --------------------- */
   setAutoBackupEnabled: (enabled: boolean) => void;
   /** Share finished workouts with Health Connect. Off unless granted. */
@@ -854,13 +719,8 @@ interface SettingsState extends Settings {
   /** E4: a Finish sheet that showed milestone `n` was saved. Never lowers it. */
   recordMilestone: (n: number) => void;
 
-  /**
-   * `Reset every setting`. With a variant — as Settings calls it — only that
-   * app's settings and the shared ones go back; every other section's are kept
-   * (`sectionSettingsKept`). Without one, everything goes, which is what the
-   * tests mean by a clean slate.
-   */
-  resetToDefaults: (variant?: AppVariant) => void;
+  /** `Reset every setting` — see the action for what it keeps. */
+  resetToDefaults: () => void;
   /**
    * Replace every setting from a restored backup.
    *
@@ -902,7 +762,7 @@ export const useSettings = create<SettingsState>()(
       /*
        * Turning it on with no days picked would arm a reminder that can never
        * fire, which reads on screen as the switch not working. Monday/Wednesday/
-       * Friday is the same default the shipped `Gym / Boxing` task carries.
+       * Friday: three days a week, evenly spread.
        */
       setWorkoutReminderEnabled: (workoutReminderEnabled) =>
         set({
@@ -974,18 +834,6 @@ export const useSettings = create<SettingsState>()(
         set({ weeklySetTargets: sanitizeWeeklyTargets(current) });
       },
 
-      setTasksTrendRange: (tasksTrendRange) => set({ tasksTrendRange }),
-
-      // Through the sanitizer rather than straight in: this one comes from a text
-      // field, and a blank label would print a bare number.
-      setCurrencyCode: (code) => set({ currencyCode: usableCurrency(code) }),
-
-      setMoneyDefaultInterval: (moneyDefaultInterval) => set({ moneyDefaultInterval }),
-
-      setMoneyDefaultDirection: (moneyDefaultDirection) => set({ moneyDefaultDirection }),
-
-      setMoneyTrendRange: (moneyTrendRange) => set({ moneyTrendRange }),
-
       setAutoBackupEnabled: (autoBackupEnabled) => set({ autoBackupEnabled }),
 
       setShareToHealthConnect: (shareToHealthConnect) => set({ shareToHealthConnect }),
@@ -1039,7 +887,7 @@ export const useSettings = create<SettingsState>()(
       setWeekExcused: (day, excused, today) =>
         set({ excusedWeeks: setWeekExcused(get().excusedWeeks, day, excused, today) }),
 
-      resetToDefaults: (variant) =>
+      resetToDefaults: () =>
         /*
          * The gyms, the bodyweight log and the granted folder are NOT settings in
          * the sense this button means. "Reset settings to defaults" is about the
@@ -1083,10 +931,6 @@ export const useSettings = create<SettingsState>()(
           // An excused week is a record of a week that happened, not a switch.
           // The goal itself IS a target, and goes back to three with the rest.
           excusedWeeks: get().excusedWeeks,
-          // Another app's settings, hidden here — see `sectionSettingsKept`.
-          ...(variant
-            ? Object.fromEntries(sectionSettingsKept(variant).map((key) => [key, get()[key]]))
-            : {}),
         }),
 
       importSettings: (raw) =>

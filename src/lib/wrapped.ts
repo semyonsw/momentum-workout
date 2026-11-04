@@ -1,19 +1,18 @@
 /**
- * Wrapped (X1): a month or a year of one app's log, told as a short run of
- * story cards — one fact a card, then a summary laid out to be kept.
+ * Wrapped (X1): a month or a year of training, told as a short run of story
+ * cards — one fact a card, then a summary laid out to be kept.
  *
  *   SEPTEMBER 2026        TONNAGE              BEST RECORD           SUMMARY
  *   Your month            61,480 kg            96.3 kg e1RM          ╭ 9:16 ──────╮
- *   13 workouts, 240      About as heavy as    Bench press ·         │ WORKOUTS 13│
- *   tasks done and 96     41 cars.             82.5 × 5 on 28 Sep.   │ TONNAGE …  │
- *   amounts.                                                         ╰────────────╯
+ *   13 workouts.          About as heavy as    Bench press ·         │ WORKOUTS 13│
+ *                         41 cars.             82.5 × 5 on 28 Sep.   │ TONNAGE …  │
+ *                                                                    ╰────────────╯
  *
  * ── WHAT EACH CARD IS ALLOWED TO SAY ──────────────────────────────────────
  *
- * The same house rule as the weekly review (`lib/weeklyReview.ts`): every figure
- * is something the logs can stand behind, and a card with nothing behind it is
- * NOT DRAWN — a Wrapped for somebody who only logs money is a Wrapped about
- * money, not three cards of zeros. The rules, one card at a time:
+ * Every figure is something the log can stand behind, and a card with nothing
+ * behind it is NOT DRAWN — a month with no records has no record card, not a
+ * card of zeros. The rules, one card at a time:
  *
  *  • TONNAGE is each workout's stored volume added up: working sets only (the
  *    warm-ups were never in it, see `sessionVolume`), on the load the body moved.
@@ -26,30 +25,8 @@
  *    everything before it: the T-09 rules (a bar must exist, ties are not records,
  *    the estimate ranks first, then the biggest jump). An exercise first done this
  *    month has no record in it.
- *  • LONGEST STREAK is `longestRunIn` (lib/tasks.ts) over every task, archived
- *    ones included for the days they asked. Two days at least: one done day is a
- *    day, not a streak.
- *  • TOP CATEGORY is expenses only, transfers out (`isSpending`), and here a
- *    whole-month amount (rent) DOES count — it belongs to its month, so a month's
- *    Wrapped that left it out would understate the month. The card says so.
  *  • BUSIEST WEEKDAY is read off the workouts when there are three or more of
- *    them, otherwise off the tasks (the weekday with the best done share); a
- *    period with neither has no card. Ties go to the weekday with more tasks
- *    done, then to the earlier one in a Monday-first week.
- *
- * ── ONE LOG PER APP ───────────────────────────────────────────────────────
- *
- * Written when one app held all three logs; since 3.0.0 each app's Wrapped is
- * its own log's (`variant` on the input, `scopeLogs` in `lib/variantScope.ts`):
- *
- *   Workout   title · tonnage · workouts · best record · busiest weekday
- *   Tasks     title · longest streak · busiest weekday (by tasks)
- *   Expenses  title · top category
- *
- * — each followed by the summary. No card changed to get there: the other logs
- * are handed in empty, and an empty log already drew no card. The Workout
- * app still stores the 2.x tasks and money; its Wrapped says nothing about
- * them, since it has no screen to show them on.
+ *    them; fewer has no card. Ties go to the earlier one in a Monday-first week.
  *
  * Rejected: a streak for training (IMPLEMENTATION_DECISIONS row 5 — none), and
  * any "you beat 87% of users": there are no other users, and nothing leaves the
@@ -58,7 +35,7 @@
  * ── WHEN IT IS OFFERED ────────────────────────────────────────────────────
  *
  * IMPLEMENTATION_DECISIONS, T-10: last month's is reachable from the histories at
- * any time, and from a Landing card during the first seven days of a month; the
+ * any time, and from a card during the first seven days of a month; the
  * year's is offered 1 December – 31 January (the current year in December, the
  * year just gone in January). `monthlyWrappedOffer` and `yearlyWrappedOffer` are
  * those two windows and nothing else — no dismissal to store, the card simply
@@ -67,7 +44,6 @@
  * Pure: the stores are read by `hooks/useWrapped.ts` and handed in.
  */
 
-import type { AppVariant } from './appVariant';
 import type { CompletedWorkout } from './completedWorkout';
 import {
   dayKey,
@@ -75,13 +51,10 @@ import {
   formatShortDay,
   pad,
   parseDay,
-  shiftDay,
   weekdayIndex,
   weekdayNames,
 } from './days';
 import { plural, t, type Language } from './i18n';
-import { formatValue, type Amount, type MoneyCategory } from './money';
-import { compactMoney, isSpending } from './moneyCalendar';
 import {
   recordSet,
   recordValue,
@@ -89,9 +62,7 @@ import {
   type BodyweightLookup,
   type SessionRecord,
 } from './records';
-import { asksOn, entryOf, isWeekly, longestRunIn, type Task, type TaskLog } from './tasks';
-import { formatClock, formatWeight, kgToLb, unitLabel } from './units';
-import { maybeScope } from './variantScope';
+import { formatClock, formatValue, formatWeight, kgToLb, unitLabel } from './units';
 import type { ID, UnitSystem } from '../types/models';
 
 /**
@@ -104,14 +75,12 @@ export const CAR_KG = 1500;
 
 /** Fewest workouts in a period before the busiest weekday is read off them. */
 const WEEKDAY_FROM_WORKOUTS = 3;
-/** Fewest days in a row a streak card names. */
-const STREAK_MIN = 2;
 
 /* ------------------------------------------------------------------ */
 /* Periods and when they are offered                                   */
 /* ------------------------------------------------------------------ */
 
-/** `month` is 0-based, as `Date` uses it (and `AmountWhen`). */
+/** `month` is 0-based, as `Date` uses it. */
 export type WrappedPeriod =
   { kind: 'month'; year: number; month: number } | { kind: 'year'; year: number };
 
@@ -168,16 +137,7 @@ export interface WrappedInput {
   workouts: readonly CompletedWorkout[];
   /** Workout ordinals by id (`workoutNumbers`), for "Workout 88 to workout 100". */
   numbers?: Readonly<Record<ID, number>>;
-  tasks: readonly Task[];
-  log: TaskLog;
-  amounts: readonly Amount[];
-  categories: readonly MoneyCategory[];
   bodyweightAtDate?: BodyweightLookup;
-  /**
-   * Which app's Wrapped: every other log reads as empty. Absent = all three,
-   * the combined 2.x reading the older tests use; `useWrapped` passes it.
-   */
-  variant?: AppVariant;
 }
 
 export interface WrappedStats {
@@ -192,24 +152,10 @@ export interface WrappedStats {
     last: number | null;
   } | null;
   record: { record: SessionRecord; name: string } | null;
-  streak: { taskName: string; daily: boolean; days: number; from: string; to: string } | null;
-  tasks: { done: number; asked: number; percent: number } | null;
-  spending: {
-    /** In the money log's integers. */
-    total: number;
-    count: number;
-    top: { name: string; glyph: string; value: number; share: number } | null;
-    /** A whole-month amount is in the total. */
-    wholeMonth: boolean;
-  } | null;
   weekday: {
     /** Monday-first index. */
     weekday: number;
     workouts: number;
-    /** That weekday's tasks done share, 0–100, or null when it asked nothing. */
-    tasksPercent: number | null;
-    /** The weekday with the lowest tasks share, when it is another day. */
-    quietest: { weekday: number; percent: number } | null;
   } | null;
 }
 
@@ -218,34 +164,6 @@ const within = (day: string, range: DayRange) => day >= range.from && day <= ran
 function workoutsIn(workouts: readonly CompletedWorkout[], range: DayRange) {
   return workouts.filter((workout) => within(dayKey(workout.startedAt), range));
 }
-
-/** The days of the range that have been lived and judged: up to yesterday. */
-function judgedDays(range: DayRange, today: string): string[] {
-  const days: string[] = [];
-  const last = range.to < today ? range.to : shiftDay(today, -1);
-  for (let day = range.from; day <= last; day = shiftDay(day, 1)) days.push(day);
-  return days;
-}
-
-function tasksDone(tasks: readonly Task[], log: TaskLog, days: readonly string[]) {
-  let done = 0;
-  let asked = 0;
-  for (const day of days) {
-    for (const task of tasks) {
-      if (!asksOn(task, day)) continue;
-      const { mark } = entryOf(log, task.id, day);
-      // Excused on purpose: out of both, as `dayProgress` keeps it everywhere.
-      if (mark === 'missed') continue;
-      // A weekly task (T2) counts on a day only once done — `dayProgress`'s rule.
-      if (mark === null && isWeekly(task)) continue;
-      asked += 1;
-      if (mark === 'done') done += 1;
-    }
-  }
-  return { done, asked };
-}
-
-const percentOf = (done: number, asked: number) => Math.round((done / asked) * 100);
 
 function bestRecord(input: WrappedInput, range: DayRange, inPeriod: readonly CompletedWorkout[]) {
   const before = input.workouts
@@ -267,119 +185,21 @@ function bestRecord(input: WrappedInput, range: DayRange, inPeriod: readonly Com
   return { record, name };
 }
 
-function longestStreak(input: WrappedInput, range: DayRange): WrappedStats['streak'] {
-  let best: WrappedStats['streak'] = null;
-  const ordered = [...input.tasks].sort((a, b) => a.order - b.order);
-  for (const task of ordered) {
-    const run = longestRunIn(task, input.log, range.from, range.to, input.today);
-    if (!run || run.days < STREAK_MIN) continue;
-    // Strictly longer, so a tie goes to the task higher in the list.
-    if (best == null || run.days > best.days) {
-      best = { taskName: task.name, daily: task.schedule.kind === 'daily', ...run };
-    }
-  }
-  return best;
-}
-
-function amountInPeriod(amount: Amount, period: WrappedPeriod, range: DayRange): boolean {
-  if (amount.when.kind === 'day') return within(amount.when.date, range);
-  if (amount.when.year !== period.year) return false;
-  return period.kind === 'year' || amount.when.month === period.month;
-}
-
-function spendingIn(input: WrappedInput, range: DayRange): WrappedStats['spending'] {
-  const byCategory = new Map<string, number>();
-  let total = 0;
-  let count = 0;
-  let wholeMonth = false;
-  for (const amount of input.amounts) {
-    if (!isSpending(amount) || !amountInPeriod(amount, input.period, range)) continue;
-    total += amount.value;
-    count += 1;
-    if (amount.when.kind === 'month') wholeMonth = true;
-    byCategory.set(amount.categoryId, (byCategory.get(amount.categoryId) ?? 0) + amount.value);
-  }
-  if (total <= 0) return null;
-
-  let topId: string | null = null;
-  let topValue = 0;
-  for (const [id, value] of byCategory) {
-    if (value > topValue) {
-      topId = id;
-      topValue = value;
-    }
-  }
-  const category = input.categories.find((c) => c.id === topId);
-  return {
-    total,
-    count,
-    wholeMonth,
-    top: category
-      ? { name: category.name, glyph: category.glyph, value: topValue, share: topValue / total }
-      : null,
-  };
-}
-
-function busiestWeekday(
-  input: WrappedInput,
-  inPeriod: readonly CompletedWorkout[],
-  days: readonly string[],
-): WrappedStats['weekday'] {
+function busiestWeekday(inPeriod: readonly CompletedWorkout[]): WrappedStats['weekday'] {
+  if (inPeriod.length < WEEKDAY_FROM_WORKOUTS) return null;
   const workouts = [0, 0, 0, 0, 0, 0, 0];
   for (const workout of inPeriod) {
     const date = parseDay(dayKey(workout.startedAt));
     if (date) workouts[weekdayIndex(date)] += 1;
   }
-  const done = [0, 0, 0, 0, 0, 0, 0];
-  const asked = [0, 0, 0, 0, 0, 0, 0];
-  for (const day of days) {
-    const date = parseDay(day);
-    if (!date) continue;
-    const share = tasksDone(input.tasks, input.log, [day]);
-    done[weekdayIndex(date)] += share.done;
-    asked[weekdayIndex(date)] += share.asked;
-  }
-  const percent = (i: number) => (asked[i] > 0 ? percentOf(done[i], asked[i]) : null);
-
-  const totalWorkouts = inPeriod.length;
-  const askedDays = asked.filter((n) => n > 0).length;
-  const byWorkouts = totalWorkouts >= WEEKDAY_FROM_WORKOUTS;
-  // Tasks alone need a week's worth of weekdays to compare.
-  if (!byWorkouts && askedDays < 7) return null;
-
-  let best = -1;
-  for (let i = 0; i < 7; i += 1) {
-    if (best === -1) {
-      best = i;
-      continue;
-    }
-    const lead = byWorkouts
-      ? workouts[i] - workouts[best]
-      : (percent(i) ?? -1) - (percent(best) ?? -1);
-    // Strictly ahead, or level and more tasks done; an exact tie keeps the earlier day.
-    if (lead > 0 || (lead === 0 && done[i] > done[best])) best = i;
-  }
-
-  let quietest: { weekday: number; percent: number } | null = null;
-  for (let i = 0; i < 7; i += 1) {
-    const p = percent(i);
-    if (p == null || i === best) continue;
-    if (quietest == null || p < quietest.percent) quietest = { weekday: i, percent: p };
-  }
-  const bestPercent = percent(best);
-  if (quietest && bestPercent != null && quietest.percent >= bestPercent) quietest = null;
-
-  return {
-    weekday: best,
-    workouts: workouts[best],
-    tasksPercent: bestPercent,
-    quietest,
-  };
+  let best = 0;
+  // Strictly ahead, so an exact tie keeps the earlier day.
+  for (let i = 1; i < 7; i += 1) if (workouts[i] > workouts[best]) best = i;
+  return { weekday: best, workouts: workouts[best] };
 }
 
-/** The period in the app's log, or null when there is nothing to tell. */
-export function wrappedStats(raw: WrappedInput): WrappedStats | null {
-  const input = maybeScope(raw.variant, raw);
+/** The period in the log, or null when there is nothing to tell. */
+export function wrappedStats(input: WrappedInput): WrappedStats | null {
   const range = periodRange(input.period);
   const before = periodRange(previousPeriod(input.period));
   const inPeriod = workoutsIn(input.workouts, range);
@@ -402,28 +222,14 @@ export function wrappedStats(raw: WrappedInput): WrappedStats | null {
     };
   }
 
-  const days = judgedDays(range, input.today);
-  const share = tasksDone(input.tasks, input.log, days);
-  const tasks = share.asked > 0 ? { ...share, percent: percentOf(share.done, share.asked) } : null;
-
   const stats: WrappedStats = {
     period: input.period,
     tonnage,
     workouts,
     record: bestRecord(input, range, inPeriod),
-    streak: longestStreak(input, range),
-    tasks,
-    spending: spendingIn(input, range),
-    weekday: busiestWeekday(input, inPeriod, days),
+    weekday: busiestWeekday(inPeriod),
   };
-  const anything =
-    stats.tonnage ||
-    stats.workouts ||
-    stats.record ||
-    stats.streak ||
-    stats.tasks ||
-    stats.spending ||
-    stats.weekday;
+  const anything = stats.tonnage || stats.workouts || stats.record || stats.weekday;
   return anything ? stats : null;
 }
 
@@ -431,8 +237,7 @@ export function wrappedStats(raw: WrappedInput): WrappedStats | null {
 /* Words                                                               */
 /* ------------------------------------------------------------------ */
 
-export type WrappedCardKey =
-  'title' | 'tonnage' | 'workouts' | 'record' | 'streak' | 'category' | 'weekday' | 'summary';
+export type WrappedCardKey = 'title' | 'tonnage' | 'workouts' | 'record' | 'weekday' | 'summary';
 
 /** One story card. Empty strings are lines the card does not have. */
 export interface WrappedCard {
@@ -446,9 +251,6 @@ export interface WrappedCard {
 
 export interface WrappedWords {
   unitSystem: UnitSystem;
-  currency: string;
-  /** The money log's decimal scale (`lib/moneyUnits.ts`). */
-  scale: number;
   lang: Language;
 }
 
@@ -521,22 +323,6 @@ function titleLine(stats: WrappedStats, lang: Language): string {
       `${n} ${plural(n, lang, { one: t('workout', lang), few: 'тренировки', many: t('workouts', lang) })}`,
     );
   }
-  if (stats.tasks && stats.tasks.done > 0) {
-    const n = stats.tasks.done;
-    parts.push(
-      `${formatValue(n)} ${plural(n, lang, {
-        one: t('task done', lang),
-        few: 'выполненные задачи',
-        many: t('tasks done', lang),
-      })}`,
-    );
-  }
-  if (stats.spending) {
-    const n = stats.spending.count;
-    parts.push(
-      `${formatValue(n)} ${plural(n, lang, { one: t('amount', lang), few: 'суммы', many: t('amounts', lang) })}`,
-    );
-  }
   return parts.length > 0 ? `${listOf(parts, lang)}.` : '';
 }
 
@@ -561,7 +347,7 @@ function recordFigure(record: SessionRecord, words: WrappedWords): { big: string
     : { big: shown, unit: '' };
 }
 
-/** The story cards, title first and summary last, with only the logs that had something. */
+/** The story cards, title first and summary last, with only the cards that have something. */
 export function wrappedCards(stats: WrappedStats, words: WrappedWords): WrappedCard[] {
   const { lang, unitSystem } = words;
   const yearly = stats.period.kind === 'year';
@@ -620,74 +406,20 @@ export function wrappedCards(stats: WrappedStats, words: WrappedWords): WrappedC
     });
   }
 
-  if (stats.streak) {
-    const { taskName, daily, days, from, to } = stats.streak;
-    cards.push({
-      key: 'streak',
-      kicker: t('Longest streak', lang),
-      big: String(days),
-      unit: daily
-        ? plural(days, lang, { one: t('day', lang), few: 'дня', many: t('days', lang) })
-        : plural(days, lang, {
-            one: lang === 'ru' ? 'раз' : 'time',
-            few: 'раза',
-            many: t('times', lang),
-          }),
-      // The same in both languages: a name and two dates.
-      line: `${taskName}, ${formatShortDay(from, lang)} – ${formatShortDay(to, lang)}.`,
-      sub: daily ? '' : t('Counted on the days it was asked for.', lang),
-    });
-  }
-
-  if (stats.spending?.top) {
-    const { top, wholeMonth } = stats.spending;
-    const percent = Math.round(top.share * 100);
-    cards.push({
-      key: 'category',
-      kicker: t('Top category', lang),
-      big: formatValue(top.value, words.scale),
-      unit: words.currency,
-      line:
-        percent >= 100
-          ? t('{category} · all of it.', lang, { category: `${top.glyph} ${top.name}`.trim() })
-          : t('{category} · {percent}% of everything that went out.', lang, {
-              category: `${top.glyph} ${top.name}`.trim(),
-              percent,
-            }),
-      sub: wholeMonth
-        ? t('Whole-month amounts are counted in their month.', lang)
-        : t('Expenses only. Transfers between accounts are not spending.', lang),
-    });
-  }
-
   if (stats.weekday) {
     const names = weekdayNames(lang);
-    const { weekday, workouts, tasksPercent, quietest } = stats.weekday;
-    const clauses: string[] = [];
-    if (workouts > 0) {
-      clauses.push(
-        `${workouts} ${plural(workouts, lang, {
-          one: t('workout', lang),
-          few: 'тренировки',
-          many: t('workouts', lang),
-        })}`,
-      );
-    }
-    if (tasksPercent != null) {
-      clauses.push(t('{percent}% of tasks done', lang, { percent: tasksPercent }));
-    }
+    const { weekday, workouts } = stats.weekday;
     cards.push({
       key: 'weekday',
       kicker: t('Busiest weekday', lang),
       big: names[weekday],
       unit: '',
-      line: clauses.length > 0 ? `${listOf(clauses, lang)}.` : '',
-      sub: quietest
-        ? t('Quietest for tasks: {weekday}, {percent}%.', lang, {
-            weekday: names[quietest.weekday],
-            percent: quietest.percent,
-          })
-        : '',
+      line: `${workouts} ${plural(workouts, lang, {
+        one: t('workout', lang),
+        few: 'тренировки',
+        many: t('workouts', lang),
+      })}.`,
+      sub: '',
     });
   }
 
@@ -718,23 +450,6 @@ export function wrappedSummary(stats: WrappedStats, words: WrappedWords): Wrappe
       key: 'tonnage',
       label: t('Tonnage', lang),
       value: shortTonnage(stats.tonnage.kg, unitSystem, lang),
-    });
-  }
-  if (stats.tasks) {
-    cells.push({ key: 'tasks', label: t('Tasks done', lang), value: `${stats.tasks.percent}%` });
-  }
-  if (stats.streak) {
-    cells.push({
-      key: 'streak',
-      label: t('Longest streak', lang),
-      value: `${stats.streak.days} ${stats.streak.daily ? t('d', lang) : '×'}`,
-    });
-  }
-  if (stats.spending) {
-    cells.push({
-      key: 'spent',
-      label: t('Spent', lang),
-      value: `${compactMoney(stats.spending.total, words.scale)} ${words.currency}`,
     });
   }
   let record: string | null = null;

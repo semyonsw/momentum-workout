@@ -6,22 +6,15 @@
  * row and anything later built on the same facts cannot disagree. With the
  * switch off it computes nothing: the walk over every log is paid only by
  * somebody who asked for what it feeds.
- *
- * Every read is handed `APP_VARIANT`, so each app counts its own log and shows
- * its own badges and XP rows (`lib/variantScope.ts`). The Workout app still
- * stores the 2.x tasks and money; scoped, they are walked by nothing.
  */
 
 import { useMemo } from 'react';
 
-import { APP_VARIANT } from '../lib/appVariant';
 import { achievements, logFacts, type Badge, type LogFacts } from '../lib/achievements';
 import { bodyweightAt } from '../lib/bodyweightLog';
 import { engagementOn, engagementView, type EngagementView } from '../lib/engagement';
 import { levelProgress, xpBreakdown, type LevelProgress, type XpLine } from '../lib/xp';
-import { useMoney } from '../state/moneyStore';
 import { useSettings } from '../state/settingsStore';
-import { useTasks } from '../state/tasksStore';
 import { useWorkoutHistory } from '../state/workoutHistoryStore';
 import { useToday } from './useToday';
 
@@ -36,12 +29,6 @@ function useLogFacts(): LogFacts | null {
   const on = useSettings((s) => engagementOn(s));
   const today = useToday();
   const workouts = useWorkoutHistory((s) => s.workouts);
-  const tasks = useTasks((s) => s.tasks);
-  const log = useTasks((s) => s.log);
-  const amounts = useMoney((s) => s.amounts);
-  const budgets = useMoney((s) => s.budgets);
-  const goals = useMoney((s) => s.goals);
-  const accounts = useMoney((s) => s.accounts);
   const bodyweightLog = useSettings((s) => s.bodyweightLog);
   return useMemo(
     () =>
@@ -49,24 +36,17 @@ function useLogFacts(): LogFacts | null {
         ? logFacts({
             today,
             workouts,
-            tasks,
-            log,
-            amounts,
-            budgets,
-            goals,
-            accounts,
             bodyweightAtDate: (at) => bodyweightAt(bodyweightLog, at),
-            variant: APP_VARIANT,
           })
         : null,
-    [on, today, workouts, tasks, log, amounts, budgets, goals, accounts, bodyweightLog],
+    [on, today, workouts, bodyweightLog],
   );
 }
 
 /** The badges, or an empty list while the switch is off. */
 export function useBadges(): Badge[] {
   const facts = useLogFacts();
-  return useMemo(() => (facts ? achievements(facts, APP_VARIANT) : []), [facts]);
+  return useMemo(() => (facts ? achievements(facts) : []), [facts]);
 }
 
 /** The level and its table, or null while the switch is off (E2). */
@@ -74,7 +54,7 @@ export function useLevel(): { progress: LevelProgress; lines: XpLine[] } | null 
   const facts = useLogFacts();
   return useMemo(() => {
     if (!facts) return null;
-    const lines = xpBreakdown(facts, APP_VARIANT);
+    const lines = xpBreakdown(facts);
     return { progress: levelProgress(lines.reduce((sum, line) => sum + line.xp, 0)), lines };
   }, [facts]);
 }

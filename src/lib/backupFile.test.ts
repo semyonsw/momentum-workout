@@ -371,16 +371,16 @@ describe('writeDailyBackup', () => {
   });
 
   it('writes under the app’s own name, and sweeps only its own files', async () => {
-    const mine = fileUri('momentum-tasks-backup-2026-10-14.json');
-    const workout = fileUri('momentum-workout-backup-2026-10-14.json');
+    const mine = fileUri('momentum-workout-backup-2026-10-14.json');
+    const tasks = fileUri('momentum-tasks-backup-2026-10-14.json');
     const combined = fileUri('momentum-backup-2026-10-14.json');
-    const disk = nonTruncatingDisk({ [mine]: big, [workout]: big, [combined]: big });
+    const disk = nonTruncatingDisk({ [mine]: big, [tasks]: big, [combined]: big });
 
-    const result = await writeDailyBackup(TREE, undefined, small, TODAY, 'tasks');
+    const result = await writeDailyBackup(TREE, undefined, small, TODAY);
 
-    const today = fileUri('momentum-tasks-backup-2026-10-15.json');
-    expect(result.name).toBe('momentum-tasks-backup-2026-10-15.json');
-    expect([...disk.keys()].sort()).toEqual([combined, today, workout].sort());
+    const today = fileUri('momentum-workout-backup-2026-10-15.json');
+    expect(result.name).toBe('momentum-workout-backup-2026-10-15.json');
+    expect([...disk.keys()].sort()).toEqual([combined, today, tasks].sort());
   });
 
   it('leaves the inherited record of 2.x’s combined file alone: a new file, nothing deleted', async () => {

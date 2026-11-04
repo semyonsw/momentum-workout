@@ -252,8 +252,8 @@ beforeEach(() => {
   sent.length = 0;
   useAi.setState({
     ...sanitizeAi({}),
-    pending: { Workout: false, Tasks: false, Expenses: false },
-    retrying: { Workout: false, Tasks: false, Expenses: false },
+    pending: { Workout: false },
+    retrying: { Workout: false },
   });
   useAi.getState().markReady(500);
   useSettings.getState().resetToDefaults();

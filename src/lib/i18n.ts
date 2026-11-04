@@ -1100,8 +1100,8 @@ const RU: Record<string, string> = {
   'Nothing to log': 'Нечего записывать',
   'This workout has no exercises in it right now.': 'Сейчас в этой тренировке нет упражнений.',
   'Replace everything': 'Заменить всё',
-  'makes this phone look like the file, so export first if there is anything here you would miss. A backup written by an older version carries no tasks and no amounts, and restoring one leaves both of those exactly where they are rather than emptying them. A workout in progress is not part of a backup: it carries a running clock.':
-    'делает телефон таким, как файл, — поэтому сначала выгрузите то, что жалко потерять. В копии из старой версии нет ни задач, ни сумм, и восстановление такой копии оставит и то и другое как есть, а не очистит. Идущая тренировка в копию не входит: в ней работают часы.',
+  'makes this phone look like the file, so export first if there is anything here you would miss. A backup from Momentum 2.x also holds daily tasks and finance; this app reads only the training from it. A workout in progress is not part of a backup: it carries a running clock.':
+    'делает телефон таким, как файл, — поэтому сначала выгрузите то, что жалко потерять. В копии из Momentum 2.x есть ещё ежедневные задачи и финансы; это приложение берёт из неё только тренировки. Идущая тренировка в копию не входит: в ней работают часы.',
   'Reset every setting': 'Сбросить все настройки',
   'Add a set to {name}': 'Добавить подход — {name}',
   '+ Add a set': '+ Добавить подход',
@@ -2321,8 +2321,8 @@ const RU: Record<string, string> = {
   // 3.0.0 · three apps from one tree: each Settings and each AI coach speaks
   // for its own log (`lib/settingsScope.ts`, `lib/ai/aiScope.ts`)
   'Vacation pause, history range': 'Пауза на отпуск, период истории',
-  'A backup is plain JSON, so you can read it, keep it anywhere, and move it to another phone. It holds your training and every setting, and still carries the daily tasks and finance this app kept before they became apps of their own — so the Tasks and Expenses apps can be filled from it.':
-    'Копия — это обычный JSON: её можно прочитать, хранить где угодно и перенести на другой телефон. В ней ваши тренировки и все настройки, а также ежедневные задачи и финансы, которые это приложение хранило, пока они не стали отдельными приложениями, — из неё можно заполнить приложения Tasks и Expenses.',
+  'A backup is plain JSON, so you can read it, keep it anywhere, and move it to another phone. It holds your training and every setting.':
+    'Копия — это обычный JSON: её можно прочитать, хранить где угодно и перенести на другой телефон. В ней ваши тренировки и все настройки.',
   'A backup is plain JSON, so you can read it, keep it anywhere, and move it to another phone. It holds your daily tasks and every setting.':
     'Копия — это обычный JSON: её можно прочитать, хранить где угодно и перенести на другой телефон. В ней ваши ежедневные задачи и все настройки.',
   'A backup is plain JSON, so you can read it, keep it anywhere, and move it to another phone. It holds your finance and every setting.':

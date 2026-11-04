@@ -16,7 +16,7 @@
  *
  * It used to be "on launch, if the last copy is N days old". That meant the copy
  * was, by design, up to a week behind — a phone dropped on Sunday lost the week's
- * training, the expenses and every chat since Monday. The folder is granted once
+ * training and every chat since Monday. The folder is granted once
  * and writing one JSON file costs milliseconds, so there is no reason for the copy
  * to be behind the phone at all: every persisted change rewrites it, debounced so
  * a burst is one write (`lib/backupScheduler.ts`), and `hooks/useAutoBackup.ts`
@@ -35,30 +35,30 @@
  * (`Settings.autoBackupFolderUri`), and asked for again only when Android says the
  * access is actually gone.
  *
- * ── ONE FILE PER APP, NAMED BY THE DAY ─────────────────────────────────────
+ * ── ONE FILE, NAMED BY THE DAY ─────────────────────────────────────────────
  *
- * `momentum-workout-backup-2026-10-15.json` (and `momentum-tasks-backup-…`,
- * `momentum-expenses-backup-…` — `backupPrefix` in `lib/appVariant.ts`). ONE such
- * file per app in the folder: within a day it is overwritten in place (its URI is
+ * `momentum-workout-backup-2026-10-15.json` (`BACKUP_FILE_PREFIX`). ONE such
+ * file in the folder: within a day it is overwritten in place (its URI is
  * remembered, because SAF finds files by URI, not by name), and the first write
  * of a new day creates the new day's file and then deletes the old one — create
  * first, so the folder never holds zero. The date in the name is what lets
  * somebody looking at the folder see, without opening anything, that the copy is
  * current.
  *
- * THE PREFIX IS PER APP because all three apps are usually granted the SAME
- * folder, and every sweep deletes by name: one shared prefix would have each app
- * deleting the other two's backups every morning. Each app matches only its own.
+ * THE SWEEP MATCHES THIS PREFIX AND NOTHING ELSE. The Tasks and Expenses apps
+ * that were split out of Momentum at 3.0.0 write `momentum-tasks-backup-…` and
+ * `momentum-expenses-backup-…`, usually into the SAME granted folder, and every
+ * sweep deletes by name — a looser match would delete their backups every
+ * morning.
  *
  * The files earlier builds wrote — `workout-tracker-auto-…`, the manual
  * `workout-tracker-backup-…` exports, and 2.x's combined `momentum-backup-…` —
- * are left alone by all three. Those names belong to a mechanism that no longer
- * runs, and a cleanup that deletes a user's files on the strength of a naming
- * convention they may have been relying on is not one this app gets to make. The
- * combined one matters most: it is what Tasks and Expenses are filled from.
+ * are left alone too. Those names belong to a mechanism that no longer runs, and
+ * a cleanup that deletes a user's files on the strength of a naming convention
+ * they may have been relying on is not one this app gets to make. The combined
+ * one matters most: it is what the Tasks and Expenses apps are filled from.
  */
 
-import { APP_VARIANT, backupPrefix, type AppVariant } from './appVariant';
 import { dayKey, daysBetween } from './days';
 import { plural, t, type Language } from './i18n';
 
@@ -120,12 +120,16 @@ export function describeBackupAge(
  */
 export const LEGACY_BACKUP_FILE_PREFIX = 'momentum-backup-';
 
+/**
+ * This app's backup files, and the only names its sweep ever deletes. Not
+ * `momentum-backup-` (2.x's combined file) and not the Tasks or Expenses apps'
+ * — see the header.
+ */
+export const BACKUP_FILE_PREFIX = 'momentum-workout-backup-';
+
 /** `momentum-workout-backup-2026-10-15` — the LOCAL date, because that is the user's day. */
-export function backupFileBaseName(
-  now: Date = new Date(),
-  variant: AppVariant = APP_VARIANT,
-): string {
-  return `${backupPrefix(variant)}${dayKey(now)}`;
+export function backupFileBaseName(now: Date = new Date()): string {
+  return `${BACKUP_FILE_PREFIX}${dayKey(now)}`;
 }
 
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -136,9 +140,9 @@ const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&
  * (the overwrite fallback below). Exact, because whatever matches is DELETED —
  * so another app's prefix, or 2.x's `momentum-backup-`, never matches.
  */
-export function isBackupFileName(name: string, variant: AppVariant = APP_VARIANT): boolean {
+export function isBackupFileName(name: string): boolean {
   const pattern = new RegExp(
-    `^${escapeRegExp(backupPrefix(variant))}\\d{4}-\\d{2}-\\d{2}( \\(\\d+\\))?\\.json$`,
+    `^${escapeRegExp(BACKUP_FILE_PREFIX)}\\d{4}-\\d{2}-\\d{2}( \\(\\d+\\))?\\.json$`,
   );
   return pattern.test(name.trim());
 }
@@ -194,29 +198,27 @@ export type BackupWritePlan =
  * other remembered file is the one this write replaces.
  *
  * A remembered file whose name is NOT this app's is neither overwritten nor
- * replaced: it is forgotten. That is the Workout app's first write after 3.0.0,
- * which updates the 2.x install in place and so inherits the record of 2.x's
- * combined `momentum-backup-<day>.json` — the file Tasks and Expenses import
- * from. Overwriting it would put a Workout-only backup under the combined name;
- * replacing it would delete it. A URI with no readable name (a provider that
+ * replaced: it is forgotten. That is the first write after the update from 2.x,
+ * which inherits the record of 2.x's combined `momentum-backup-<day>.json` — the
+ * file the Tasks and Expenses apps import from. Overwriting it would put a
+ * training-only backup under the combined name; replacing it would delete it. A URI with no readable name (a provider that
  * does not end its URIs in the file name) is trusted as before, because the
  * record was written by this app and the alternative is a new file every write.
  */
 export function planBackupWrite(
   current: BackupFileRecord | undefined,
   today: string,
-  variant: AppVariant = APP_VARIANT,
 ): BackupWritePlan {
-  if (current && !rememberedIsOwn(current.uri, variant)) return { kind: 'create' };
+  if (current && !rememberedIsOwn(current.uri)) return { kind: 'create' };
   if (current && current.day === today) return { kind: 'overwrite', uri: current.uri };
   return current ? { kind: 'create', replaces: current.uri } : { kind: 'create' };
 }
 
 /** Is a remembered URI this app's file? Unreadable names count as yes — see above. */
-function rememberedIsOwn(uri: string, variant: AppVariant): boolean {
+function rememberedIsOwn(uri: string): boolean {
   const name = uriFileName(uri);
   if (!name.toLowerCase().endsWith('.json')) return true;
-  return isBackupFileName(name, variant);
+  return isBackupFileName(name);
 }
 
 /**
@@ -225,7 +227,7 @@ function rememberedIsOwn(uri: string, variant: AppVariant): boolean {
  * even for copies the stored URI never saw (a crash between create and delete, a
  * settings restore, the overwrite fallback's ` (1)`).
  *
- * Only this app's names. The other two apps' backups, 2.x's combined
+ * Only this app's names. The Tasks and Expenses apps' backups, 2.x's combined
  * `momentum-backup-*`, `workout-tracker-auto-*` and `workout-tracker-backup-*`
  * are not touched. `replaces` comes from `planBackupWrite`, which has already
  * refused to name a file that is not this app's.
@@ -234,12 +236,11 @@ export function backupFilesToRetire(
   files: readonly { uri: string; name: string }[],
   justWritten: string,
   replaces?: string,
-  variant: AppVariant = APP_VARIANT,
 ): string[] {
   const out = new Set<string>();
   if (replaces && replaces !== justWritten) out.add(replaces);
   for (const file of files) {
-    if (file.uri !== justWritten && isBackupFileName(file.name, variant)) out.add(file.uri);
+    if (file.uri !== justWritten && isBackupFileName(file.name)) out.add(file.uri);
   }
   return [...out];
 }
@@ -281,7 +282,7 @@ export function utf8ByteLength(text: string): number {
  * the external-storage provider does not reliably TRUNCATE in `"w"` — the
  * truncating mode is `"wt"`, and the legacy API offers no way to ask for it. So
  * writing a backup that is shorter than the one already in the file (a deleted
- * chat, a removed expense) would leave the old file's tail after the new JSON:
+ * chat, a removed workout) would leave the old file's tail after the new JSON:
  * a file that does not parse, which is the one thing a backup must never be.
  *
  * Trailing whitespace is valid JSON. Padding to the old length means every old

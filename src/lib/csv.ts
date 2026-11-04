@@ -1,8 +1,5 @@
 /**
- * Two logs as spreadsheets: one row per amount, one row per set.
- *
- *   date,account,type,category,amount,currency,note,whole_month
- *   2026-10-03,Cash,expense,"Food, takeaway",-12.50,USD,,false
+ * The training log as a spreadsheet: one row per set.
  *
  *   date,workout,routine,exercise,set,weight,unit,count,count_unit,load_mode,warmup,rest_s
  *   2026-10-03,212,Push,Bench press,1,60,kg,8,reps,external,true,
@@ -13,39 +10,27 @@
  * unnecessary. So this is the flat form, and it is deliberately NOT a second
  * backup format:
  *
- *  • NO CSV IMPORT. A table of rows carries no library, no routines, no
- *    categories with their glyphs and no settings; reading one back would make a
+ *  • NO CSV IMPORT. A table of rows carries no library, no routines and no
+ *    settings; reading one back would make a
  *    log that refers to things that do not exist. There is one way back in, the
  *    JSON file, and that stays true (see `state/dataTransfer.ts`).
  *  • DERIVED, NEVER SUMMARISED. Every cell comes off one stored row or the record
  *    around it. Nothing is totalled, averaged or estimated; the only arithmetic is
- *    the two unit conversions a reader would otherwise have to do by hand — the
- *    money log's integer minor units to the figure on screen (`scale`, see
- *    `lib/moneyUnits.ts`), and kg to lb for somebody who lifts in pounds.
+ *    the unit conversion a reader would otherwise have to do by hand — kg to lb
+ *    for somebody who lifts in pounds.
  *
  * ── THE DECISIONS A SPREADSHEET NOTICES ───────────────────────────────────
  *
- *  • AMOUNTS ARE SIGNED BY WHAT THEY DID TO THE ACCOUNT: an expense and the
- *    outgoing half of a transfer are negative, an income and the incoming half
- *    positive. Rejected: the log's own positive value with the direction in
- *    another column — exact, but then the first thing anybody does is write an
- *    IF() to put the sign back, and a SUM over one account no longer equals what
- *    that account moved. Transfers say `transfer` in `type`, so a filter on
- *    `expense` is spending only, which is the same rule every screen uses.
- *  • A WHOLE-MONTH AMOUNT IS DATED THE 1ST, with `whole_month` true. A blank date
- *    breaks every date filter, and `2026-10` is a format half the spreadsheets on
- *    earth read as text; the flag is what says it belongs to no particular day.
- *  • NUMBERS IN CELLS ARE PLAIN: a point for decimals, no thousands separator, a
- *    fixed number of decimals in a cents log (`12.50`, not `12.5`). A grouped
- *    `1,250` would be a quoted string in every tool that reads this.
+ *  • NUMBERS IN CELLS ARE PLAIN: a point for decimals, no thousands separator. A
+ *    grouped `1,250` would be a quoted string in every tool that reads this.
  *  • HEADERS ARE ENGLISH, LOWERCASE, AND NEVER TRANSLATED. They are column names
  *    for formulas, not words for a reader, and a sheet that renamed its columns
  *    when the phone changed language would break every formula built on it. The
  *    DATA is the user's own words, in whatever script they typed them.
  *  • A UTF-8 BOM up front. Without it Excel opens a CSV in the machine's legacy
- *    code page and every Cyrillic category name arrives as mojibake; LibreOffice,
- *    Sheets and Numbers all skip it. It is three bytes and the price of `Еда`
- *    reading as `Еда`.
+ *    code page and every Cyrillic exercise name arrives as mojibake; LibreOffice,
+ *    Sheets and Numbers all skip it. It is three bytes and the price of `Жим`
+ *    reading as `Жим`.
  *
  * ── RFC 4180 ───────────────────────────────────────────────────────────────
  *
@@ -56,13 +41,11 @@
  * Excel expects.
  */
 
-import type { AppVariant } from './appVariant';
 import { formatRir } from './effort';
 import { setKindOf } from './setType';
 import type { CompletedWorkout, WorkoutNumberAnchor } from './completedWorkout';
 import { workoutNumbers } from './completedWorkout';
 import { dayKey, pad } from './days';
-import { isTransferCategory, type Amount, type MoneyAccount, type MoneyCategory } from './money';
 import { kgToLb } from './units';
 import type { UnitSystem } from '../types/models';
 
@@ -70,17 +53,6 @@ import type { UnitSystem } from '../types/models';
 export const BOM = '﻿';
 
 const CRLF = '\r\n';
-
-export const AMOUNT_COLUMNS = [
-  'date',
-  'account',
-  'type',
-  'category',
-  'amount',
-  'currency',
-  'note',
-  'whole_month',
-] as const;
 
 export const SET_COLUMNS = [
   'date',
@@ -120,78 +92,7 @@ export function csvDocument(
   return `${BOM}${lines.join(CRLF)}${CRLF}`;
 }
 
-/**
- * A stored integer in the log's scale as a plain decimal: `-1250` at scale 2 is
- * `-12.50`, `9020` at scale 0 is `9020`. Integer arithmetic throughout, so no
- * float ever turns 0.29 into 0.28999.
- */
-export function csvMoney(value: number, scale: number): string {
-  const abs = Math.round(Math.abs(value));
-  const sign = value < 0 && abs !== 0 ? '-' : '';
-  if (scale <= 0) return `${sign}${abs}`;
-  const unit = 10 ** scale;
-  const fraction = String(abs % unit).padStart(scale, '0');
-  return `${sign}${Math.floor(abs / unit)}.${fraction}`;
-}
-
 const bool = (value: boolean) => (value ? 'true' : 'false');
-
-export interface AmountsCsvInput {
-  amounts: readonly Amount[];
-  accounts: readonly MoneyAccount[];
-  categories: readonly MoneyCategory[];
-  /** The money log's scale (`useMoneyScale`). */
-  scale: number;
-  /** The label the user counts in (`settings.currencyCode`). */
-  currency: string;
-}
-
-/** A transfer half is either flagged with its pair or filed under Transfer. */
-function amountType(amount: Amount): 'expense' | 'income' | 'transfer' {
-  if (amount.transferId || isTransferCategory(amount.categoryId)) return 'transfer';
-  return amount.direction;
-}
-
-function amountDate(amount: Amount): string {
-  return amount.when.kind === 'day'
-    ? amount.when.date
-    : `${amount.when.year}-${pad(amount.when.month + 1)}-01`;
-}
-
-/**
- * Every amount, oldest day first; amounts on the same day in the order they were
- * logged. Archived accounts and categories are exported by name like any other —
- * archiving hides a thing from the grid, it does not unspend the money.
- *
- * An id that no longer resolves (a malformed row) exports as the id itself: an
- * amount that happened should reach the file with SOMETHING in the column rather
- * than be dropped.
- */
-export function amountsToCsv(input: AmountsCsvInput): string {
-  const accountName = new Map(input.accounts.map((a) => [a.id, a.name]));
-  const categoryName = new Map(input.categories.map((c) => [c.id, c.name]));
-
-  const ordered = input.amounts
-    .map((amount, index) => ({ amount, index, date: amountDate(amount) }))
-    .sort(
-      (a, b) =>
-        a.date.localeCompare(b.date) ||
-        a.amount.createdAt.localeCompare(b.amount.createdAt) ||
-        a.index - b.index,
-    );
-
-  const rows = ordered.map(({ amount, date }) => [
-    date,
-    accountName.get(amount.accountId) ?? amount.accountId,
-    amountType(amount),
-    categoryName.get(amount.categoryId) ?? amount.categoryId,
-    csvMoney(amount.direction === 'expense' ? -amount.value : amount.value, input.scale),
-    input.currency,
-    amount.note,
-    bool(amount.when.kind === 'month'),
-  ]);
-  return csvDocument(AMOUNT_COLUMNS, rows);
-}
 
 export interface WorkoutsCsvOptions {
   /** The pinned workout number, as the history list uses it. */
@@ -275,35 +176,17 @@ export function workoutsToCsv(
   return csvDocument(SET_COLUMNS, rows);
 }
 
-/** Which log a spreadsheet export reads. */
-export type CsvKind = 'amounts' | 'workouts';
-
 /**
- * The spreadsheets each app offers: its own log, and only that.
- *
- * Workout offers the sets and Expenses the amounts; Tasks has no flat form (a
- * task log is a grid of days, not a list of rows) and offers none. The Workout
- * app does NOT offer its legacy amounts, unlike its backup: the backup must
- * carry them so nothing is lost before it is moved, but a spreadsheet is a view
- * somebody asks for, and the money is viewed in the Expenses app now.
- */
-export function csvKinds(variant: AppVariant): readonly CsvKind[] {
-  if (variant === 'workout') return ['workouts'];
-  if (variant === 'expenses') return ['amounts'];
-  return [];
-}
-
-/**
- * `momentum-amounts-2026-10-09-0912` — sortable, and it says what it is.
+ * `momentum-workouts-2026-10-09-0912` — sortable, and it says what it is.
  *
  * A different stem from the JSON backups' on purpose: a folder holding both must
- * not leave anybody guessing which one restores, and each app's daily sweep
- * matches its own backup names exactly (`isBackupFileName` in
- * `lib/autoBackup.ts`, `momentum-<app>-backup-<day>.json`), so it can never
- * delete one of these — `momentum-workouts-…` is not `momentum-workout-backup-…`.
- * No extension: SAF appends `.csv` from the MIME type.
+ * not leave anybody guessing which one restores, and the daily sweep matches its
+ * own backup names exactly (`isBackupFileName` in `lib/autoBackup.ts`,
+ * `momentum-workout-backup-<day>.json`), so it can never delete one of these —
+ * `momentum-workouts-…` is not `momentum-workout-backup-…`. No extension: SAF
+ * appends `.csv` from the MIME type.
  */
-export function csvBaseName(kind: CsvKind, now: Date = new Date()): string {
+export function csvBaseName(now: Date = new Date()): string {
   const time = `${pad(now.getHours())}${pad(now.getMinutes())}`;
-  return `momentum-${kind}-${dayKey(now)}-${time}`;
+  return `momentum-workouts-${dayKey(now)}-${time}`;
 }

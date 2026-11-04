@@ -31,7 +31,7 @@ import { SheetCancel, SheetFrame } from './Sheet';
 import { PrimaryButton } from './primitives';
 import { pressedStyle } from './motion';
 import { useLanguage, useT } from '../hooks/useT';
-import { formatValue } from '../lib/money';
+import { formatValue } from '../lib/units';
 import { describeNextLevel, type LevelProgress, type XpLine } from '../lib/xp';
 import { glass, gradientBar, palette, radius, tint } from '../theme/tokens';
 import { LinearGradient } from 'expo-linear-gradient';

@@ -174,7 +174,7 @@ describe('a rep range', () => {
           },
         },
       ],
-      { section: 'Workout', routineIds: new Set(['r_day']) },
+      { routineIds: new Set(['r_day']) },
     );
     if (block.type !== 'routine_proposal') throw new Error('no proposal');
     const r = normalizeProposal(block.proposal, ctx())!;

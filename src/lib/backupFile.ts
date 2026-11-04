@@ -41,7 +41,6 @@ import {
   uriFileName,
   type BackupFileRecord,
 } from './autoBackup';
-import { APP_VARIANT, type AppVariant } from './appVariant';
 import { dayKey } from './days';
 import { t, type Language } from './i18n';
 
@@ -193,9 +192,9 @@ export async function overwriteFile(uri: string, contents: string): Promise<void
 
 /**
  * Write the day's backup into the granted folder: overwrite today's file, or
- * create today's and retire the old one. Decisions in `lib/autoBackup.ts`, made
- * for `variant` — this app's name, and only this app's files retired, because
- * the other two apps are usually writing into the same folder.
+ * create today's and retire the old one. Decisions in `lib/autoBackup.ts` — this
+ * app's name, and only this app's files retired, because the Tasks and Expenses
+ * apps are usually writing into the same folder.
  *
  *   overwrite ok                 → done, same URI
  *   overwrite fails (file gone,  → create a new file, then delete the old URI
@@ -210,10 +209,9 @@ export async function writeDailyBackup(
   current: BackupFileRecord | undefined,
   contents: string,
   now: Date = new Date(),
-  variant: AppVariant = APP_VARIANT,
 ): Promise<{ name: string; file: BackupFileRecord }> {
   const today = dayKey(now);
-  const plan = planBackupWrite(current, today, variant);
+  const plan = planBackupWrite(current, today);
   if (plan.kind === 'overwrite') {
     try {
       await overwriteFile(plan.uri, contents);
@@ -223,8 +221,8 @@ export async function writeDailyBackup(
     }
   }
   const replaces = plan.kind === 'overwrite' ? plan.uri : plan.replaces;
-  const { name, uri } = await writeToFolder(folderUri, backupFileBaseName(now, variant), contents);
-  for (const old of backupFilesToRetire(await listFolder(folderUri), uri, replaces, variant)) {
+  const { name, uri } = await writeToFolder(folderUri, backupFileBaseName(now), contents);
+  for (const old of backupFilesToRetire(await listFolder(folderUri), uri, replaces)) {
     await deleteFile(old);
   }
   return { name, file: { uri, day: today } };

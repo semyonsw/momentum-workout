@@ -6,29 +6,14 @@
  *
  * ── A LONG PRESS ALWAYS HAS A MARK ────────────────────────────────────────
  *
- * Holding is the app's gesture for "the other thing about this" (a category's
- * own screen, renaming a subsection, moving a card, the die's options), and it
- * was invisible: nothing on a chip or a tile said a hold would do anything. So
- * every surface that answers a hold now carries a mark, and where the mark can
- * be a target it IS one, opening exactly what the hold opens:
+ * Holding is the app's gesture for "the other thing about this" (moving a card,
+ * the die's options), and it was invisible: nothing on a card said a hold would
+ * do anything. So every surface that answers a hold now carries a mark, and
+ * where the mark can be a target it IS one, opening exactly what the hold opens:
  *
- *   • the SELECTED account chip shows `⋯`; tapping it opens what the hold
- *     opens — the account's own edit sheet, whose danger zone holds `Archive`
- *     (redesign §6: Archive lives on the item's own surface and nowhere else,
- *     so the menu that used to offer it beside `Edit` had one row left, and a
- *     one-row menu is a tap in the way);
- *   • every task row shows `⋯`; tapping it opens the row's menu, the sheet the
- *     hold opens (redesign #19);
- *   • a category tile shows `›`; tapping it opens the category, as the hold does,
- *     and the tile itself still records an amount — the common act keeps the
- *     big target;
  *   • the die shows a `⋮` beside it that opens the options sheet;
  *   • a reorderable exercise card shows a grip. That one is only a mark: a
  *     reorder is a drag, and a drag cannot be started by a tap.
- *
- * Only the SELECTED chip gets the `⋯`. On every chip it would be six identical
- * marks in a row of six names, and the one you are editing is nearly always the
- * one you are reading. The others still answer a hold.
  *
  * `holdActions` and `cueActions` are two functions on purpose, though for now
  * they agree everywhere: the screens open their menus through them, and the
@@ -59,23 +44,10 @@
  *
  * ── A SECTION'S SETTINGS ARE AT THE FOOT OF ITS HISTORY ───────────────────
  *
- * The settings that shape a section (rest times, the trend range, the default
- * direction) were reachable only from Settings → a row. The history is where
- * you notice one of them is wrong, so its foot carries `Settings ›`.
- *
- * ── ONE APP, ONE SECTION'S DOORS (3.0.0) ──────────────────────────────────
- *
- * Each APK is one section plus Settings now (`lib/appVariant.ts`), so Settings
- * leads with ONE section row, and only that section's hold surfaces exist to be
- * found. Both are asked of the variant here (`settingsRoutes`, `holdSurfaces`)
- * rather than assumed by a screen, so the tests can walk all three apps.
+ * The settings that shape the training (rest times, plates, weekly targets)
+ * were reachable only from Settings → a row. The history is where you notice
+ * one of them is wrong, so its foot carries `Settings ›`, to `workoutSettings`.
  */
-
-import type { AiSection } from './ai/aiSchema';
-import { variantSection, type AppVariant } from './appVariant';
-
-/** The three sections with a history and a settings screen of their own. */
-type Section = AiSection;
 
 /* ------------------------------------------------------------------ */
 /* The add-exercise picker and the library (U15)                       */
@@ -101,99 +73,35 @@ export function exerciseRowControls(editing: boolean): ExerciseRowControls {
 /* Long-press surfaces and their visible marks (U11)                   */
 /* ------------------------------------------------------------------ */
 
-export type HoldSurface =
-  'moneyAccount' | 'moneyCategory' | 'exerciseCard' | 'routineDie' | 'taskRow';
+export type HoldSurface = 'exerciseCard' | 'routineDie';
 
-export const HOLD_SURFACES: readonly HoldSurface[] = [
-  'moneyAccount',
-  'moneyCategory',
-  'exerciseCard',
-  'routineDie',
-  'taskRow',
-];
+export const HOLD_SURFACES: readonly HoldSurface[] = ['exerciseCard', 'routineDie'];
 
 export type HoldAction =
-  /** The account's own sheet: its name, its glyph and its danger zone. */
-  | 'editAccount'
-  /** The category's own screen. */
-  | 'openCategory'
   /** Lift the card and slide it. */
   | 'reorder'
   /** The die's "what goes in it" sheet. */
-  | 'dieOptions'
-  /** The task row's menu — its rows are `lib/taskTap.ts`'s. */
-  | 'taskMenu';
-
-/** What the surface needs to know to decide its rows. */
-export interface HoldContext {
-  /** Live accounts. No hold row depends on it now; see `canArchiveAccount`. */
-  liveAccounts?: number;
-}
-
-/** The hold surfaces an app actually draws: its own section's, and no other's. */
-export function holdSurfaces(variant: AppVariant): readonly HoldSurface[] {
-  const section = variantSection(variant);
-  return HOLD_SURFACES.filter((surface) => surfaceSection(surface) === section);
-}
-
-function surfaceSection(surface: HoldSurface): Section {
-  switch (surface) {
-    case 'moneyAccount':
-    case 'moneyCategory':
-      return 'Expenses';
-    case 'exerciseCard':
-    case 'routineDie':
-      return 'Workout';
-    case 'taskRow':
-      return 'Tasks';
-  }
-}
+  | 'dieOptions';
 
 /** What holding the surface offers, in menu order. */
-// `context` is kept in the signature: the test that holds the mark and the
-// hold to the same rows runs every surface through the same contexts.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function holdActions(surface: HoldSurface, context: HoldContext = {}): HoldAction[] {
+export function holdActions(surface: HoldSurface): HoldAction[] {
   switch (surface) {
-    case 'moneyAccount':
-      return ['editAccount'];
-    case 'moneyCategory':
-      return ['openCategory'];
     case 'exerciseCard':
       return ['reorder'];
     case 'routineDie':
       return ['dieOptions'];
-    case 'taskRow':
-      return ['taskMenu'];
   }
 }
 
-/**
- * Whether an account's danger zone offers `Archive`. Only while ANOTHER live
- * account exists: every amount names an account, so the last live one has
- * nowhere to hand its money to (the store refuses it too). Delete is never
- * offered — the store has no delete, and an account's amounts are in every
- * total they ever reached.
- */
-export function canArchiveAccount(liveAccounts: number): boolean {
-  return liveAccounts > 1;
-}
-
 /** The glyph that says "this answers a hold". */
-export type HoldCue = 'more' | 'chevron' | 'grip' | 'options';
+export type HoldCue = 'grip' | 'options';
 
 export function holdCue(surface: HoldSurface): HoldCue {
   switch (surface) {
-    case 'moneyAccount':
-      return 'more';
-    case 'moneyCategory':
-      return 'chevron';
     case 'exerciseCard':
       return 'grip';
     case 'routineDie':
       return 'options';
-    case 'taskRow':
-      return 'more';
   }
 }
 
@@ -209,8 +117,8 @@ export function cueIsTappable(surface: HoldSurface): boolean {
  * What tapping the mark offers — the hold's actions, every one of them, or
  * nothing for a mark that is not a target.
  */
-export function cueActions(surface: HoldSurface, context: HoldContext = {}): HoldAction[] {
-  return cueIsTappable(surface) ? holdActions(surface, context) : [];
+export function cueActions(surface: HoldSurface): HoldAction[] {
+  return cueIsTappable(surface) ? holdActions(surface) : [];
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,32 +136,4 @@ export const LIBRARY_TABS: readonly LibraryTab[] = ['routines', 'exercises'];
 /** The pushed route each half is. The switch replaces one with the other. */
 export function libraryTabRoute(tab: LibraryTab): 'routines' | 'library' {
   return tab === 'routines' ? 'routines' : 'library';
-}
-
-/* ------------------------------------------------------------------ */
-/* Settings at the foot of each history (U24)                          */
-/* ------------------------------------------------------------------ */
-
-export type SectionSettingsRoute = 'workoutSettings' | 'taskSettings' | 'moneySettings';
-
-/** The settings screen a section's history leads to. */
-export function sectionSettingsRoute(section: Section): SectionSettingsRoute {
-  switch (section) {
-    case 'Workout':
-      return 'workoutSettings';
-    case 'Tasks':
-      return 'taskSettings';
-    case 'Expenses':
-      return 'moneySettings';
-  }
-}
-
-/**
- * The section rows Settings leads with, in order — one, the app's own. The
- * other two sections' settings screens are not reachable in an app that does
- * not show those sections: a currency picker for amounts nobody can see is a
- * setting with nothing to set.
- */
-export function settingsRoutes(variant: AppVariant): readonly SectionSettingsRoute[] {
-  return [sectionSettingsRoute(variantSection(variant))];
 }

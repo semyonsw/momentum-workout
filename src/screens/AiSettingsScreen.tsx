@@ -3,7 +3,7 @@
  *
  *   SETTINGS
  *   AI assistant
- *   [✦ Connect a Google AI key to use AI in your workouts.]   ← came from a section
+ *   [✦ Connect a Google AI key to use AI in your workouts.]   ← came from the chat
  *   [✓ Connected · gemini-3.8-flash · tested 18:44 · 0.8 s   Disconnect]
  *   PROVIDER   [ Google Gemini | OpenAI soon | Claude soon ]
  *   API KEY    [ AIza…                          ✕  Paste ]
@@ -19,14 +19,13 @@
  * backup could read — and on a failed test the field still holds what was typed,
  * with Google's own reason under it, so fixing one character is one character.
  *
- * ── REACHED FROM A SECTION, IT GOES BACK TO THAT SECTION ───────────────────
+ * ── REACHED FROM THE CHAT, IT GOES BACK TO THE CHAT ────────────────────────
  *
- * Tapping the sparkle in Tasks without a key lands here with a line naming
- * Tasks, and the ready screen's button is `Open Tasks AI` — it opens that
- * section's chat, and asks the chip's question if a chip was what was tapped.
- * Connecting a key is a detour on the way to a question, not a destination.
- * Reached from Settings instead, the button opens THIS app's chat — one per
- * app since 3.0.0 (`lib/ai/aiScope.ts`), so there is no other to default to.
+ * Tapping the sparkle on the Workout screen without a key lands here with a
+ * line saying what the key is for, and the ready screen's button opens the
+ * chat, asking the chip's question if a chip was what was tapped. Connecting a
+ * key is a detour on the way to a question, not a destination. Reached from
+ * Settings instead, the button opens the same chat.
  *
  * Only Google is live. OpenAI and Claude are drawn, disabled, with `soon`: the
  * control is where it will be, and a screen that grew a provider row later would
@@ -51,8 +50,6 @@ import { useLanguage, useT } from '../hooks/useT';
 import { DEFAULT_MODEL, checkKeyShape, maskKey } from '../lib/ai/gemini';
 import { getKey } from '../lib/ai/secureKey';
 import type { AiSection } from '../lib/ai/aiSchema';
-import { aiReadsNote, aiSection } from '../lib/ai/aiScope';
-import { APP_VARIANT } from '../lib/appVariant';
 import { clipboardAvailable, readClipboard } from '../lib/clipboard';
 import { formatClockTime } from '../lib/days';
 import { tap } from '../lib/feedback';
@@ -67,23 +64,15 @@ const SETTLE_MS = 450;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-const NOTE: Record<AiSection, string> = {
-  Workout: 'Connect a Google AI key to use AI in your workouts.',
-  Tasks: 'Connect a Google AI key to use AI in your daily tasks.',
-  Expenses: 'Connect a Google AI key to use AI in your finances.',
-};
-
-const CTA: Record<AiSection, string> = {
-  Workout: 'Try it on your workouts',
-  Tasks: 'Open the Tasks AI coach',
-  Expenses: 'Open the Finance AI coach',
-};
+/** What the assistant is told it may read, said to the user in the same terms. */
+const READS =
+  'Only your training — workouts, routines, exercises and the answers after a workout — summarised on the phone first. Nothing is changed until you press Add or Apply.';
 
 export interface AiSettingsScreenProps {
-  /** The section whose sparkle or chip brought the user here, if one did. */
+  /** The chat whose sparkle or chip brought the user here, if one did. */
   from?: AiSection;
   onBack: () => void;
-  /** The ready screen's button: that section's chat, and the question, if any. */
+  /** The ready screen's button: the chat, and the question, if any. */
   onOpenChat: (section: AiSection) => void;
 }
 
@@ -237,7 +226,9 @@ export function AiSettingsScreen({ from, onBack, onOpenChat }: AiSettingsScreenP
           <GlassSurface tier="well" radius={radius.row} flat className="mx-lg mt-lg">
             <View className="flex-row items-center px-lg py-md">
               <Icon name="sparkle" size={16} color={palette.greenBright} />
-              <Text className="ml-sm flex-1 text-label text-ink">{t(NOTE[from])}</Text>
+              <Text className="ml-sm flex-1 text-label text-ink">
+                {t('Connect a Google AI key to use AI in your workouts.')}
+              </Text>
             </View>
           </GlassSurface>
         ) : null}
@@ -409,7 +400,7 @@ export function AiSettingsScreen({ from, onBack, onOpenChat }: AiSettingsScreenP
         </BubblePressable>
 
         <Kicker className="mx-lg mb-sm mt-xl">{t('What it reads')}</Kicker>
-        <Text className="mx-lg text-label text-ink-muted">{t(aiReadsNote(APP_VARIANT))}</Text>
+        <Text className="mx-lg text-label text-ink-muted">{t(READS)}</Text>
       </KeyboardAwareScrollView>
 
       <FloatingAction
@@ -483,8 +474,8 @@ export function AiSettingsScreen({ from, onBack, onOpenChat }: AiSettingsScreenP
           maskedKey={tested.masked}
           model={model}
           latencyMs={tested.latencyMs}
-          ctaLabel={t(CTA[from ?? aiSection(APP_VARIANT)])}
-          onCta={() => onOpenChat(from ?? aiSection(APP_VARIANT))}
+          ctaLabel={t('Try it on your workouts')}
+          onCta={() => onOpenChat(from ?? 'Workout')}
           onDismiss={() => setPhase('form')}
         />
       ) : null}

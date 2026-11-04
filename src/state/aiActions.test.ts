@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sectionVariant } from '../lib/ai/aiScope';
 
 /*
  * The keystore is native, so it is replaced by a variable; `fetch` is replaced by
@@ -20,7 +19,6 @@ vi.mock('../lib/ai/secureKey', () => ({
 }));
 
 import {
-  applyChanges,
   applyProposal,
   applySequence,
   discardProposal,
@@ -31,7 +29,6 @@ import {
 import { sanitizeAi, useAi } from './aiStore';
 import { useLibrary } from './libraryStore';
 import { useSettings } from './settingsStore';
-import { useTasks } from './tasksStore';
 
 const KEY = 'AIzaSyTESTKEY-1234567890abcdef';
 
@@ -52,8 +49,8 @@ beforeEach(() => {
   calls.length = 0;
   useAi.setState({
     ...sanitizeAi({}),
-    pending: { Workout: false, Tasks: false, Expenses: false },
-    retrying: { Workout: false, Tasks: false, Expenses: false },
+    pending: { Workout: false },
+    retrying: { Workout: false },
   });
   useLibrary.getState().restoreSeedLibrary();
   useSettings.getState().resetToDefaults();
@@ -124,27 +121,25 @@ async function connect() {
 }
 
 describe('asking a question', () => {
-  it('puts the answer in that section’s chat and nowhere else', async () => {
+  it('puts the answer in the chat, with the training log as its context', async () => {
     await connect();
-    answers = [gemini([{ type: 'text', text: 'Nine of nine.' }])];
-    await sendMessage('Tasks', 'How did today go?', undefined, 'tasks');
-    const chat = useAi.getState().chats.Tasks;
+    answers = [gemini([{ type: 'text', text: 'Four sessions.' }])];
+    await sendMessage('Workout', 'How did this week go?');
+    const chat = useAi.getState().chats.Workout;
     expect(chat.map((m) => m.role)).toEqual(['user', 'model']);
     expect(chat[1].role === 'model' && chat[1].blocks).toEqual([
-      { type: 'text', text: 'Nine of nine.' },
+      { type: 'text', text: 'Four sessions.' },
     ]);
-    expect(useAi.getState().chats.Workout).toEqual([]);
-    expect(useAi.getState().pending.Tasks).toBe(false);
-    // The tasks chat reads the tasks, not the training log.
-    expect(calls[0].body).toContain('excused');
-    expect(calls[0].body).not.toContain('setsPerCluster4w');
+    expect(useAi.getState().pending.Workout).toBe(false);
+    expect(calls[0].body).toContain('setsPerCluster4w');
+    expect(calls[0].body).not.toContain('otherSections');
   });
 
   it('turns a failure into a sentence with the question to retry', async () => {
     await connect();
     answers = [{ status: 429, body: {} }];
-    await sendMessage('Expenses', 'Where did August go?', undefined, 'expenses');
-    const last = useAi.getState().chats.Expenses.at(-1)!;
+    await sendMessage('Workout', 'Where did August go?');
+    const last = useAi.getState().chats.Workout.at(-1)!;
     expect(last).toMatchObject({
       role: 'error',
       text: 'The key works but is over its quota right now.',
@@ -153,15 +148,15 @@ describe('asking a question', () => {
 
     // Try again: the error goes, the question is not asked twice.
     answers = [gemini([{ type: 'text', text: 'Rent, mostly.' }])];
-    await sendMessage('Expenses', 'Where did August go?', last.id, 'expenses');
-    expect(useAi.getState().chats.Expenses.map((m) => m.role)).toEqual(['user', 'model']);
+    await sendMessage('Workout', 'Where did August go?', last.id);
+    expect(useAi.getState().chats.Workout.map((m) => m.role)).toEqual(['user', 'model']);
   });
 
   /** Run a turn whose retries wait on timers, without waiting for real. */
-  async function sendWithTimers(section: 'Workout' | 'Tasks', text: string) {
+  async function sendWithTimers(text: string) {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const turn = sendMessage(section, text, undefined, sectionVariant(section));
+      const turn = sendMessage('Workout', text);
       for (let i = 0; i < 10; i += 1) await vi.advanceTimersByTimeAsync(2000);
       await turn;
     } finally {
@@ -176,10 +171,10 @@ describe('asking a question', () => {
       { status: 500, body: {} },
       gemini([{ type: 'text', text: 'Mon, Wed, Fri.' }]),
     ];
-    await sendWithTimers('Tasks', 'Suggest a better schedule');
+    await sendWithTimers('Suggest a better schedule');
     expect(calls).toHaveLength(3);
-    expect(useAi.getState().chats.Tasks.map((m) => m.role)).toEqual(['user', 'model']);
-    expect(useAi.getState().retrying.Tasks).toBe(false);
+    expect(useAi.getState().chats.Workout.map((m) => m.role)).toEqual(['user', 'model']);
+    expect(useAi.getState().retrying.Workout).toBe(false);
   });
 
   it('falls back to the current Flash model when the chosen one keeps failing', async () => {
@@ -190,10 +185,10 @@ describe('asking a question', () => {
       { status: 500, body: {} },
       gemini([{ type: 'text', text: 'Hello.' }]),
     ];
-    await sendWithTimers('Tasks', 'how are you');
+    await sendWithTimers('how are you');
     expect(calls).toHaveLength(4);
     expect(calls[3].url).toContain('gemini-flash-latest');
-    expect(useAi.getState().chats.Tasks.at(-1)?.role).toBe('model');
+    expect(useAi.getState().chats.Workout.at(-1)?.role).toBe('model');
   });
 
   it('says overloaded only after every try failed', async () => {
@@ -204,8 +199,8 @@ describe('asking a question', () => {
       { status: 503, body: {} },
       { status: 503, body: {} },
     ];
-    await sendWithTimers('Tasks', 'how are you');
-    expect(useAi.getState().chats.Tasks.at(-1)).toMatchObject({
+    await sendWithTimers('how are you');
+    expect(useAi.getState().chats.Workout.at(-1)).toMatchObject({
       role: 'error',
       text: 'The AI coach is overloaded right now. Try again in a minute.',
     });
@@ -214,7 +209,7 @@ describe('asking a question', () => {
   it('does not retry what is the key’s fault', async () => {
     await connect();
     answers = [{ status: 429, body: {} }];
-    await sendWithTimers('Tasks', 'hello');
+    await sendWithTimers('hello');
     expect(calls).toHaveLength(1);
   });
 
@@ -323,27 +318,17 @@ describe('a routine proposal', () => {
     expect(useAi.getState().proposals[id].status).toBe('discarded');
     expect(applyProposal(id)).toBeNull();
   });
-
-  it('never arrives in another section', async () => {
-    await connect();
-    answers = [gemini([legsDay])];
-    await sendMessage('Tasks', 'Suggest a new routine', undefined, 'tasks');
-    // Its reason may be said, as text; the proposal itself is never stored.
-    const last = useAi.getState().chats.Tasks.at(-1)!;
-    expect(last.role === 'model' && last.blocks.every((b) => b.type === 'text')).toBe(true);
-    expect(Object.keys(useAi.getState().proposals)).toEqual([]);
-  });
 });
 
 describe('disconnecting', () => {
   it('forgets the key and keeps the chats', async () => {
     await connect();
     answers = [gemini([{ type: 'text', text: 'Hi.' }])];
-    await sendMessage('Tasks', 'Hello', undefined, 'tasks');
+    await sendMessage('Workout', 'Hello');
     await disconnect();
     expect(storedKey).toBeNull();
     expect(useAi.getState().status).toBe('off');
-    expect(useAi.getState().chats.Tasks).toHaveLength(2);
+    expect(useAi.getState().chats.Workout).toHaveLength(2);
   });
 });
 
@@ -369,8 +354,7 @@ describe('a suggested training loop', () => {
     });
     // Nothing written yet.
     expect(useLibrary.getState().sequence).toEqual(before);
-    // The context the model read carried the loop — and, since the split, no
-    // other section: the Workout app's assistant is the training log's alone.
+    // The context the model read carried the loop, and nothing but the training.
     expect(calls[0].body).toContain('sequence');
     expect(calls[0].body).not.toContain('otherSections');
 
@@ -386,64 +370,5 @@ describe('a suggested training loop', () => {
     expect(useLibrary.getState().sequence).toEqual(before);
     const again = useAi.getState().chats.Workout.at(-1)!;
     expect(again.role === 'model' && again.blocks[1]).toMatchObject({ status: 'pending' });
-  });
-});
-
-/*
- * THE SPLIT (3.0.0). The Workout app's store still holds the 2.x tasks and money
- * — and the chats about them — but its assistant neither asks nor writes there.
- */
-describe('each app’s assistant stays in its own log', () => {
-  const addStretch = gemini([
-    { type: 'text', text: 'Add stretching.' },
-    {
-      type: 'changes_proposal',
-      changes: { items: [{ target: 'task', field: 'add', text: 'Stretch' }], why: 'Asked.' },
-    },
-  ]);
-
-  it('does not ask a question from a section this app does not have', async () => {
-    await connect();
-    answers = [gemini([{ type: 'text', text: 'Nine of nine.' }])];
-    await sendMessage('Tasks', 'How did today go?');
-    expect(useAi.getState().chats.Tasks).toEqual([]);
-    expect(calls.filter((c) => c.url.includes('generateContent'))).toEqual([]);
-  });
-
-  it('will not apply another log’s card, even one already on disk', async () => {
-    await connect();
-    answers = [addStretch];
-    await sendMessage('Tasks', 'Add stretching', undefined, 'tasks');
-    const card = useAi.getState().chats.Tasks.at(-1)!;
-    const before = useTasks.getState().tasks;
-
-    // The Workout app (the default under tests) holding that Tasks chat.
-    expect(applyChanges('Tasks', card.id)).toBeNull();
-    expect(applyChanges('Tasks', card.id, 'expenses')).toBeNull();
-    expect(useTasks.getState().tasks).toBe(before);
-
-    // The Tasks app applies it.
-    expect(applyChanges('Tasks', card.id, 'tasks')).not.toBeNull();
-    expect(useTasks.getState().tasks.some((t) => t.name === 'Stretch')).toBe(true);
-  });
-
-  it('writes no routine and no loop outside the Workout app', async () => {
-    await connect();
-    const [push, pull] = useLibrary.getState().routines;
-    answers = [
-      gemini([
-        { type: 'text', text: 'Push twice.' },
-        {
-          type: 'sequence_proposal',
-          sequence: { routineIds: [push.id, pull.id, push.id], next: 0, why: 'Push lags.' },
-        },
-      ]),
-    ];
-    await sendMessage('Workout', 'Put push twice in my loop');
-    const answer = useAi.getState().chats.Workout.at(-1)!;
-    const before = useLibrary.getState().sequence;
-    expect(applySequence('Workout', answer.id, 'tasks')).toBeNull();
-    expect(useLibrary.getState().sequence).toEqual(before);
-    expect(applyProposal('any', 'expenses')).toBeNull();
   });
 });

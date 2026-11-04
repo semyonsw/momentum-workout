@@ -1,7 +1,5 @@
 /**
- * Keep Android's notification queue matching the tasks (in the Tasks app) or
- * the workout schedule (in the Workout app) — `notificationScope` decides which,
- * and `planReminders` is handed `APP_VARIANT` so it plans only that half.
+ * Keep Android's notification queue matching the workout schedule.
  *
  * Mounted once, at the top of the app, beside `useAutoBackup`: launch is the only
  * moment a sideloaded app can reliably run anything, so the work that has to
@@ -9,61 +7,37 @@
  *
  * ── WHAT IT WATCHES, AND WHY IT IS EVERY INPUT ───────────────────────────
  *
- * The plan is a function of the tasks, their log, the workout schedule and the
- * language (`lib/reminders.ts`), so all four are subscribed — the log because
- * an answered day is what stops a task's follow-ups, and an excused day ahead
- * (a pause) is what turns its repeat into dated alerts that skip it. Renaming a task has to
- * rewrite the alert that carries its name; turning a reminder off has to cancel
- * it; switching to English has to change what the phone says tomorrow morning.
- * Any of those being missed leaves the user looking at a setting that says one
- * thing while the phone does another — which is the failure that makes people
- * turn notifications off at the OS level and never turn them back on.
+ * The plan is a function of the schedule and the language (`lib/reminders.ts`),
+ * so all of them are subscribed: turning the reminder off has to cancel it, and
+ * switching to English has to change what the phone says tomorrow evening.
+ * Either being missed leaves the user looking at a setting that says one thing
+ * while the phone does another — which is the failure that makes people turn
+ * notifications off at the OS level and never turn them back on.
  *
  * ── AND WHY IT ALSO WATCHES THE FOREGROUND ───────────────────────────────
  *
- * Two things only the clock can change. A one-day task for tomorrow has to
- * become an armed alert once it is close enough, and a habit that begins on the
- * 1st has to pick up its weekly alerts once the 1st arrives — `planReminders`
- * deliberately emits nothing for either until then. Coming back to the app is
- * when that gets noticed, and it costs a dozen scheduling calls on a queue that
- * is usually unchanged.
+ * A reboot can clear the queue, and coming back to the app is when that gets
+ * noticed. It costs a handful of scheduling calls on a queue that is usually
+ * unchanged.
  *
- * ── IT IS DEBOUNCED, BECAUSE TYPING A NAME IS TWENTY RENDERS ─────────────
+ * ── IT IS DEBOUNCED ──────────────────────────────────────────────────────
  *
- * The task editor commits on Save, but renaming from the detail screen and
- * every other write into the store lands one state change at a time. Syncing on
- * each of them would be twenty cancel-and-reschedule passes across the bridge
- * for one edit. Half a second of quiet is the signal that the edit is over.
+ * Rolling the time wheel or tapping through the day chips lands one state change
+ * at a time. Syncing on each would be a cancel-and-reschedule pass across the
+ * bridge per tap; half a second of quiet is the signal that the edit is over.
  */
 
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 
-import { APP_VARIANT } from '../lib/appVariant';
-import { notificationScope } from '../lib/notificationScope';
 import { planKey, planReminders } from '../lib/reminders';
 import { syncReminders } from '../lib/notify';
 import { useSettings } from '../state/settingsStore';
-import { useTasks } from '../state/tasksStore';
-import type { Task, TaskLog } from '../lib/tasks';
 
 /** Long enough to swallow a burst of edits, short enough to feel immediate. */
 const DEBOUNCE_MS = 500;
 
-/*
- * Outside the Tasks app the task store is not this hook's business: the
- * Workout app still HOLDS the 2.x tasks, but plans none of them. Selecting a
- * constant there means a write into that store does not even wake the hook.
- * `APP_VARIANT` is fixed for the bundle, so the selector never changes shape.
- */
-const TASKS_ARMED = notificationScope(APP_VARIANT).taskReminders;
-const NO_TASKS: readonly Task[] = [];
-const NO_LOG: TaskLog = {};
-
 export function useReminders(): void {
-  const tasks = useTasks((s) => (TASKS_ARMED ? s.tasks : NO_TASKS));
-  /* The log too: ticking a task is what cancels the rest of its follow-ups. */
-  const log = useTasks((s) => (TASKS_ARMED ? s.log : NO_LOG));
   const language = useSettings((s) => s.language);
   const workoutReminderEnabled = useSettings((s) => s.workoutReminderEnabled);
   const workoutReminderDays = useSettings((s) => s.workoutReminderDays);
@@ -71,10 +45,8 @@ export function useReminders(): void {
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /*
-   * What Android was last handed. The log changes on every tick and every note,
-   * and almost none of those change the plan. Without this, each one would
-   * cancel and re-arm the whole queue across the bridge while the tick is
-   * still animating.
+   * What Android was last handed, so a write that changes nothing in the plan
+   * does not cancel and re-arm the whole queue across the bridge.
    */
   const lastKey = useRef<string | null>(null);
 
@@ -82,16 +54,12 @@ export function useReminders(): void {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       const plan = planReminders({
-        tasks,
         workout: {
           enabled: workoutReminderEnabled,
           days: workoutReminderDays,
           time: workoutReminderTime,
         },
         lang: language,
-        now: new Date(),
-        log,
-        variant: APP_VARIANT,
       });
       const key = `${language}|${planKey(plan)}`;
       if (key === lastKey.current) return;
@@ -102,7 +70,7 @@ export function useReminders(): void {
     return () => {
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [tasks, log, language, workoutReminderEnabled, workoutReminderDays, workoutReminderTime]);
+  }, [language, workoutReminderEnabled, workoutReminderDays, workoutReminderTime]);
 
   /*
    * Read from the stores rather than from the closure above: this fires whenever
@@ -114,20 +82,15 @@ export function useReminders(): void {
       if (next !== 'active') return;
       const settings = useSettings.getState();
       const plan = planReminders({
-        tasks: useTasks.getState().tasks,
-        log: useTasks.getState().log,
         workout: {
           enabled: settings.workoutReminderEnabled,
           days: settings.workoutReminderDays,
           time: settings.workoutReminderTime,
         },
         lang: settings.language,
-        now: new Date(),
-        variant: APP_VARIANT,
       });
-      // Always synced, whatever the key says: this is the pass that catches
-      // what only the clock changed, and the one that re-arms after a reboot
-      // cleared the queue.
+      // Always synced, whatever the key says: this is the pass that re-arms
+      // after a reboot cleared the queue.
       lastKey.current = `${settings.language}|${planKey(plan)}`;
       void syncReminders(plan, settings.language);
     });

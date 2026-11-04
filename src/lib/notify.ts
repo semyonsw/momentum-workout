@@ -48,9 +48,7 @@
 import { Linking, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
-import { APP_VARIANT, type AppVariant } from './appVariant';
 import { t, type Language } from './i18n';
-import { channelsFor, reminderChannelDescription } from './notificationScope';
 import type { PlannedReminder } from './reminders';
 
 /**
@@ -70,13 +68,12 @@ const CHANNEL_GO = `timer-go-v${CHANNEL_VERSION}`;
 const CHANNEL_GETSET = `timer-getset-v${CHANNEL_VERSION}`;
 
 /**
- * REMINDERS — a task's own time of day, the workout schedule, a budget alert:
- * whichever of those this app sends (`lib/notificationScope.ts`).
+ * REMINDERS — the workout schedule (`lib/reminders.ts`).
  *
  * Its own channel and not the timer's, which is the whole point of channels: the
  * two are different events with different urgencies and the user has to be able
  * to tune them apart. A rest timer ending is a thing you need THIS SECOND and it
- * gets `MAX` with the app's loud tone; "read before sleep" at 22:30 is a thing
+ * gets `MAX` with the app's loud tone; "time to train" at 18:00 is a thing
  * you need today, and a reminder that sounds like a set ending is a reminder
  * that gets the whole app silenced.
  *
@@ -125,51 +122,39 @@ const TIMER_KIND = 'timer';
  */
 let channels: { lang: Language; ready: Promise<boolean> } | null = null;
 
-async function writeChannels(lang: Language, variant: AppVariant): Promise<boolean> {
+async function writeChannels(lang: Language): Promise<boolean> {
   try {
     for (const id of RETIRED_CHANNELS) {
       await Notifications.deleteNotificationChannelAsync(id).catch(() => {});
     }
 
-    /*
-     * Only the channels this app uses: a "Timer finished" row in the Tasks
-     * app's notification settings would be a switch for nothing. The Tasks and
-     * Expenses apps are new installs, so there is no timer channel there to
-     * delete — they simply never create one.
-     */
-    const roles = channelsFor(variant);
+    await Notifications.setNotificationChannelAsync(CHANNEL_GO, {
+      name: t('Timer finished', lang),
+      description: t('Rest is over, or a timed set rang its bell.', lang),
+      importance: Notifications.AndroidImportance.MAX,
+      sound: 'beep_final.wav',
+      vibrationPattern: [0, 220, 120, 220],
+      enableVibrate: true,
+      bypassDnd: false,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
 
-    if (roles.includes('go')) {
-      await Notifications.setNotificationChannelAsync(CHANNEL_GO, {
-        name: t('Timer finished', lang),
-        description: t('Rest is over, or a timed set rang its bell.', lang),
-        importance: Notifications.AndroidImportance.MAX,
-        sound: 'beep_final.wav',
-        vibrationPattern: [0, 220, 120, 220],
-        enableVibrate: true,
-        bypassDnd: false,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      });
-    }
-
-    if (roles.includes('getset')) {
-      await Notifications.setNotificationChannelAsync(CHANNEL_GETSET, {
-        name: t('Get set', lang),
-        description: t('A tick {seconds} seconds before a timer ends.', lang, {
-          seconds: GETSET_LEAD_SECONDS,
-        }),
-        importance: Notifications.AndroidImportance.HIGH,
-        sound: 'beep_tick.wav',
-        vibrationPattern: [0, 120],
-        enableVibrate: true,
-        bypassDnd: false,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      });
-    }
+    await Notifications.setNotificationChannelAsync(CHANNEL_GETSET, {
+      name: t('Get set', lang),
+      description: t('A tick {seconds} seconds before a timer ends.', lang, {
+        seconds: GETSET_LEAD_SECONDS,
+      }),
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: 'beep_tick.wav',
+      vibrationPattern: [0, 120],
+      enableVibrate: true,
+      bypassDnd: false,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
 
     await Notifications.setNotificationChannelAsync(CHANNEL_REMINDER, {
       name: t('Reminders', lang),
-      description: t(reminderChannelDescription(variant), lang),
+      description: t('A workout, at the time you asked to be reminded.', lang),
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 200],
       enableVibrate: true,
@@ -183,8 +168,7 @@ async function writeChannels(lang: Language, variant: AppVariant): Promise<boole
 }
 
 /**
- * Create this app's Android channels (all three in Workout, the reminder one
- * alone in Tasks and Expenses), and clear out retired ones.
+ * Create the app's three Android channels, and clear out retired ones.
  *
  * No-op elsewhere, and never throws. Safe to call on every launch and from every
  * scheduling path: concurrent callers share one write, and a failed write is
@@ -200,7 +184,7 @@ export async function ensureTimerChannels(lang?: Language): Promise<void> {
     if (await channels.ready) return;
   }
   const target = lang ?? channels?.lang ?? 'en';
-  const ready = writeChannels(target, APP_VARIANT);
+  const ready = writeChannels(target);
   channels = { lang: target, ready };
   if (!(await ready) && channels?.ready === ready) channels = null; // let a later call try again
 }
@@ -378,7 +362,7 @@ export async function scheduleTimerAlertPair(params: {
  * Called when the app comes back to the front: a "Rest over" from four minutes
  * ago is not news to somebody who is looking at the session, and a shade that
  * piles up one per set is the other reason people switch alerts off. Reminders
- * are left where they are — "read before sleep" is still true until it is done.
+ * are left where they are — "time to train" is still true until it is done.
  */
 export async function dismissTimerAlerts(): Promise<void> {
   try {
@@ -413,9 +397,9 @@ export async function cancelTimerAlerts(ids: readonly (string | null)[]): Promis
  *
  * Everything scheduled here carries `data.kind = 'reminder'`, and `syncReminders`
  * cancels by reading it back off the queue. The queue is this app's alone —
- * Android keeps each package's scheduled notifications apart, so the Tasks app
- * cannot reach the Workout app's (see `lib/notificationScope.ts`) — and the
- * marker is what separates the two kinds WITHIN one app. That matters: the obvious
+ * Android keeps each package's scheduled notifications apart, so the Tasks and
+ * Expenses apps can neither see nor cancel these — and the marker is what
+ * separates the two kinds WITHIN this app. That matters: the obvious
  * implementation is `cancelAllScheduledNotificationsAsync`, and it would silently
  * cancel the rest-timer alert of a workout that is running while the user edits
  * the workout reminder — a rest that then ends in complete silence with the phone
@@ -444,7 +428,11 @@ export function notificationKind(data: unknown): string | null {
   return typeof kind === 'string' ? kind : null;
 }
 
-/** A reminder's identifier, as `planReminders` writes it. The fallback marker. */
+/**
+ * A reminder's identifier, as `planReminders` writes it. The fallback marker.
+ * `task:` too: Momentum 2.x armed its daily tasks from this package, and any
+ * left in the queue are reminders this app must still be able to cancel.
+ */
 function isReminderId(identifier: string): boolean {
   return identifier.startsWith('task:') || identifier.startsWith('workout:');
 }
@@ -464,29 +452,11 @@ function triggerFor(reminder: PlannedReminder): Notifications.NotificationTrigge
   const channel = Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {};
   const { trigger } = reminder;
 
-  if (trigger.kind === 'daily') {
-    return {
-      type: Notifications.SchedulableTriggerInputTypes.DAILY,
-      hour: trigger.hour,
-      minute: trigger.minute,
-      ...channel,
-    };
-  }
-  if (trigger.kind === 'weekly') {
-    return {
-      type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-      weekday: expoWeekday(trigger.weekday),
-      hour: trigger.hour,
-      minute: trigger.minute,
-      ...channel,
-    };
-  }
-  // A dated alert whose instant has passed is refused rather than scheduled:
-  // `planReminders` already drops those, and this is the belt to that braces.
-  if (trigger.at - Date.now() < 1000) return null;
   return {
-    type: Notifications.SchedulableTriggerInputTypes.DATE,
-    date: new Date(trigger.at),
+    type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+    weekday: expoWeekday(trigger.weekday),
+    hour: trigger.hour,
+    minute: trigger.minute,
     ...channel,
   };
 }
@@ -565,37 +535,5 @@ async function cancelAllReminders(): Promise<void> {
     }
   } catch {
     // Nothing scheduled, or the module is unavailable. Either way, nothing to do.
-  }
-}
-
-/** `data.kind` on a budget alert (M1) — shown even with the app open, like a reminder. */
-export const BUDGET_KIND = 'budget';
-
-/**
- * A budget crossed 80% or 100% — said NOW, once (`lib/budgets.ts` decides when).
- *
- * Presented immediately rather than scheduled: the crossing happens at a save,
- * so the moment is already here. Never asks for the permission (the budget's
- * switch did that when it was turned on) and never throws.
- */
-export async function presentBudgetAlert(
-  title: string,
-  body: string,
-  lang: Language = 'en',
-): Promise<void> {
-  try {
-    if (!(await notificationsGranted())) return;
-    await ensureTimerChannels(lang);
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        data: { kind: BUDGET_KIND },
-        ...(Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {}),
-      },
-      trigger: Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : null,
-    });
-  } catch {
-    // No permission, or no module in this build: the budget screen still says it.
   }
 }

@@ -50,7 +50,7 @@ import {
   type MeasurementLog,
 } from '../lib/bodyMeasurements';
 import { formatLongDay, formatShortDay, shiftDay } from '../lib/days';
-import { keypadPress } from '../lib/moneyUnits';
+import { keypadPress } from '../lib/keypad';
 import { glass, radius } from '../theme/tokens';
 import type { UnitSystem } from '../types/models';
 

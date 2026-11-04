@@ -1,5 +1,5 @@
 /**
- * AiEntryCard — the assistant's door in each section, directly under the hero.
+ * AiEntryCard — the assistant's door on the Workout screen, directly under the hero.
  *
  *   ┌──────────────────────────────────────────────┐
  *   │ (✦)  Ask about your training               › │
@@ -15,10 +15,10 @@
  * row opens the chat empty; a chip opens it and asks that question. Either,
  * without a key, lands on the settings screen first and comes back afterwards.
  *
- * Once you know, it goes (U2): the ✕ in its corner, or the first chat in that
- * section, hides it for good, per section — `lib/aiEntry.ts` has the rule and
- * the settings store keeps the list. It renders nothing after that, so the three
- * screens that place it needed no change of their own.
+ * Once you know, it goes (U2): the ✕ in its corner, or the first chat, hides it
+ * for good — `lib/aiEntry.ts` has the rule and the settings store keeps the
+ * list. It renders nothing after that, so the screen that places it needed no
+ * change of its own.
  *
  * `flat`, like every repeating pane: the section's blur budget belongs to its
  * hero, and this is the card under it rather than a second hero.
@@ -36,8 +36,7 @@
  * SVG text does not truncate, so the line measures itself with an invisible RN
  * copy and runs like `RunningText` when it is longer than the row.
  *
- * The chips WRAP rather than scroll, like the money section's account chips:
- * every chip is visible without a gesture.
+ * The chips WRAP rather than scroll: every chip is visible without a gesture.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -65,11 +64,6 @@ import type { AiSection } from '../lib/ai/aiSchema';
 import { MARQUEE_DELAY_MS, MARQUEE_FADE, marqueePhases, marqueeTravel } from '../lib/marquee';
 import { ai, curve, motion, palette, radius } from '../theme/tokens';
 
-const TITLE: Record<AiSection, string> = {
-  Workout: 'Ask about your training',
-  Tasks: 'Ask about your habits',
-  Expenses: 'Ask about your money',
-};
 
 /** The card's inner padding, and the ✕'s square and inset from the card's edge. */
 const CARD_PAD = 16;
@@ -102,8 +96,8 @@ export function AiEntryCard({
   onOpen: (prompt?: string) => void;
 }) {
   const t = useT();
-  const prompts = useAiPrompts(section).slice(0, 3);
-  const title = t(TITLE[section]);
+  const prompts = useAiPrompts().slice(0, 3);
+  const title = t('Ask about your training');
   const line = ready
     ? t('AI coach · summaries, trends, suggestions')
     : t('Connect a Google AI key to start');

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { APP_VARIANTS, variantSections } from './appVariant';
 import {
   EXIT_WINDOW_MS,
+  SECTIONS,
+  SHELL_ROOT,
   backAction,
   edgeBackCommits,
   navSlots,
-  shellRoot,
   slideDir,
 } from './sectionNav';
 
@@ -43,42 +43,21 @@ describe('backAction', () => {
     expect(backAction({ ...base, exitArmedAt: 10_000 - EXIT_WINDOW_MS - 1 })).toBe('armExit');
   });
 
-  it('arms the exit on each app’s own section, never on Settings', () => {
-    for (const variant of APP_VARIANTS) {
-      const root = shellRoot(variant);
-      expect(backAction({ ...base, route: root, root })).toBe('armExit');
-      expect(backAction({ ...base, route: 'Settings', root })).toBe('root');
-    }
-  });
-});
-
-describe('shellRoot', () => {
-  it('opens each app on its own section', () => {
-    expect(shellRoot('workout')).toBe('Workout');
-    expect(shellRoot('tasks')).toBe('Tasks');
-    expect(shellRoot('expenses')).toBe('Expenses');
+  it('arms the exit on the training, never on Settings', () => {
+    expect(backAction({ ...base, route: SHELL_ROOT, root: SHELL_ROOT })).toBe('armExit');
+    expect(backAction({ ...base, route: 'Settings', root: SHELL_ROOT })).toBe('root');
   });
 });
 
 describe('navSlots', () => {
-  it('puts a two-item bar at the quarters, with no gap left for a Home button', () => {
-    expect(navSlots(['Tasks', 'Settings'])).toEqual({ Tasks: 0.25, Settings: 0.75 });
-  });
-
-  it('places only the sections it is given', () => {
-    for (const variant of APP_VARIANTS) {
-      expect(Object.keys(navSlots(variantSections(variant)))).toEqual([
-        shellRoot(variant),
-        'Settings',
-      ]);
-    }
+  it('puts the two-item bar at the quarters, with no gap left for a Home button', () => {
+    expect(navSlots(SECTIONS)).toEqual({ Workout: 0.25, Settings: 0.75 });
   });
 });
 
 describe('slideDir', () => {
-  it('slides the way the blob goes on the bar the app draws', () => {
-    const bar = variantSections('expenses');
-    expect(slideDir(bar, 'Expenses', 'Settings')).toBe(1);
-    expect(slideDir(bar, 'Settings', 'Expenses')).toBe(-1);
+  it('slides the way the blob goes on the bar', () => {
+    expect(slideDir(SECTIONS, 'Workout', 'Settings')).toBe(1);
+    expect(slideDir(SECTIONS, 'Settings', 'Workout')).toBe(-1);
   });
 });

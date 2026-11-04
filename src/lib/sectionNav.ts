@@ -1,32 +1,23 @@
 /**
- * The four sections, and how an app built from this tree moves between the ones
- * it has.
+ * The two roots — the training and Settings — and the gestures between them.
  *
- *   Workout · Tasks · Expenses · Settings
+ *   Workout · Settings
  *
  * ── WHY THE ORDER IS A CONSTANT AND NOT A TAB BAR DETAIL ───────────────────
  *
- * The order is more than layout: a slide between two sections goes the way the
- * bar's blob does (`navigation/ShellStage.tsx`), and the spares are built
- * nearest-first along it (`lib/stageBuilds.ts`). Two places deciding what comes
- * after `Tasks` is two places for them to disagree, so the order lives here and
- * all of them read it.
- *
- * Since 3.0.0 no APK shows all four: each app is ONE content section plus
- * Settings (`lib/appVariant.ts`), and every decision below takes that pair as a
- * parameter rather than reading the build's variant, so the tests can walk all
- * three apps without an env var. `SECTIONS` stays the full list because it is
- * the vocabulary — the order a subset is drawn in — not what any one bar shows.
+ * The order is more than layout: a slide between the two goes the way the
+ * bar's blob does (`navigation/ShellStage.tsx`), and the spare is built along
+ * it (`lib/stageBuilds.ts`). Two places deciding which side Settings is on is
+ * two places for them to disagree, so the order lives here and all of them
+ * read it.
  */
 
-import { variantSection, type AppVariant } from './appVariant';
-
-export const SECTIONS = ['Workout', 'Tasks', 'Expenses', 'Settings'] as const;
+export const SECTIONS = ['Workout', 'Settings'] as const;
 
 export type SectionTab = (typeof SECTIONS)[number];
 
 /* ══════════════════════════════════════════════════════════════════════════
-   ONE SECTION AND SETTINGS — and the gestures between them.
+   THE TRAINING AND SETTINGS — and the gestures between them.
 
      Section ◀──tap nav / back──▶ Settings
         │  ▲
@@ -34,27 +25,25 @@ export type SectionTab = (typeof SECTIONS)[number];
         ▼  │
      Inner screen
 
-   There used to be a landing above the four (2.0–2.10): three tiles and a
-   raised Home button in the middle of the bar, which only made sense while one
-   app held three logs. With one log per app the section IS the landing — the
-   thing you open the app to see — so it is the root, Back on it arms the exit,
-   and a route is exactly a section.
+   There used to be a landing above the sections (2.0–2.10): tiles and a raised
+   Home button in the middle of the bar, which only made sense while the app
+   held more than one log. The training IS the landing — the thing you open the
+   app to see — so it is the root, Back on it arms the exit, and a route is
+   exactly a section.
    ══════════════════════════════════════════════════════════════════════════ */
 
 export type ShellRoute = SectionTab;
 
-/** Where an app opens, and where Back from anywhere else in it lands. */
-export function shellRoot(variant: AppVariant): SectionTab {
-  return variantSection(variant);
-}
+/** Where the app opens, and where Back from anywhere else in it lands. */
+export const SHELL_ROOT: SectionTab = 'Workout';
 
 /**
  * The nav bar's slot centres for the sections it shows, as fractions of the
  * bar's width: evenly spaced, each in the middle of its own share.
  *
  * Two slots land at 1/4 and 3/4 — the halves of the bar, each glyph centred in
- * the half it owns. The old layout drew four at 44 · 110 | 258 · 324 of 368 dp
- * around the raised Home button; reusing two of those positions would leave a
+ * the half it owns. The 2.x layout drew four at 44 · 110 | 258 · 324 of 368 dp
+ * around a raised Home button; reusing two of those positions would leave a
  * hole in the middle where a button used to be, which reads as something
  * missing rather than as a two-item bar. Fractions, so a 340 dp bar keeps its
  * proportions.
@@ -97,13 +86,12 @@ export type BackAction = 'closeSheet' | 'pop' | 'root' | 'armExit' | 'exit';
 
 /**
  * Android back, in the design's order: a sheet closes first, then a pushed
- * screen pops, then Settings goes back to the app's own section (`root`), and
- * on that section the first press arms an exit (a toast says so) and a second
- * within two seconds leaves.
+ * screen pops, then Settings goes back to the training (`root`), and there the
+ * first press arms an exit (a toast says so) and a second within two seconds
+ * leaves.
  *
- * `root` is `shellRoot(variant)`, passed in rather than read here so a test can
- * stand in any of the three apps. `exitArmedAt` is when the last press armed
- * it, or null.
+ * `root` is `SHELL_ROOT`, passed in so the rule reads the same whichever root
+ * a test stands in. `exitArmedAt` is when the last press armed it, or null.
  */
 export function backAction(state: {
   sheetOpen: boolean;

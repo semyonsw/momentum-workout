@@ -20,19 +20,12 @@
  * connection state: a restored phone tests its own key. `dataTransfer.test.ts`
  * pins both halves.
  *
- * ── ONE CHAT PER SECTION, FORTY MESSAGES DEEP ──────────────────────────────
+ * ── ONE CHAT, FORTY MESSAGES DEEP ──────────────────────────────────────────
  *
- * Workout, Tasks and Expenses each keep their own history, because each is a
- * different conversation about a different log. Forty messages is twenty
- * exchanges — more than a phone screen shows and far more than the ten turns
- * that travel with a question — and the cap keeps a blob that is rewritten on
- * every message from growing for a year.
- *
- * All three keys stay in every app after the 3.0.0 split, though each app shows
- * one chat (`lib/ai/aiScope.ts`). The Workout app is the 2.x install, and its
- * Tasks and Expenses chats are on disk: they ride its backup to the apps that
- * show them, so this store keeps them rather than dropping the keys it no
- * longer draws. A Tasks or Expenses app simply has two empty ones.
+ * The training chat, keyed `Workout` (`AiSection` says why it is still a key).
+ * Forty messages is twenty exchanges — more than a phone screen shows and far
+ * more than the ten turns that travel with a question — and the cap keeps a
+ * blob that is rewritten on every message from growing for a year.
  *
  * A proposal lives beside the chats, keyed by id, because it is EDITED: the
  * review screen changes its numbers, and a chat message holding a copy would be
@@ -116,7 +109,7 @@ export const CHAT_CAP = 40;
 
 type Chats = Record<AiSection, AiMessage[]>;
 
-const EMPTY_CHATS: Chats = { Workout: [], Tasks: [], Expenses: [] };
+const EMPTY_CHATS: Chats = { Workout: [] };
 
 /**
  * A chat that was put away by `Start a new chat` — kept on this phone, listed
@@ -148,7 +141,7 @@ export const ARCHIVE_CAP = 30;
 
 type Archive = Record<AiSection, ArchivedChat[]>;
 
-const EMPTY_ARCHIVE: Archive = { Workout: [], Tasks: [], Expenses: [] };
+const EMPTY_ARCHIVE: Archive = { Workout: [] };
 
 let archiveSeed = 0;
 
@@ -304,8 +297,8 @@ export const useAi = create<AiState>()(
       archive: EMPTY_ARCHIVE,
       proposals: {},
       unseenRoutineIds: [],
-      pending: { Workout: false, Tasks: false, Expenses: false },
-      retrying: { Workout: false, Tasks: false, Expenses: false },
+      pending: { Workout: false },
+      retrying: { Workout: false },
 
       setModel: (model) => {
         const trimmed = model.trim().replace(/^models\//, '');
@@ -508,7 +501,7 @@ function sanitizeProposal(raw: unknown): StoredProposal | null {
   };
 }
 
-const CHANGE_TARGETS = new Set(['exercise', 'setting', 'task', 'budget']);
+const CHANGE_TARGETS = new Set(['exercise', 'setting']);
 
 /**
  * A stored changes card out of anything. The changes were checked against the
@@ -537,7 +530,6 @@ function sanitizeChangesBlock(raw: Rec): ChangesChatBlock | null {
 
 function sanitizeMessage(
   raw: unknown,
-  section: AiSection,
   proposals: Record<string, StoredProposal>,
 ): AiMessage | null {
   if (!isRec(raw)) return null;
@@ -584,7 +576,7 @@ function sanitizeMessage(
       continue;
     }
     // Text and summary blocks go through the SAME validator a live answer does.
-    const [valid] = validateBlocks([block], { section, routineIds: new Set() });
+    const [valid] = validateBlocks([block], { routineIds: new Set() });
     if (valid && (valid.type === 'text' || valid.type === 'summary')) blocks.push(valid);
   }
   return blocks.length > 0 ? { id, role: 'model', blocks, raw: str(raw.raw) ?? '', at } : null;
@@ -600,16 +592,16 @@ export function sanitizeAi(input: unknown): AiValue {
       if (clean) proposals[id] = clean;
     }
   }
-  const chats: Chats = { Workout: [], Tasks: [], Expenses: [] };
+  const chats: Chats = { Workout: [] };
   const rawChats = isRec(raw.chats) ? raw.chats : {};
   for (const section of AI_SECTIONS) {
     const list = Array.isArray(rawChats[section]) ? (rawChats[section] as unknown[]) : [];
     chats[section] = list
-      .map((message) => sanitizeMessage(message, section, proposals))
+      .map((message) => sanitizeMessage(message, proposals))
       .filter((m): m is AiMessage => m != null)
       .slice(-CHAT_CAP);
   }
-  const archive: Archive = { Workout: [], Tasks: [], Expenses: [] };
+  const archive: Archive = { Workout: [] };
   const rawArchive = isRec(raw.archive) ? raw.archive : {};
   for (const section of AI_SECTIONS) {
     const list = Array.isArray(rawArchive[section]) ? (rawArchive[section] as unknown[]) : [];
@@ -617,7 +609,7 @@ export function sanitizeAi(input: unknown): AiValue {
       if (!isRec(entry)) continue;
       const id = str(entry.id);
       const messages = (Array.isArray(entry.messages) ? entry.messages : [])
-        .map((message) => sanitizeMessage(message, section, proposals))
+        .map((message) => sanitizeMessage(message, proposals))
         .filter((m): m is AiMessage => m != null)
         .slice(-CHAT_CAP);
       if (!id || messages.length === 0) continue;
@@ -658,8 +650,7 @@ export function sanitizeAi(input: unknown): AiValue {
 /* ------------------------------------------------------------------ */
 
 /**
- * The conversations as a backup carries them: the open chat of each section,
- * the past chats, and the suggestions they point at. NEVER the key (that is in
+ * The conversations as a backup carries them: the open chat, the past chats, and the suggestions they point at. NEVER the key (that is in
  * the keystore, not this store) and not the connection state — a restored phone
  * has to test its own key.
  */

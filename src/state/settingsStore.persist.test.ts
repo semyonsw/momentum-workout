@@ -49,7 +49,6 @@ describe('a configured phone, relaunched', () => {
     s.setNumber('restSecondsBetweenSets', 95);
     s.bumpNumber('prepareSeconds', 3);
     s.setFlag('soundEnabled', false);
-    s.setFlag('autoTickTasks', false);
     s.setUnitSystem('imperial');
     s.setLanguage('en');
     s.setTheme('custom');
@@ -59,9 +58,6 @@ describe('a configured phone, relaunched', () => {
     s.setBodyweightKg(81.4);
     s.addGym('Hotel');
     s.setWeeklyTarget('push', 14);
-    s.setCurrencyCode('usd');
-    s.setMoneyDefaultInterval('month');
-    s.setMoneyDefaultDirection('income');
     s.setShareToHealthConnect(true);
     s.recordMeasurement('waist', '2026-10-01', 82);
 
@@ -73,7 +69,6 @@ describe('a configured phone, relaunched', () => {
       restSecondsBetweenSets: 95,
       prepareSeconds: 8,
       soundEnabled: false,
-      autoTickTasks: false,
       unitSystem: 'imperial',
       language: 'en',
       languageChosen: true,
@@ -81,7 +76,6 @@ describe('a configured phone, relaunched', () => {
       workoutReminderDays: [0, 2, 4, 6],
       workoutReminderTime: '07:05',
       bodyweightKg: 81.4,
-      currencyCode: 'USD',
       shareToHealthConnect: true,
       weeklySetTargets: { push: 14 },
     });

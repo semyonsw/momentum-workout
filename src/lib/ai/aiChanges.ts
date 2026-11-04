@@ -4,14 +4,14 @@
  *
  *   model's items ──validateChanges──► AiChange[] ──describeChanges──► the card
  *                                          └────applyExerciseChange──► the library
- *                                               (settings, tasks, budgets: aiActions)
+ *                                               (settings, logs: aiActions)
  *
  * ── WHY A SECOND KIND OF SUGGESTION ────────────────────────────────────────
  *
  * A routine proposal is a list of rows — sets, reps, weight — and that is all it
  * can say. Everything else the user tunes lived out of the assistant's reach: an
- * exercise's rest, its ladder max, its cue; the app's own rest and weekly goal; a
- * task's schedule; a category's budget. Asked "my pull-up max is 14 now", the
+ * exercise's rest, its ladder max, its cue; the app's own rest and weekly goal.
+ * Asked "my pull-up max is 14 now", the
  * model could only reply in prose and leave the user to find the field. Now it
  * writes one card listing each change as `from → to`, and Apply writes them all,
  * with one Undo.
@@ -25,19 +25,12 @@
  * forced. The card is drawn from what SURVIVED, so it never shows a change Apply
  * would not make.
  *
- * ── EACH SECTION CHANGES ITS OWN THINGS ────────────────────────────────────
- *
- * Exercises and app settings from the Workout chat, tasks from the Tasks chat,
- * budgets from the Expenses chat. The context of a chat carries the ids of its
- * own section only, so a cross-section change would be a guess.
- *
  * ── AND THE THINGS THE USER LOGS, NOT ONLY THE THINGS THEY TUNE ───────────
  *
- * "I spent 12 on lunch", "mark stretching done for yesterday", "I weigh 81 today",
- * "that first bench set on Monday was a warm-up". Each is a thing the user does by
- * hand in a screen, so the chat can draft it too — as a card, through the same
- * Apply and the same Undo, never written behind the user's back. A logged amount,
- * a ticked day and a weigh-in add a row; a past set's kind is a correction of a
+ * "I weigh 81 today", "that first bench set on Monday was a warm-up". Each is a
+ * thing the user does by hand in a screen, so the chat can draft it too — as a
+ * card, through the same Apply and the same Undo, never written behind the
+ * user's back. A weigh-in adds a row; a past set's kind is a correction of a
  * saved workout, which is how a warm-up that went unmarked stops counting.
  *
  * Pure, like everything in `lib/`: the stores are read by the caller and passed
@@ -49,16 +42,7 @@ import { TARGET_SETS_LIMITS } from '../routinePlan';
 import { REST_LIMITS, clampRest, ownRestSeconds } from '../rest';
 import { formatClock } from '../units';
 import { WEEKLY_GOAL_LIMITS, usableWeeklyGoal } from '../weeklyGoal';
-import {
-  TARGET_MAX,
-  UNIT_MAX,
-  WEEKLY_MAX,
-  type Task,
-  type TaskSchedule,
-  type Weekday,
-} from '../tasks';
 import { t, type Language } from '../i18n';
-import type { AiSection } from './aiSchema';
 import { kindName, setKindOf, type SetKind, type SetType } from '../setType';
 import type { Exercise, ID } from '../../types/models';
 
@@ -79,57 +63,14 @@ export type ExerciseField =
 export type SettingField =
   'rest_between_sets' | 'rest_between_exercises' | 'auto_rest' | 'weekly_goal';
 
-export type TaskField =
-  | 'add'
-  | 'name'
-  | 'schedule'
-  | 'target'
-  | 'archive'
-  /** A DAY's answer, not the task's shape — `day` says which. */
-  | 'done'
-  | 'excused'
-  | 'clear';
-
-/** The fields that answer one day rather than change the task. */
-export const TASK_DAY_FIELDS: readonly TaskField[] = ['done', 'excused', 'clear'];
-
 /**
  * One change, already checked. `value` is the new value in the field's own
  * terms: seconds, a count, a flag, a cue — `null` where the field can be
- * cleared (an exercise's rest back to the setting, a ladder off, a task's target
- * removed, a budget deleted).
+ * cleared (an exercise's rest back to the setting, a ladder off).
  */
 export type AiChange =
   | { target: 'exercise'; id: ID; field: ExerciseField; value: number | boolean | string | null }
   | { target: 'setting'; field: SettingField; value: number | boolean }
-  | {
-      target: 'task';
-      /** Absent for `add`. */
-      id?: ID;
-      field: TaskField;
-      /** The name for `name` and `add`; the count for `target`; true for `archive`. */
-      value: string | number | boolean | null;
-      /** For `schedule` and `add`. */
-      schedule?: TaskSchedule;
-      /** For `target`: what is counted ("glasses"). */
-      unit?: string;
-      /** For `done` / `excused` / `clear`: the day answered, `YYYY-MM-DD`. */
-      day?: string;
-    }
-  | { target: 'budget'; id: ID; field: 'monthly'; value: number }
-  /** A new amount, in the log's own units, on a day. */
-  | {
-      target: 'amount';
-      field: 'add';
-      /** The category; its direction is the amount's. */
-      id: ID;
-      direction: 'expense' | 'income';
-      value: number;
-      day: string;
-      note: string;
-      /** Absent = the first live account, as the editor opens on. */
-      accountId?: ID;
-    }
   /** Today's weigh-in, kg. */
   | { target: 'bodyweight'; field: 'log'; value: number }
   /** A saved set's kind — `that first set was a warm-up`. */
@@ -150,17 +91,7 @@ export type AiChange =
 
 /** What the validator needs to know about the stores. */
 export interface ChangeContext {
-  section: AiSection;
   exercises: readonly Exercise[];
-  tasks: readonly Pick<Task, 'id' | 'name' | 'schedule' | 'target' | 'archivedAt'>[];
-  /** EXPENSE categories only — a budget on income means nothing. */
-  categories: readonly { id: ID; name: string }[];
-  /** Today, `YYYY-MM-DD` — what a missing `day` means, and the latest one allowed. */
-  today?: string;
-  /** Every live money category, both directions — what an amount may be filed under. */
-  moneyCategories?: readonly { id: ID; name: string; direction: 'expense' | 'income' }[];
-  /** Live accounts, in the editor's order. */
-  accounts?: readonly { id: ID; name: string }[];
   /** Saved workouts, for a set correction. */
   workouts?: readonly {
     id: ID;
@@ -177,34 +108,12 @@ export interface ChangeContext {
 
 /** An exercise cue is one line — the editor's own cap. */
 export const CUE_MAX = 120;
-/** A task name, as the editor holds it. */
-const TASK_NAME_MAX = 60;
 /** The weight increments a gym actually has. */
 const INCREMENT_LIMITS = { min: 0.25, max: 50 } as const;
 /** A get-ready countdown, as Settings holds it. */
 const PREPARE_LIMITS = { min: 0, max: 60 } as const;
 /** A rep target someone could actually be asked for. */
 const REP_TARGET_LIMITS = { min: 1, max: 100 } as const;
-
-const SECTION_OF: Record<AiChange['target'], AiSection> = {
-  exercise: 'Workout',
-  setting: 'Workout',
-  task: 'Tasks',
-  budget: 'Expenses',
-  amount: 'Expenses',
-  bodyweight: 'Workout',
-  workout_set: 'Workout',
-};
-
-/**
- * The section a change writes into. `validateChanges` keeps only the chat's own;
- * `state/aiActions.ts` asks again at the write, against the APP's section
- * (`aiScope.aiServes`), so a card from a chat this app should not have — a 2.x
- * Tasks chat still on disk in the Workout app — cannot reach the hidden log.
- */
-export function changeSection(target: AiChange['target']): AiSection {
-  return SECTION_OF[target];
-}
 
 /* ------------------------------------------------------------------ */
 /* Reading the model's items                                           */
@@ -281,45 +190,6 @@ const SETTING_ALIASES: Record<string, SettingField> = {
   weekly_workout_goal: 'weekly_goal',
 };
 
-const TASK_ALIASES: Record<string, TaskField> = {
-  add: 'add',
-  create: 'add',
-  new: 'add',
-  name: 'name',
-  rename: 'name',
-  schedule: 'schedule',
-  target: 'target',
-  archive: 'archive',
-  stop: 'archive',
-  done: 'done',
-  tick: 'done',
-  check: 'done',
-  complete: 'done',
-  excused: 'excused',
-  excuse: 'excused',
-  skip: 'excused',
-  clear: 'clear',
-  untick: 'clear',
-};
-
-/**
- * A day the model named, or today when it named none — null for a malformed date
- * or one after today. Nothing is logged into the future: an amount not spent yet
- * and a task not yet asked are both things that have not happened.
- */
-export function readDay(value: unknown, today: string): string | null {
-  if (value == null || value === '') return today;
-  if (typeof value !== 'string') return null;
-  const day = value.trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
-  const [y, m, d] = day.split('-').map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
-    return null;
-  }
-  return day > today ? null : day;
-}
-
 /** The kind names a model writes for a set — the app's own first. */
 const KIND_ALIASES: Record<string, SetKind> = {
   warmup: 'warmup',
@@ -336,37 +206,6 @@ const KIND_ALIASES: Record<string, SetKind> = {
 
 /** A sensible body weight, kg — the profile editor's own bounds. */
 export const BODYWEIGHT_LIMITS = { min: 20, max: 400 } as const;
-/** A note on an amount, as the editor holds it. */
-const NOTE_MAX = 120;
-
-/**
- * A task schedule from the item: `days` (0 = Monday) makes it those weekdays,
- * `number` makes it N times a week, `text` may name the kind ("daily"). Nothing
- * at all is `fallback`. `once` is not offered — a one-off job is not something
- * an assistant reading a habit history should be scheduling.
- */
-function readSchedule(item: Rec, fallback: TaskSchedule | null): TaskSchedule | null {
-  const kind = fieldKey(item.text);
-  const days = Array.isArray(item.days)
-    ? [
-        ...new Set(
-          item.days
-            .map((d) => num(d))
-            .filter((d): d is number => d != null && Number.isInteger(d) && d >= 0 && d <= 6),
-        ),
-      ].sort((a, b) => a - b)
-    : [];
-  const times = num(item.number);
-  if (kind === 'daily' || kind === 'every_day') return { kind: 'daily' };
-  if (days.length > 0) {
-    return days.length === 7 ? { kind: 'daily' } : { kind: 'weekdays', days: days as Weekday[] };
-  }
-  if (times != null && times > 0) {
-    const n = clamp(Math.round(times), 1, WEEKLY_MAX);
-    return n === WEEKLY_MAX ? { kind: 'daily' } : { kind: 'weekly', times: n };
-  }
-  return fallback;
-}
 
 function validateExerciseItem(item: Rec, exercise: Exercise): AiChange | null {
   const field = EXERCISE_ALIASES[fieldKey(item.field)];
@@ -454,83 +293,6 @@ function validateSettingItem(item: Rec): AiChange | null {
   return { target: 'setting', field, value: clampRest(snapped) };
 }
 
-function validateTaskItem(item: Rec, ctx: ChangeContext): AiChange | null {
-  const field = TASK_ALIASES[fieldKey(item.field)];
-  if (!field) return null;
-  if (field === 'add') {
-    // The name in `text`; the schedule from `days` / `number`, daily without.
-    const name = str(item.text, TASK_NAME_MAX);
-    if (!name) return null;
-    const schedule = readSchedule({ days: item.days, number: item.number }, { kind: 'daily' });
-    const taken = ctx.tasks.some(
-      (task) => !task.archivedAt && task.name.trim().toLowerCase() === name.toLowerCase(),
-    );
-    return taken || !schedule ? null : { target: 'task', field, value: name, schedule };
-  }
-  const id = typeof item.id === 'string' ? item.id.trim() : '';
-  const task = ctx.tasks.find((candidate) => candidate.id === id && !candidate.archivedAt);
-  if (!task) return null;
-  if (TASK_DAY_FIELDS.includes(field)) {
-    if (!ctx.today) return null;
-    const day = readDay(item.day, ctx.today);
-    return day ? { target: 'task', id, field, value: null, day } : null;
-  }
-  if (field === 'name') {
-    const name = str(item.text, TASK_NAME_MAX);
-    return name && name !== task.name ? { target: 'task', id, field, value: name } : null;
-  }
-  if (field === 'schedule') {
-    const schedule = readSchedule(item, null);
-    return schedule ? { target: 'task', id, field, value: null, schedule } : null;
-  }
-  if (field === 'target') {
-    const n = num(item.number);
-    if (n == null) return null;
-    if (n <= 0) return task.target ? { target: 'task', id, field, value: null } : null;
-    const unit = str(item.text, UNIT_MAX) ?? task.target?.unit ?? '';
-    return {
-      target: 'task',
-      id,
-      field,
-      value: clamp(Math.round(n), 1, TARGET_MAX),
-      unit,
-    };
-  }
-  return { target: 'task', id, field: 'archive', value: true };
-}
-
-function validateBudgetItem(item: Rec, ctx: ChangeContext): AiChange | null {
-  if (fieldKey(item.field) !== 'monthly' && fieldKey(item.field) !== 'budget') return null;
-  const id = typeof item.id === 'string' ? item.id.trim() : '';
-  if (!ctx.categories.some((c) => c.id === id)) return null;
-  const n = num(item.number);
-  if (n == null || n < 0) return null;
-  return { target: 'budget', id, field: 'monthly', value: Math.round(n) };
-}
-
-function validateAmountItem(item: Rec, ctx: ChangeContext): AiChange | null {
-  if (!['add', 'log', 'new'].includes(fieldKey(item.field)) || !ctx.today) return null;
-  const id = typeof item.id === 'string' ? item.id.trim() : '';
-  const category = ctx.moneyCategories?.find((c) => c.id === id);
-  if (!category) return null;
-  const n = num(item.number);
-  if (n == null || n <= 0) return null;
-  const day = readDay(item.day, ctx.today);
-  if (!day) return null;
-  const accountId = typeof item.account === 'string' ? item.account.trim() : '';
-  const account = ctx.accounts?.find((a) => a.id === accountId);
-  return {
-    target: 'amount',
-    field: 'add',
-    id,
-    direction: category.direction,
-    value: Math.round(n),
-    day,
-    note: str(item.text, NOTE_MAX) ?? '',
-    ...(account ? { accountId: account.id } : {}),
-  };
-}
-
 function validateBodyweightItem(item: Rec): AiChange | null {
   const n = num(item.number);
   if (n == null || n < BODYWEIGHT_LIMITS.min || n > BODYWEIGHT_LIMITS.max) return null;
@@ -573,28 +335,18 @@ function validateWorkoutSetItem(item: Rec, ctx: ChangeContext): AiChange | null 
 /** Same thing changed twice in one card — the later one is what the model settled on. */
 function identity(change: AiChange): string {
   if (change.target === 'setting') return `setting:${change.field}`;
-  // Case-folded, as the "already a task" check above is: `Stretch` and `stretch`
-  // are one task asked for twice, not two tasks.
-  if (change.target === 'task' && change.field === 'add') {
-    return `task:add:${String(change.value).toLowerCase()}`;
-  }
-  // A day's answer is per day: done Monday and done Tuesday are two changes.
-  if (change.target === 'task' && change.day) return `task:${change.id}:day:${change.day}`;
-
   if (change.target === 'bodyweight') return 'bodyweight';
   if (change.target === 'workout_set') return `workout_set:${change.setId}`;
-  return `${change.target}:${change.id ?? ''}:${change.field}`;
+  return `${change.target}:${change.id}:${change.field}`;
 }
 
 /**
  * The changes worth offering out of what the model wrote. Unknown targets,
- * unknown ids, fields an exercise cannot take, and changes for another section
- * are all dropped — see the file header.
+ * unknown ids and fields an exercise cannot take are all dropped — see the file header.
  */
 export function validateChanges(items: readonly unknown[], ctx: ChangeContext): AiChange[] {
   const byExercise = new Map(ctx.exercises.filter((e) => !e.isArchived).map((e) => [e.id, e]));
   const out = new Map<string, AiChange>();
-  let amounts = 0;
   for (const raw of items) {
     if (!isRec(raw)) continue;
     const target = fieldKey(raw.target);
@@ -604,20 +356,13 @@ export function validateChanges(items: readonly unknown[], ctx: ChangeContext): 
       change = exercise ? validateExerciseItem(raw, exercise) : null;
     } else if (target === 'setting' || target === 'settings') {
       change = validateSettingItem(raw);
-    } else if (target === 'task') {
-      change = validateTaskItem(raw, ctx);
-    } else if (target === 'budget') {
-      change = validateBudgetItem(raw, ctx);
-    } else if (target === 'amount' || target === 'expense' || target === 'income') {
-      change = validateAmountItem(raw, ctx);
     } else if (target === 'bodyweight' || target === 'weight') {
       change = validateBodyweightItem(raw);
     } else if (target === 'workout_set' || target === 'set') {
       change = validateWorkoutSetItem(raw, ctx);
     }
-    if (!change || SECTION_OF[change.target] !== ctx.section) continue;
-    // Every amount is its own row: two identical lunches are still two lunches.
-    const key = change.target === 'amount' ? `amount:${(amounts += 1)}` : identity(change);
+    if (!change) continue;
+    const key = identity(change);
     out.delete(key);
     out.set(key, change);
   }
@@ -631,20 +376,12 @@ export function validateChanges(items: readonly unknown[], ctx: ChangeContext): 
 /** The values in force now, for each change's `from`. */
 export interface CurrentValues {
   exercises: readonly Exercise[];
-  tasks: readonly Pick<Task, 'id' | 'name' | 'schedule' | 'target'>[];
-  categories: readonly { id: ID; name: string }[];
   settings: {
     restSecondsBetweenSets: number;
     restSecondsBetweenExercises: number;
     autoStartRest: boolean;
     weeklyWorkoutGoal?: number;
   };
-  /** Budgets in the log's units, by category. */
-  budgets: Readonly<Record<ID, number>>;
-  /** How a money figure is printed — the caller knows the currency and scale. */
-  formatMoney: (value: number) => string;
-  /** Both directions' categories, for an amount's row. Absent: amount rows are skipped. */
-  moneyCategories?: readonly { id: ID; name: string }[];
   /** Today's weight, for the weigh-in row's `from`. */
   bodyweightKg?: number;
   /** A day as the card prints it — `27 Oct`. Absent: the ISO date. */
@@ -655,18 +392,9 @@ export interface CurrentValues {
 export interface ChangeRow {
   subject: string;
   label: string;
-  /** Empty when there was nothing before (a new task, a first budget). */
+  /** Empty when there was nothing before (a first weigh-in). */
   from: string;
   to: string;
-}
-
-const WEEKDAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
-
-function scheduleText(schedule: TaskSchedule, lang: Language): string {
-  if (schedule.kind === 'daily') return t('Every day', lang);
-  if (schedule.kind === 'once') return schedule.day;
-  if (schedule.kind === 'weekly') return t('{n}× a week', lang, { n: schedule.times });
-  return schedule.days.map((d) => t(WEEKDAY_KEYS[d], lang)).join(' ');
 }
 
 function onOff(value: boolean, lang: Language): string {
@@ -757,8 +485,6 @@ export function describeChanges(
   lang: Language,
 ): ChangeRow[] {
   const exercises = new Map(now.exercises.map((e) => [e.id, e]));
-  const tasks = new Map(now.tasks.map((task) => [task.id, task]));
-  const categories = new Map(now.categories.map((c) => [c.id, c.name]));
   const tr = (key: string) => t(key, lang);
   const rows: ChangeRow[] = [];
   for (const change of changes) {
@@ -795,30 +521,7 @@ export function describeChanges(
       }
       continue;
     }
-    if (change.target === 'budget') {
-      const name = categories.get(change.id);
-      if (!name) continue;
-      const before = now.budgets[change.id];
-      rows.push({
-        subject: name,
-        label: tr('Monthly budget'),
-        from: before != null ? now.formatMoney(before) : '',
-        to: change.value > 0 ? now.formatMoney(change.value) : tr('None'),
-      });
-      continue;
-    }
     const dayText = (day: string) => (now.formatDay ? now.formatDay(day) : day);
-    if (change.target === 'amount') {
-      const name = now.moneyCategories?.find((c) => c.id === change.id)?.name;
-      if (!name) continue;
-      rows.push({
-        subject: change.note ? `${name} · ${change.note}` : name,
-        label: `${change.direction === 'income' ? tr('New income') : tr('New expense')} · ${dayText(change.day)}`,
-        from: '',
-        to: now.formatMoney(change.value),
-      });
-      continue;
-    }
     if (change.target === 'bodyweight') {
       rows.push({
         subject: tr('Body weight'),
@@ -836,53 +539,6 @@ export function describeChanges(
         from: kindName(change.from, lang),
         to: kindName(change.value, lang),
       });
-      continue;
-    }
-    if (change.target !== 'task') continue;
-    if (change.day) {
-      const task = change.id ? tasks.get(change.id) : undefined;
-      if (!task) continue;
-      const to =
-        change.field === 'done'
-          ? tr('Done')
-          : change.field === 'excused'
-            ? tr('Excused')
-            : tr('Not answered');
-      rows.push({ subject: task.name, label: dayText(change.day), from: '', to });
-      continue;
-    }
-    if (change.field === 'add') {
-      rows.push({
-        subject: String(change.value),
-        label: tr('New task'),
-        from: '',
-        to: change.schedule ? scheduleText(change.schedule, lang) : tr('Every day'),
-      });
-      continue;
-    }
-    const task = change.id ? tasks.get(change.id) : undefined;
-    if (!task) continue;
-    if (change.field === 'name') {
-      rows.push({
-        subject: task.name,
-        label: tr('Name'),
-        from: task.name,
-        to: String(change.value),
-      });
-    } else if (change.field === 'schedule' && change.schedule) {
-      rows.push({
-        subject: task.name,
-        label: tr('Schedule'),
-        from: scheduleText(task.schedule, lang),
-        to: scheduleText(change.schedule, lang),
-      });
-    } else if (change.field === 'target') {
-      const was = task.target ? `${task.target.count} ${task.target.unit}`.trim() : tr('None');
-      const to =
-        change.value == null ? tr('None') : `${String(change.value)} ${change.unit ?? ''}`.trim();
-      rows.push({ subject: task.name, label: tr('Daily target'), from: was, to });
-    } else if (change.field === 'archive') {
-      rows.push({ subject: task.name, label: tr('Stop this task'), from: '', to: tr('Archived') });
     }
   }
   return rows;

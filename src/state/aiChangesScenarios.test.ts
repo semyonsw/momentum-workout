@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sectionVariant } from '../lib/ai/aiScope';
 
 /*
  * A SETTINGS CARD, END TO END — from a scripted Gemini reply to the stores and
@@ -9,9 +8,8 @@ import { sectionVariant } from '../lib/ai/aiScope';
  * `sendMessage` validating the block and checking each change against the
  * stores, the card's `from → to` read at that moment, `applyChanges` writing
  * through each store's own actions, and the one Undo that has to put every
- * store it touched back EXACTLY — including the things that did not exist
- * before (a first budget, a new task) and the things the apply cleared on its
- * way through (an exercise's own rest, wiped by a new global rest).
+ * store it touched back EXACTLY — including the things the apply cleared on
+ * its way through (an exercise's own rest, wiped by a new global rest).
  */
 let storedKey: string | null = null;
 vi.mock('../lib/ai/secureKey', () => ({
@@ -26,12 +24,9 @@ import { applyChanges, discardChanges, sendMessage } from './aiActions';
 import { sanitizeAi, useAi, type ChangesChatBlock } from './aiStore';
 import { useActiveWorkout } from './activeWorkoutStore';
 import { useLibrary } from './libraryStore';
-import { seedCategories, useMoney } from './moneyStore';
 import { useSettings } from './settingsStore';
-import { useTasks } from './tasksStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
 import { seedUser } from '../data/seed';
-import type { Task } from '../lib/tasks';
 import type { Exercise, Routine } from '../types/models';
 
 /* ------------------------------------------------------------------ */
@@ -86,34 +81,6 @@ const ROUTINE: Routine = {
   })),
 };
 
-const task = (id: string, name: string, order: number, over: Partial<Task> = {}): Task => ({
-  id,
-  name,
-  schedule: { kind: 'daily' },
-  auto: null,
-  startedOn: '2026-09-01',
-  reminder: null,
-  archivedAt: null,
-  order,
-  ...over,
-});
-const TASKS: Task[] = [
-  task('t_read', 'Read', 0, { target: { count: 20, unit: 'pages' } }),
-  task('t_run', 'Run', 1, { schedule: { kind: 'weekdays', days: [0, 2] } }),
-];
-
-const CATEGORIES = [
-  ...seedCategories,
-  {
-    id: 'salary',
-    name: 'Salary',
-    glyph: '💰',
-    direction: 'income' as const,
-    order: 0,
-    archivedAt: null,
-  },
-];
-
 /* ------------------------------------------------------------------ */
 /* Scripted Gemini                                                     */
 /* ------------------------------------------------------------------ */
@@ -134,20 +101,17 @@ function reply(items: unknown[], why = 'Here is what I would change.'): Answer {
 }
 
 /** Ask, with this reply scripted; the model message's id and its card. */
-async function ask(
-  section: 'Workout' | 'Tasks' | 'Expenses',
-  answer: Answer,
-): Promise<{ id: string; card: ChangesChatBlock | undefined }> {
+async function ask(answer: Answer): Promise<{ id: string; card: ChangesChatBlock | undefined }> {
   answers.push(answer);
-  await sendMessage(section, 'change some settings', undefined, sectionVariant(section));
-  const last = useAi.getState().chats[section].at(-1)!;
+  await sendMessage('Workout', 'change some settings');
+  const last = useAi.getState().chats.Workout.at(-1)!;
   if (last.role !== 'model') throw new Error(`no answer: ${JSON.stringify(last)}`);
   const card = last.blocks.find((b): b is ChangesChatBlock => b.type === 'changes');
   return { id: last.id, card };
 }
 
-const cardOf = (section: 'Workout' | 'Tasks' | 'Expenses', id: string) => {
-  const message = useAi.getState().chats[section].find((m) => m.id === id);
+const cardOf = (id: string) => {
+  const message = useAi.getState().chats.Workout.find((m) => m.id === id);
   return message?.role === 'model'
     ? message.blocks.find((b): b is ChangesChatBlock => b.type === 'changes')
     : undefined;
@@ -164,8 +128,6 @@ function snapshot() {
       restExercises: s.restSecondsBetweenExercises,
       autoRest: s.autoStartRest,
       goal: s.weeklyWorkoutGoal ?? null,
-      tasks: useTasks.getState().tasks,
-      budgets: useMoney.getState().budgets ?? null,
     }),
   );
 }
@@ -178,8 +140,8 @@ beforeEach(() => {
   sent.length = 0;
   useAi.setState({
     ...sanitizeAi({}),
-    pending: { Workout: false, Tasks: false, Expenses: false },
-    retrying: { Workout: false, Tasks: false, Expenses: false },
+    pending: { Workout: false },
+    retrying: { Workout: false },
   });
   useAi.getState().markReady(500);
   useSettings.getState().resetToDefaults();
@@ -187,11 +149,6 @@ beforeEach(() => {
   useSettings.setState({ weeklyWorkoutGoal: undefined });
   useLibrary.getState().replaceLibrary({ exercises: EXERCISES, routines: [ROUTINE] });
   useWorkoutHistory.setState({ workouts: [] });
-  useTasks.setState({ tasks: TASKS, log: {} });
-  useMoney.setState({
-    categories: CATEGORIES,
-    budgets: [{ categoryId: 'food', monthly: 400, alerts: true }],
-  });
   useActiveWorkout.getState().discardSession();
   vi.stubGlobal('fetch', async (_url: string, init: { body?: string }) => {
     sent.push(init.body ?? '');
@@ -220,7 +177,7 @@ const WORKOUT_ITEMS = [
   { target: 'setting', field: 'weekly_goal', number: 5 },
   { target: 'setting', field: 'rest_between_exercises', number: 180 },
   // Dropped on the way in: archived-style unknown id, a ladder on a timed
-  // exercise, a task in the Workout chat.
+  // exercise, a task (a target this app does not have).
   { target: 'exercise', id: 'ex_gone', field: 'rest', number: 30 },
   { target: 'exercise', id: 'ex_plank', field: 'ladder', number: 5 },
   { target: 'task', id: 't_read', field: 'archive' },
@@ -229,7 +186,7 @@ const WORKOUT_ITEMS = [
 describe('a Workout card', () => {
   it('is filed checked, with each row read from the stores at that moment, and writes nothing', async () => {
     const before = snapshot();
-    const { card } = await ask('Workout', reply(WORKOUT_ITEMS));
+    const { card } = await ask(reply(WORKOUT_ITEMS));
     expect(card?.status).toBe('pending');
     expect(card?.why).toBe('Here is what I would change.');
     expect(card?.changes).toHaveLength(8);
@@ -250,7 +207,7 @@ describe('a Workout card', () => {
 
   it('Apply writes every change — the exercise rest surviving the global one — and Undo puts all of it back', async () => {
     const before = snapshot();
-    const { id, card } = await ask('Workout', reply(WORKOUT_ITEMS));
+    const { id, card } = await ask(reply(WORKOUT_ITEMS));
     const applied = applyChanges('Workout', id);
     expect(applied?.message).toBe('8 changes applied');
 
@@ -270,14 +227,14 @@ describe('a Workout card', () => {
     // A sets change re-plans the routine, as the editor's would.
     const upper = useLibrary.getState().routines[0];
     expect(upper.items.find((i) => i.exerciseId === 'ex_bench')?.targetSets).toBe(4);
-    expect(cardOf('Workout', id)?.status).toBe('accepted');
+    expect(cardOf(id)?.status).toBe('accepted');
     // The card still reads what was REPLACED, not 1:30 → 1:30.
-    expect(cardOf('Workout', id)?.rows).toEqual(card?.rows);
+    expect(cardOf(id)?.rows).toEqual(card?.rows);
 
     applied!.undo();
     expect(snapshot()).toEqual(before);
     expect(useSettings.getState().weeklyWorkoutGoal).toBeUndefined();
-    expect(cardOf('Workout', id)?.status).toBe('pending');
+    expect(cardOf(id)?.status).toBe('pending');
 
     // And it can be applied again after its Undo.
     expect(applyChanges('Workout', id)).not.toBeNull();
@@ -285,18 +242,15 @@ describe('a Workout card', () => {
   });
 
   it('is applied once: a second Apply, or one after Discard, is refused', async () => {
-    const { id } = await ask('Workout', reply(WORKOUT_ITEMS));
+    const { id } = await ask(reply(WORKOUT_ITEMS));
     expect(applyChanges('Workout', id)).not.toBeNull();
     const after = snapshot();
     expect(applyChanges('Workout', id)).toBeNull();
     expect(snapshot()).toEqual(after);
 
-    const second = await ask(
-      'Workout',
-      reply([{ target: 'setting', field: 'auto_rest', on: true }]),
-    );
+    const second = await ask(reply([{ target: 'setting', field: 'auto_rest', on: true }]));
     discardChanges('Workout', second.id);
-    expect(cardOf('Workout', second.id)?.status).toBe('discarded');
+    expect(cardOf(second.id)?.status).toBe('discarded');
     expect(applyChanges('Workout', second.id)).toBeNull();
     expect(useSettings.getState().autoStartRest).toBe(false);
   });
@@ -304,16 +258,14 @@ describe('a Workout card', () => {
   it('refuses a message that is not there, or has no card', async () => {
     expect(applyChanges('Workout', 'nope')).toBeNull();
     const { id } = await ask(
-      'Workout',
       reply([{ target: 'exercise', id: 'ex_nope', field: 'rest', number: 9 }]),
     );
-    expect(cardOf('Workout', id)).toBeUndefined();
+    expect(cardOf(id)).toBeUndefined();
     expect(applyChanges('Workout', id)).toBeNull();
   });
 
   it('skips an exercise deleted since the answer; with nothing left, nothing is applied', async () => {
     const { id } = await ask(
-      'Workout',
       reply([
         { target: 'exercise', id: 'ex_row', field: 'rest', number: 30 },
         { target: 'exercise', id: 'ex_bench', field: 'rest', number: 30 },
@@ -325,17 +277,15 @@ describe('a Workout card', () => {
     expect(ex('ex_bench').defaultRestSeconds).toBe(30);
 
     const lone = await ask(
-      'Workout',
       reply([{ target: 'exercise', id: 'ex_pull', field: 'rest', number: 30 }]),
     );
     useLibrary.getState().deleteExercise('ex_pull');
     expect(applyChanges('Workout', lone.id)).toBeNull();
-    expect(cardOf('Workout', lone.id)?.status).toBe('pending');
+    expect(cardOf(lone.id)?.status).toBe('pending');
   });
 
   it('a card with nothing applicable is said as its reason', async () => {
     const { card } = await ask(
-      'Workout',
       reply(
         [{ target: 'exercise', id: 'ex_plank', field: 'ladder', number: 5 }],
         'Planks have no ladder.',
@@ -350,10 +300,7 @@ describe('a Workout card', () => {
   });
 
   it('its status survives a relaunch, and the next question tells the model what became of it', async () => {
-    const { id } = await ask(
-      'Workout',
-      reply([{ target: 'setting', field: 'auto_rest', on: false }]),
-    );
+    const { id } = await ask(reply([{ target: 'setting', field: 'auto_rest', on: false }]));
     applyChanges('Workout', id);
     const back = sanitizeAi(JSON.parse(JSON.stringify(useAi.getState())));
     const message = back.chats.Workout.find((m) => m.id === id);
@@ -369,10 +316,7 @@ describe('a Workout card', () => {
   });
 
   it('an Undo after New chat marks the filed card pending again', async () => {
-    const { id } = await ask(
-      'Workout',
-      reply([{ target: 'setting', field: 'auto_rest', on: false }]),
-    );
+    const { id } = await ask(reply([{ target: 'setting', field: 'auto_rest', on: false }]));
     const applied = applyChanges('Workout', id)!;
     useAi.getState().clearChat('Workout');
     applied.undo();
@@ -399,7 +343,6 @@ describe('a Workout card', () => {
     const before = { bench: live('ex_bench'), row: live('ex_row') };
 
     const { id } = await ask(
-      'Workout',
       reply([
         { target: 'setting', field: 'rest_between_sets', number: 60 },
         { target: 'exercise', id: 'ex_bench', field: 'cue', text: 'Pause on chest' },
@@ -412,128 +355,5 @@ describe('a Workout card', () => {
     applied.undo();
     expect(live('ex_bench')).toEqual(before.bench);
     expect(live('ex_row')).toEqual(before.row);
-  });
-});
-
-/* ------------------------------------------------------------------ */
-/* The Tasks chat                                                      */
-/* ------------------------------------------------------------------ */
-
-describe('a Tasks card', () => {
-  const ITEMS = [
-    { target: 'task', field: 'add', text: 'Stretch', days: [0, 2, 4] },
-    { target: 'task', field: 'add', text: 'Floss', number: 7 },
-    { target: 'task', field: 'add', text: 'read' },
-    { target: 'task', id: 't_read', field: 'rename', text: 'Read a book' },
-    { target: 'task', id: 't_read', field: 'target', number: 30 },
-    { target: 'task', id: 't_run', field: 'schedule', number: 3 },
-    { target: 'task', id: 't_run', field: 'archive' },
-    { target: 'setting', field: 'auto_rest', on: false },
-  ];
-
-  it('files the task changes only, and draws them', async () => {
-    const { card } = await ask('Tasks', reply(ITEMS));
-    expect(
-      card?.rows.map(({ subject, label, from, to }) => `${subject} | ${label} | ${from} → ${to}`),
-    ).toEqual([
-      'Stretch | New task |  → Mon Wed Fri',
-      'Floss | New task |  → Every day',
-      'Read | Name | Read → Read a book',
-      'Read | Daily target | 20 pages → 30 pages',
-      'Run | Schedule | Mon Wed → 3× a week',
-      'Run | Stop this task |  → Archived',
-    ]);
-  });
-
-  it('Apply adds, renames, retargets, reschedules and archives; Undo restores the list exactly', async () => {
-    const before = snapshot();
-    const { id } = await ask('Tasks', reply(ITEMS));
-    const applied = applyChanges('Tasks', id, 'tasks');
-    expect(applied?.message).toBe('6 changes applied');
-
-    const list = useTasks.getState().tasks;
-    const byName = (name: string) => list.find((x) => x.name === name);
-    expect(byName('Stretch')?.schedule).toEqual({ kind: 'weekdays', days: [0, 2, 4] });
-    expect(byName('Floss')?.schedule).toEqual({ kind: 'daily' });
-    expect(byName('Read a book')?.target).toEqual({ count: 30, unit: 'pages' });
-    const run = list.find((x) => x.id === 't_run')!;
-    expect(run.schedule).toEqual({ kind: 'weekly', times: 3 });
-    expect(run.archivedAt).not.toBeNull();
-    // Two new tasks, two ids: one card adds them in the same millisecond.
-    expect(new Set(list.map((x) => x.id)).size).toBe(list.length);
-    // The setting in the Tasks chat was dropped, not applied.
-    expect(useSettings.getState().autoStartRest).toBe(true);
-
-    applied!.undo();
-    expect(snapshot()).toEqual(before);
-    expect(cardOf('Tasks', id)?.status).toBe('pending');
-  });
-
-  it('a task archived since the answer is skipped', async () => {
-    const { id } = await ask(
-      'Tasks',
-      reply([{ target: 'task', id: 't_run', field: 'rename', text: 'Jog' }]),
-    );
-    useTasks.getState().archiveTask('t_run');
-    expect(applyChanges('Tasks', id, 'tasks')).toBeNull();
-  });
-});
-
-/* ------------------------------------------------------------------ */
-/* The Expenses chat                                                   */
-/* ------------------------------------------------------------------ */
-
-describe('an Expenses card', () => {
-  it('a change, a first budget and an income category refused; Undo restores budgets exactly', async () => {
-    const before = snapshot();
-    const { id, card } = await ask(
-      'Expenses',
-      reply([
-        { target: 'budget', id: 'food', field: 'monthly', number: 300 },
-        { target: 'budget', id: 'health', field: 'budget', number: 50 },
-        { target: 'budget', id: 'salary', field: 'monthly', number: 1000 },
-        { target: 'exercise', id: 'ex_bench', field: 'rest', number: 30 },
-      ]),
-    );
-    expect(card?.changes.map((c) => c.target === 'budget' && c.id)).toEqual(['food', 'health']);
-    expect(card?.rows.map((r) => [r.subject, r.from === '', r.to !== ''])).toEqual([
-      ['Food', false, true],
-      ['Health', true, true],
-    ]);
-
-    const applied = applyChanges('Expenses', id, 'expenses')!;
-    expect(useMoney.getState().budgets).toEqual([
-      { categoryId: 'food', monthly: 300, alerts: true },
-      { categoryId: 'health', monthly: 50 },
-    ]);
-    expect(ex('ex_bench').defaultRestSeconds).toBe(120);
-
-    applied.undo();
-    expect(snapshot()).toEqual(before);
-  });
-
-  it('removing the only budget, and its Undo', async () => {
-    const before = snapshot();
-    const { id } = await ask(
-      'Expenses',
-      reply([{ target: 'budget', id: 'food', field: 'monthly', number: 0 }]),
-    );
-    const applied = applyChanges('Expenses', id, 'expenses')!;
-    expect(useMoney.getState().budgets ?? []).toEqual([]);
-    applied.undo();
-    expect(snapshot()).toEqual(before);
-  });
-
-  it('a first budget on a log that had none, and its Undo', async () => {
-    useMoney.setState({ budgets: undefined });
-    const before = snapshot();
-    const { id } = await ask(
-      'Expenses',
-      reply([{ target: 'budget', id: 'food', field: 'monthly', number: 250 }]),
-    );
-    const applied = applyChanges('Expenses', id, 'expenses')!;
-    expect(useMoney.getState().budgets).toEqual([{ categoryId: 'food', monthly: 250 }]);
-    applied.undo();
-    expect(snapshot()).toEqual(before);
   });
 });

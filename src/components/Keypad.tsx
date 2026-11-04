@@ -8,13 +8,12 @@
  *
  * For a NUMBER that is the whole point of a sheet (W9's measurement): the phone's
  * keyboard covers half the pane, flips between layouts by locale (a Russian one
- * offers `,`), and hides the ± chips it would be used beside. The amount editor
- * has the full-size pad as its own screen; this is the same twelve keys at 48 dp
- * — the mid-workout minimum — and the same reducer (`keypadPress`), so a second
- * point is ignored and backspace walks back across it exactly as it does there.
+ * offers `,`), and hides the ± chips it would be used beside. Twelve keys at
+ * 48 dp — the mid-workout minimum — over one reducer (`lib/keypad.keypadPress`),
+ * so a second point is ignored and backspace walks back across it.
  *
- * Rejected: reusing the amount editor's `Key` (62 dp, staggered entry): four rows
- * of it are taller than a sheet's scroll window.
+ * Rejected: 62 dp keys with a staggered entry, as 2.x's money keypad had: four
+ * rows of them are taller than a sheet's scroll window.
  */
 
 import { Text, View } from 'react-native';
@@ -23,7 +22,7 @@ import { BubblePressable } from './bubbles';
 import { MaterialSymbol } from './MaterialSymbol';
 import { pressedStyle } from './motion';
 import { useT } from '../hooks/useT';
-import { keypadKeys } from '../lib/moneyUnits';
+import { keypadKeys } from '../lib/keypad';
 import { glass, palette, radius, tint } from '../theme/tokens';
 
 const KEY_HEIGHT = 48;
