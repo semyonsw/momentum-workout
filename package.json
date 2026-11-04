@@ -1,6 +1,6 @@
 {
-  "name": "momentum-app",
-  "version": "3.0.0",
+  "name": "momentum-workout",
+  "version": "3.0.1",
   "main": "expo/AppEntry.js",
   "private": true,
   "scripts": {

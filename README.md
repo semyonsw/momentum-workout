@@ -1,4 +1,4 @@
-# Momentum
+# Workout
 
 [![Install](https://img.shields.io/badge/install-one%20double--click-2b8a3e)](INSTALL.md)
 [![Platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)](INSTALL.md)
@@ -6,23 +6,25 @@
 [![Tests](https://img.shields.io/badge/tests-700%2B-1f9d55)](#tests)
 [![Storage](https://img.shields.io/badge/storage-local--first-0b7285)](#what-it-does)
 
-**Train · tick · count.** Three local-first Android apps — **Workout**, **Tasks**
-and **Expenses** — built from this one tree. Until 3.0.0 they were the three
-sections of one app (and until 2.0.0 that app was Workout Tracker); the training
-log is still built around one rule: **logging a set that repeats last session
-costs one tap.**
+**Train · log · progress.** A local-first Android training log. It was Workout
+Tracker until 2.0.0 and the workout section of Momentum until 3.0.0, when
+Momentum's three logs became three apps (Tasks and Expenses are
+[momentum-tasks](https://github.com/semyonsw/momentum-tasks) and
+[momentum-expenses](https://github.com/semyonsw/momentum-expenses)). It is built
+around one rule: **logging a set that
+repeats last session costs one tap.**
 
 > ### Install it
 >
 > | I want… | What to do |
 > |---|---|
-> | **the apps on my phone** | grab `momentum-{workout,tasks,expenses}-<version>.apk` from the [Releases page](../../releases), open each in Files, tap install — or plug the phone in and let the installer push all three over USB |
+> | **the app on my phone** | grab the `.apk` from the [Releases page](../../releases), open it in Files, tap install — or plug the phone in and let the installer push it over USB |
 > | **the project on my computer** | **Windows:** double-click `Install.bat` · **Linux/macOS/WSL:** `./install.sh` |
 >
 > The installer finds Node (and offers to fetch it), installs the locked
 > dependency tree, **runs TypeScript and all 700-odd tests to prove it works
 > here**, and — if a phone is plugged in with USB debugging on — offers to
-> install the APKs on it, translating whatever Android says back into plain
+> install the APK on it, translating whatever Android says back into plain
 > English. Details and troubleshooting: **[INSTALL.md](INSTALL.md)**.
 
 - **Stack** — Expo (React Native) + TypeScript + NativeWind + Zustand. The
@@ -82,8 +84,8 @@ npm run lint             # also what CI runs, on every push
 | How did that go | one tap on the Finish sheet — easy, right, brutal — and it appears on the history row. One number for the session, never one per set |
 | Numbers it will not fake | volume needs a bodyweight to weigh a push-up or an assisted pull-up. Without one the clause is dropped rather than printed short, and no bodyweight is ever guessed |
 | Edit any workout in history | open it and everything about it is editable: correct one logged set on the same ± chips, add a set back, add or remove a whole exercise, rename it, move it to the right day and time, say how long it actually took. Moving a workout drags every set's date with it, because that date is what the suggestions and the charts read. Every number around the edit is recomputed from the rows rather than patched, and removing the last exercise is refused — that is `Delete this workout`, which asks first |
-| Settings | **a screen for the app's own section**, plus the general block that holds the one export, the one import and the one reset. The workout one is every duration the app counts, plus sound, vibration, screen-on and notification switches. Your bodyweight, which is what makes push-ups and assisted work countable. Which plates each gym has. Weekly set targets, if you want them. And what you actually rest, measured, with one tap to adopt it |
-| Export / Import | everything you own — exercises, routines, the sequence, every workout with its set rows, the daily tasks, the expenses and your settings — as one readable JSON file, and back again through the phone's file browser. The pinned workout number travels with it, because it is the one fact that cannot be recomputed. **One export, one import, one reset**, all in the general settings section: there used to be eight rows here (a merge, a CSV either way, and a pair per section) and together they made the one that matters just another thing to be careful about |
+| Settings | the workout settings — rest, timers, units, plates, the reminder — plus the general block: theme, language, backup and the assistant. |
+| Export / Import | everything you own — exercises, routines, the sequence, every workout with its set rows and your settings — as one readable JSON file, and back again through the phone's file browser. The pinned workout number travels with it, because it is the one fact that cannot be recomputed. **One export, one import, one reset**, all in the general settings section: there used to be eight rows here (a merge, a CSV either way, and a pair per section) and together they made the one that matters just another thing to be careful about |
 | Backups happen on their own | pick a folder once and the whole log is written into it every week, four copies deep, without being asked. Settings states the age of the last one — `Today`, `12 days ago`, `Never` — because a backup you have to remember is a backup you do not have |
 | Health Connect | off by default. Switch it on and a finished workout is written as one exercise session — start, end, name — so a watch or a health app knows you trained. Nothing is ever read back, and the sets never leave |
 | Русский, and English | the app ships in Russian. `РУ` / `EN` in the top-right corner of Settings, two letters in their own script so the switch is legible to somebody who cannot read the screen it is on. Nothing is stored translated — the tabs, the muscle groups and the section names are identifiers in English underneath — so switching language mid-session moves nothing but the words |
@@ -94,38 +96,6 @@ npm run lint             # also what CI runs, on every push
 | Bubbles | every button, row, chip and tab opens a ring from the point your thumb landed. It costs nothing at rest and it is the whole app answering a touch the same way |
 | A few questions after a workout | once it is saved: how the weights felt, energy, anything that hurt, the hardest exercise, what to do with the routine, and a note — one per screen, every one skippable, `Later` keeps them waiting on Home. The assistant reads the answers (and every note written on an amount) whenever you ask it about your training or your money |
 | Felt, not only seen | a tick under every button as the ring opens, a rising three-step when something reaches 100% — the last set of a session, the last task of a day, a finished debrief, a backup that landed |
-
-## Three apps, one tree
-
-Each app is one section plus Settings: no landing screen, no tab bar to the other
-two, and back on the section's root leaves the app. Which one a build is comes
-from `EXPO_PUBLIC_APP_VARIANT` (`workout`, the default, `tasks` or `expenses`),
-read by `app.config.js` for the package, label and icon and inlined into the
-bundle by `src/lib/appVariant.ts` — so they share every store, sheet, theme and
-test, and a fix lands in all three at once.
-
-| App | Package | Data |
-| --- | --- | --- |
-| Workout | `com.semyonsw.workouttracker` | the existing install, updated in place. It still holds the 2.x tasks and money — kept, not shown, and still in its backups |
-| Tasks | `com.semyonsw.momentum.tasks` | a new install that starts empty: import the last combined backup in its Settings |
-| Expenses | `com.semyonsw.momentum.expenses` | the same |
-
-`History` is not a section, it is the PAST of one: every section carries a **⟲ in
-its top-right corner** that opens its own history, the same glyph in the same
-place in all three apps.
-
-| | |
-| --- | --- |
-| Daily tasks | one circle per task per day, and it cycles **unanswered → done → missed on purpose**. The third state is what makes the other two mean anything: without a way to say *I chose not to*, the only honest thing a habit list can report is failure. An excused day keeps the streak and leaves the denominator |
-| A task for one day | `Just once` in the editor, and a date. Wash the dishes tomorrow: it asks on that day, on no day before it and on no day after it, and it cannot be missed retroactively |
-| …and a day to start on | every repeating task has one, it defaults to **today**, and that default is the feature. A habit written down on Sunday evening does not appear on Saturday's list and turn a day you finished 9 of 9 into 9 of 10. Move it back on purpose — the 1st of the month, whenever the habit really began — and the grid fills in from there |
-| Tasks can speak | a switch and a 24-hour wheel in the task's own editor. The phone asks on the days the task asks and at the minute you set, with the task's name as the headline. Off by default, one task at a time: a habit list that notifies by default is a habit list that gets silenced at the OS level inside a week |
-| Reorder them | long press a row and slide. The day list shows only the tasks that asked for something, so a Mon/Wed/Fri row is genuinely absent on a Tuesday — dragging the third row to the top means the third row you can SEE, and every hidden task keeps its own slot |
-| The month, and the trend | behind the **⟲** in the corner. `Month` is a square per day, filled by how much of that day got done — tap one to open it and answer it. `Trend` is percent-done over a range you pick: week, month, 3 months, year, all time. A day that asked for nothing is left out rather than plotted as a zero |
-| They answer themselves | finishing a workout ticks the training task. Recording an amount ticks the expense one — **on the day the amount is for**, so writing up yesterday's taxi at breakfast ticks yesterday. Neither ever overrules a day you already marked missed on purpose, and the whole behaviour is one switch in the daily-tasks settings |
-| Money | an all-time balance that does not move when the window does, expenses and incomes as a selector rather than a summary, and a grid of categories. **Tap a category and the editor opens on it** — in the direction you are reading, and **on the day you are reading**, so stepping back to the 16th and tapping `Food` records the 16th rather than today. A taxi is Transport, a number, Save. **Long press** for `Edit category`, or for the direction a tap cannot reach |
-| An amount belongs to a day, or to a whole month | rent is not spent on the 3rd. A whole-month amount counts towards the month, the year and the balance, and towards no single day — every screen that shows one says so |
-| Money over time | behind the **⟲** in the corner: a line per day up to three months, per month past that, with the range on chips: what went out, the running balance beside it, and which five categories are the reason. The balance line opens at what you already had rather than at zero |
 
 ## The rep ladder
 
@@ -163,18 +133,17 @@ prescribes. `src/lib/repLadder.ts` reproduces the reference table exactly — al
 rows of it, in the test file, from arithmetic rather than from a lookup — so the
 app runs the program rather than something that resembles it.
 
-## Android APKs
+## Android APK
 
-Android-only, sideloaded: three APKs per release,
-`momentum-<app>-<version>.apk`, from the **[Releases page](../../releases)**.
-**[BUILD_ANDROID.md](BUILD_ANDROID.md)** covers installing them on a phone,
-rebuilding locally, and the signing key — which is what decides whether an APK
-updates the install on the phone or is refused by it. The repo root also holds
-the current release's APKs, committed, to copy straight across.
+Android-only, sideloaded, from the **[Releases page](../../releases)** — a `v*`
+tag builds and signs it in CI and attaches it there.
+**[BUILD_ANDROID.md](BUILD_ANDROID.md)** covers installing it on a phone,
+rebuilding locally, and — importantly — where the signing keystore lives and why
+losing it costs you an uninstall.
 
 ```bash
-tools/release-apk.sh --no-push    # all three, built and verified (WSL)
-tools/release-apk.sh tasks --no-push
+npx expo prebuild -p android      # only when app.json or native deps changed
+cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
 ```
 
 ## Layout
@@ -182,8 +151,7 @@ tools/release-apk.sh tasks --no-push
 ```
 App.tsx                     providers, the error boundary, notifications, audio,
                             and the one-time history migration
-src/navigation/AppShell     the app's one section, Settings, and a stack; which
-                            section is src/lib/appVariant.ts
+src/navigation/AppShell     four sections and a stack; no tab bar during a session
 src/screens/                one file per screen, all plain props-and-callbacks
 src/components/             SetRow, ExerciseCard, TimerPill, primitives,
                             ErrorBoundary, ConfirmSheet…
@@ -215,7 +183,8 @@ test/*Stub.ts               the three native modules the suite aliases away.
                             migration are tested against a real engine
 src/theme/tokens.ts         the values className can't reach
 plugins/                    Expo config plugins (release signing, no microphone)
-.github/workflows/          ci.yml on every push (test, typecheck, lint)
+.github/workflows/          ci.yml on every push (test, typecheck, lint) and
+                            release.yml on a `v*` tag (the signed APK)
 ```
 
 Each file opens with a header explaining what it owns and why it is built the way

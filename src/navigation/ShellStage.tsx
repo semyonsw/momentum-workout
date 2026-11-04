@@ -13,7 +13,7 @@
  *
  * There were two more kinds until 3.0 — `open`, a section growing out of its
  * landing tile through an animated clip, and `close`, the reverse. The landing
- * went when each log became its own app (`lib/appVariant.ts`), and the clip
+ * went when each log became its own app (3.0.0), and the clip
  * went with it: a slide is the only way one root becomes another now.
  *
  * Blur is left out: an animated `filter: blur` repaints the whole screen per
