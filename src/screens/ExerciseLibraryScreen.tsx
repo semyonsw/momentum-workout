@@ -233,7 +233,9 @@ export function ExerciseLibraryScreen({
               className="mx-lg mt-xl h-row flex-row items-center rounded-surface border border-hairline bg-surface-alt px-lg"
             >
               <Icon name="plus" size={14} color={palette.greenBright} />
-              <Text className="ml-md text-body font-medium text-ink">
+              {/* One line, shrinking: the row is a fixed `h-row`, and a long query
+                  ran straight out of the pill's right edge. */}
+              <Text numberOfLines={1} className="ml-md flex-1 text-body font-medium text-ink">
                 {t('Create “{name}”', { name: trimmed })}
               </Text>
             </Pressable>

@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CompletedWorkout } from './completedWorkout';
-import {
-  BOM,
-  SET_COLUMNS,
-  csvBaseName,
-  csvDocument,
-  csvField,
-  workoutsToCsv,
-} from './csv';
+import { BOM, SET_COLUMNS, csvBaseName, csvDocument, csvField, workoutsToCsv } from './csv';
 import type { SetHistory } from '../types/models';
 
 /**
@@ -43,7 +36,6 @@ describe('csvField', () => {
     expect(doc.charCodeAt(0)).toBe(0xfeff);
   });
 });
-
 
 /* ------------------------------------------------------------------ */
 /* Workouts                                                            */

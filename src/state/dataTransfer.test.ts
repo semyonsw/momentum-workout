@@ -349,7 +349,6 @@ describe('the CSV export reads the stores', () => {
     expect(() => exportCsvText()).toThrow(UnreadableLogError);
     useWorkoutHistory.setState({ loadFailed: false });
   });
-
 });
 
 /* ------------------------------------------------------------------ */

@@ -238,14 +238,22 @@ export function FocusMode({ unitSystem, elapsedMinutes, onClose, onFinish }: Foc
   }, [height, motionScale, onClose, slide]);
 
   /* Android's own back gesture leaves focus mode rather than the session. This
-     listener is registered after `AppShell`'s, and the most recent one wins. */
+     listener is registered after `AppShell`'s, and the most recent one wins.
+
+     ONCE, on mount, reading `close` through a ref — the rule `useIsOverlay`
+     follows. Keyed on `close` it re-registered whenever the screen handed a fresh
+     `onClose` (every minute, on the elapsed clock), which put focus mode back on
+     top of the Finish sheet it had opened: back then closed focus mode and left
+     the sheet's question standing. */
+  const closeRef = useRef(close);
+  closeRef.current = close;
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      close();
+      closeRef.current();
       return true;
     });
     return () => sub.remove();
-  }, [close]);
+  }, []);
 
   /*
    * KEEP THE SCREEN ON FOR THE WHOLE OF FOCUS MODE, not only while something is
@@ -270,9 +278,8 @@ export function FocusMode({ unitSystem, elapsedMinutes, onClose, onFinish }: Foc
    * The responder is built ONCE (rebuilding it mid-gesture drops the gesture), so
    * it calls `close` through a ref rather than closing over the first render's
    * copy of it — a stale `close` here would animate against a stale screen height.
+   * (`closeRef` is declared above, with the back handler, which reads it the same way.)
    */
-  const closeRef = useRef(close);
-  closeRef.current = close;
 
   const drag = useRef(
     PanResponder.create({

@@ -327,6 +327,7 @@ function RowCard({
             <BubblePressable
               onPress={onKeep}
               radius="pill"
+              hitSlop={6}
               accessibilityRole="button"
               accessibilityLabel={t('Keep')}
               style={(s) => [

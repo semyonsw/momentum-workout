@@ -261,7 +261,10 @@ function asArray(value: unknown): unknown[] {
 export function parseBackup(text: string, lang: Language = 'en'): ParseResult {
   let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    // A byte-order mark is not part of the JSON, and `JSON.parse` rejects it — so a
+    // backup re-saved by Notepad, or any editor that writes UTF-8 with a BOM, read
+    // as "not valid JSON" while every byte of the data was intact.
+    raw = JSON.parse(text.replace(/^\uFEFF/, ''));
   } catch {
     return {
       ok: false,

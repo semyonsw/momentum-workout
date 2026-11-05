@@ -183,7 +183,9 @@ export function SequenceScreen({
         scrollEnabled={!lifted}
       >
         <ListCard className="mx-lg">
-          <View className="h-row flex-row items-center px-lg">
+          {/* `min-h`, not `h-row`: the helper wraps to two lines in Russian, and a
+              fixed 56 drew it over the separator below. `SwitchRow`'s rule. */}
+          <View className="min-h-[56px] flex-row items-center px-lg py-md">
             <View className="flex-1 pr-md">
               <Text className="text-body font-medium text-ink">{t('Use this sequence')}</Text>
               <Text className="mt-[2px] text-label text-ink-faint">

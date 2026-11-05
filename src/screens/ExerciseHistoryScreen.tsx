@@ -352,7 +352,15 @@ export function ExerciseHistoryScreen({
                     accessibilityLabel={`${formatShortDate(row.performedAt, lang)}: ${row.lead}${row.drops ?? ''}`}
                     className="h-row flex-row items-center px-lg"
                   >
-                    <Text className="w-[64px] text-label tabular-nums text-ink-faint">
+                    {/* One line, shrunk to fit: a Russian date takes the full
+                        genitive month (`12 сентября`), which broke over two lines
+                        in this 64 dp column. */}
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.7}
+                      className="w-[64px] text-label tabular-nums text-ink-faint"
+                    >
                       {formatShortDate(row.performedAt, lang)}
                     </Text>
                     {/* Drops continue the same Text so they wrap as one line of

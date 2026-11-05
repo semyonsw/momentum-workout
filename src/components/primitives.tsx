@@ -1243,36 +1243,6 @@ export function CaptionedIconButton({
 }
 
 /**
- * `⋯` — 44 dp, the visible twin of a long-press menu (redesign §1, #19). Every
- * hold in the app opens the same thing this opens, so a user who never holds
- * anything loses nothing.
- */
-export function MoreButton({
-  onPress,
-  accessibilityLabel,
-}: {
-  onPress: () => void;
-  accessibilityLabel: string;
-}) {
-  return (
-    <Pressable
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={(state) => [
-        pressedStyle(state),
-        { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-      ]}
-    >
-      <Icon name="more-horizontal" size={20} color={palette.inkMuted} />
-    </Pressable>
-  );
-}
-
-/**
  * A full-width button in the danger style — `Remove exercise` at the foot of an
  * exercise in edit mode (redesign #3). The hue lives HERE so screens never import
  * it (`lib/destructive.ts` holds the rest of the app to that).

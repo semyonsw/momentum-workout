@@ -326,6 +326,7 @@ export function AiSettingsScreen({ from, onBack, onOpenChat }: AiSettingsScreenP
             <BubblePressable
               onPress={() => void paste()}
               radius="pill"
+              hitSlop={{ top: 5, bottom: 5 }}
               accessibilityRole="button"
               accessibilityLabel={t('Paste')}
               style={(state) => [

@@ -64,7 +64,6 @@ import type { AiSection } from '../lib/ai/aiSchema';
 import { MARQUEE_DELAY_MS, MARQUEE_FADE, marqueePhases, marqueeTravel } from '../lib/marquee';
 import { ai, curve, motion, palette, radius } from '../theme/tokens';
 
-
 /** The card's inner padding, and the ✕'s square and inset from the card's edge. */
 const CARD_PAD = 16;
 const CLOSE_SIZE = 44;

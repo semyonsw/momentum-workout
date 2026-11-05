@@ -289,6 +289,7 @@ export function AiChatScreen({
                 key={p.key}
                 onPress={() => ask(p.label)}
                 radius="pill"
+                hitSlop={{ top: 6, bottom: 6 }}
                 accessibilityRole="button"
                 accessibilityLabel={p.label}
                 style={(state) => [

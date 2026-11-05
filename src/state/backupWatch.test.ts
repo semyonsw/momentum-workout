@@ -22,9 +22,7 @@ const user = (id: string): AiMessage => ({ id, role: 'user', text: id, at: '2026
 
 beforeAll(async () => {
   await Promise.all(
-    [useSettings, useLibrary, useAi, useDebriefs].map((store) =>
-      store.persist.rehydrate(),
-    ),
+    [useSettings, useLibrary, useAi, useDebriefs].map((store) => store.persist.rehydrate()),
   );
 });
 

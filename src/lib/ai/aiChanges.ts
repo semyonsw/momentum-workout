@@ -37,6 +37,8 @@
  * in, and the writes happen in `state/aiActions.ts`.
  */
 
+import { BODYWEIGHT_LIMITS } from '../bodyweightLog';
+import { dayKey } from '../days';
 import { clampMax, ladderOf, supportsLadder } from '../repLadder';
 import { TARGET_SETS_LIMITS } from '../routinePlan';
 import { REST_LIMITS, clampRest, ownRestSeconds } from '../rest';
@@ -204,9 +206,6 @@ const KIND_ALIASES: Record<string, SetKind> = {
   amrap: 'amrap',
 };
 
-/** A sensible body weight, kg — the profile editor's own bounds. */
-export const BODYWEIGHT_LIMITS = { min: 20, max: 400 } as const;
-
 function validateExerciseItem(item: Rec, exercise: Exercise): AiChange | null {
   const field = EXERCISE_ALIASES[fieldKey(item.field)];
   if (!field) return null;
@@ -327,7 +326,9 @@ function validateWorkoutSetItem(item: Rec, ctx: ChangeContext): AiChange | null 
     setId: set.id,
     from: setKindOf(set),
     value: kind,
-    day: workout.startedAt.slice(0, 10),
+    // The phone's own day, as `aiContext` dates the log the model read: the UTC
+    // prefix put a session started before dawn east of Greenwich on the day before.
+    day: dayKey(workout.startedAt),
     position,
   };
 }

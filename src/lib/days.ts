@@ -243,15 +243,3 @@ export function parseClockTime(value: unknown): { hour: number; minute: number }
   if (hour > 23 || minute > 59) return null;
   return { hour, minute };
 }
-
-/** "07 – 13 September", or "28 September – 04 October" across a seam. */
-export function formatWeek(day: string, lang: Language = 'en'): string {
-  const from = parseDay(weekStart(day));
-  const to = parseDay(weekEnd(day));
-  if (!from || !to) return day;
-  const monthName = (date: Date) => formatMonth(date.getFullYear(), date.getMonth(), lang).split(' ')[0];
-  if (from.getMonth() === to.getMonth()) {
-    return `${pad(from.getDate())} – ${pad(to.getDate())} ${monthName(to)}`;
-  }
-  return `${pad(from.getDate())} ${monthName(from)} – ${pad(to.getDate())} ${monthName(to)}`;
-}

@@ -761,9 +761,20 @@ function writeRecomputed(
  */
 function sanitizeWorkouts(raw: unknown, fallback: CompletedWorkout[]): CompletedWorkout[] {
   if (!Array.isArray(raw)) return fallback;
+  /*
+   * ONE WORKOUT PER ID, the first one the input names. The table's primary key
+   * already says so — `INSERT OR REPLACE` keeps one row per id — so a backup
+   * listing a session twice (two files pasted together) restored as N in memory
+   * and N − 1 on the next launch, and the restore reported the larger number.
+   */
+  const seen = new Set<string>();
   return raw
     .map(sanitizeWorkout)
-    .filter((w): w is CompletedWorkout => w !== null)
+    .filter((w): w is CompletedWorkout => {
+      if (w === null || seen.has(w.id)) return false;
+      seen.add(w.id);
+      return true;
+    })
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 }
 
@@ -825,8 +836,15 @@ function sanitizeWorkout(value: unknown): CompletedWorkout | null {
   if (typeof raw.id !== 'string' || typeof raw.title !== 'string') return null;
   if (!isIsoish(raw.startedAt)) return null;
 
+  const workoutId = raw.id;
   const sets = Array.isArray(raw.sets)
-    ? raw.sets.map(sanitizeSetRow).filter((row): row is SetHistory => row !== null)
+    ? raw.sets
+        .map(sanitizeSetRow)
+        .filter((row): row is SetHistory => row !== null)
+        // A row belongs to the workout that holds it, whatever it claims: that is
+        // what `insertSet` writes, so a stray `sessionId` in a file grouped one
+        // way until the next launch and another way after it.
+        .map((row) => (row.sessionId === workoutId ? row : { ...row, sessionId: workoutId }))
     : [];
   const exercises = Array.isArray(raw.exercises)
     ? raw.exercises

@@ -24,13 +24,7 @@ import Svg, { Path } from 'react-native-svg';
 import { useWrapped } from '../hooks/useWrapped';
 import { useLanguage } from '../hooks/useT';
 import { useToday } from '../hooks/useToday';
-import {
-  lastMonth,
-  monthlyWrappedOffer,
-  wrappedEntry,
-  yearlyWrappedOffer,
-  type WrappedPeriod,
-} from '../lib/wrapped';
+import { lastMonth, wrappedEntry, yearlyWrappedOffer, type WrappedPeriod } from '../lib/wrapped';
 import { palette, radius, tint } from '../theme/tokens';
 import { Icon } from './Icon';
 import { pressedStyle } from './motion';
@@ -109,22 +103,6 @@ function Book({ color }: { color: string }) {
         fill="none"
       />
     </Svg>
-  );
-}
-
-/**
- * The Landing's offers: last month's during the first seven days of a month, the
- * year's through December and January — both, in early January.
- */
-export function WrappedOffers({ onOpen }: { onOpen: (period: WrappedPeriod) => void }) {
-  const today = useToday();
-  const month = monthlyWrappedOffer(today);
-  const year = yearlyWrappedOffer(today);
-  return (
-    <>
-      {month ? <WrappedEntry period={month} onOpen={onOpen} /> : null}
-      {year ? <WrappedEntry period={year} onOpen={onOpen} /> : null}
-    </>
   );
 }
 

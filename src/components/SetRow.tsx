@@ -255,7 +255,9 @@ function SetRowComponent({
           lit={focusedField === 'count'}
           emphasis={lit}
           style={WELL_STYLE}
-          accessibilityLabel={`${countsMax ? maxLabel(lang) : `${set.count} ${countUnit}`}${
+          // `countText`, not the raw count: a timed set's count is seconds, and
+          // "90 min" read aloud for a 1:30 hold is a different set.
+          accessibilityLabel={`${countsMax ? maxLabel(lang) : `${countText} ${countUnit}`}${
             chip && set.rir != null ? `, ${describeRir(set.rir, lang)}` : ''
           }`}
         >

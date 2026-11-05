@@ -422,6 +422,9 @@ export function LanguageToggle({
             key={option.value}
             onPress={() => onSelect(option.value)}
             radius="pill"
+            // 30 tall inside a 38 track: the slop takes the target to 44 without
+            // reaching into the neighbouring segment.
+            hitSlop={{ top: 7, bottom: 7 }}
             accessibilityRole="radio"
             accessibilityState={{ selected }}
             accessibilityLabel={option.name}

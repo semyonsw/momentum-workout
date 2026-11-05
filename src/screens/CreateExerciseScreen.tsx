@@ -421,7 +421,7 @@ export function CreateExerciseScreen({
 
         {/* THE control. 64 high because it carries a helper line, and the helper
             line changes with it — that's how the user learns what it does. */}
-        <View className="mx-lg mt-xl h-row-lg flex-row items-center rounded-surface border border-hairline bg-surface-alt px-lg">
+        <View className="mx-lg mt-xl min-h-[64px] flex-row items-center rounded-surface border border-hairline bg-surface-alt px-lg py-md">
           <View className="flex-1">
             <Text className="text-body font-medium text-ink">{t('Requires weight')}</Text>
             <Text className="mt-[2px] text-label text-ink-faint">

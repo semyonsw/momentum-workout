@@ -81,7 +81,8 @@ export function formatWeight(
   unitSystem: UnitSystem,
   loadMode: LoadMode = 'external',
 ): string {
-  if (kg == null) return '—';
+  // NaN is "no number" too: a corrupt row must not print the letters N, a, N.
+  if (kg == null || !Number.isFinite(kg)) return '—';
   const value = unitSystem === 'imperial' ? kgToLb(kg) : kg;
   // Trim trailing ".0" but keep ".5" — 22.5 kg is a real dumbbell, 22.50 is noise.
   const n = Number(value.toFixed(1));
@@ -162,7 +163,10 @@ export function parseCountInput(text: string, countUnit: CountUnit): number | nu
 }
 
 /** "3 min" / "45 sec" — a duration in the coarsest unit that stays exact. */
-export function formatDuration(seconds: number, lang: Language = 'en'): string {
+export function formatDuration(rawSeconds: number, lang: Language = 'en'): string {
+  // Whole seconds first: a measured 59.5 s read "59.5 sec" while 90.5 s read
+  // "1:31", because only the clock branch rounded.
+  const seconds = Math.round(rawSeconds);
   if (!(seconds > 0)) return t('no rest', lang);
   if (seconds % 60 === 0) return `${seconds / 60} ${term('unit', 'min', lang)}`;
   if (seconds < 60) return `${seconds} ${term('unit', 'sec', lang)}`;
@@ -230,8 +234,9 @@ export function effectiveLoadKg(
 
 /** "1:30" / "12:05" — used by the rest timer and session clock. */
 export function formatClock(totalSeconds: number): string {
-  // `!(x > 0)` rather than `Math.max`, which lets NaN through as "NaN:NaN".
-  const s = totalSeconds > 0 ? Math.round(totalSeconds) : 0;
+  // Not `Math.max`, which lets NaN through as "NaN:NaN" — and finite, because
+  // Infinity passes `> 0` and printed "Infinity:NaN".
+  const s = Number.isFinite(totalSeconds) && totalSeconds > 0 ? Math.round(totalSeconds) : 0;
   const minutes = Math.floor(s / 60);
   const seconds = s % 60;
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
@@ -277,6 +282,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
  */
 export function formatShortDate(iso: string, lang: Language = 'en'): string {
   const date = new Date(iso);
+  // An unreadable timestamp names no day; it used to print "NaN undefined".
+  if (!Number.isFinite(date.getTime())) return '';
   /*
    * The phone's own calendar day, not UTC's. Timestamps are stored as UTC — that
    * is what makes them comparable — but "17 Aug" is a claim about the day the
@@ -340,6 +347,8 @@ export function formatVolumeKg(kg: number, lang: Language = 'en'): string {
  * as the numbers the app formats itself.
  */
 export function formatValue(value: number): string {
+  if (!Number.isFinite(value)) return '0';
   const rounded = Math.round(Math.abs(value));
-  return (value < 0 ? '-' : '') + rounded.toLocaleString('en-US');
+  // The sign only when something survives the rounding: -0.4 is "0", not "-0".
+  return (value < 0 && rounded > 0 ? '-' : '') + rounded.toLocaleString('en-US');
 }

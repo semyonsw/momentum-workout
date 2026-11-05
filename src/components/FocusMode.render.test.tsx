@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render } from '@testing-library/react-native';
+import { BackHandler } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { FocusMode } from './FocusMode';
@@ -106,4 +107,24 @@ it('a double-tap on DONE logs one set', () => {
   fireEvent.press(done);
   act(() => jest.advanceTimersByTime(1000));
   expect(loggedCount()).toBe(1);
+});
+
+it('back stays registered once, so a sheet opened over focus mode keeps it', () => {
+  /*
+   * Android asks the NEWEST back listener first. Focus mode used to re-add its
+   * own whenever the screen handed it a fresh `onClose` — every minute, on the
+   * elapsed clock — and so climbed back over the Finish sheet it had opened.
+   */
+  const add = jest.spyOn(BackHandler, 'addEventListener');
+  const tree = (onClose: () => void) => (
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <FocusMode unitSystem="metric" elapsedMinutes={0} onClose={onClose} onFinish={jest.fn()} />
+    </SafeAreaProvider>
+  );
+  const view = render(tree(jest.fn()));
+  const before = add.mock.calls.length;
+  view.rerender(tree(jest.fn()));
+  view.rerender(tree(jest.fn()));
+  expect(add.mock.calls.length).toBe(before);
+  add.mockRestore();
 });

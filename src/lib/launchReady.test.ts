@@ -36,9 +36,9 @@ describe('the floor', () => {
   });
 
   it('leaves at 2.3 s once everything is ready', () => {
-    expect(
-      launchReady({ stores, ready: { history: true }, elapsedMs: LAUNCH_FLOOR_MS }).exit,
-    ).toBe(true);
+    expect(launchReady({ stores, ready: { history: true }, elapsedMs: LAUNCH_FLOOR_MS }).exit).toBe(
+      true,
+    );
   });
 
   it('waits past the floor for a store that is still loading', () => {
