@@ -45,6 +45,7 @@
 import { t, type Language } from './i18n';
 import type { DraftEntry, DraftSession, DraftSet } from './draft';
 import { workingSetLabels } from './draft';
+import { isMaxTestSet } from './repLadder';
 import { lastLoggedSet, upNextSet } from './upNext';
 import type { ID } from '../types/models';
 
@@ -63,6 +64,12 @@ export interface FocusTarget {
   workingNumber: number | null;
   /** How many working sets this exercise has — the `of 4`. */
   workingTotal: number;
+  /**
+   * This set is a rep ladder's max test (`isMaxTestSet`): the kicker says `MAX
+   * REPS — GO ALL OUT` and the count reads `MAX` until reps are counted. Optional
+   * so a hand-built target in a test reads as an ordinary set.
+   */
+  isMaxTest?: boolean;
 }
 
 export interface FocusPlan {
@@ -115,6 +122,7 @@ export function focusTarget(
     set: entry.sets[index],
     workingNumber: labels[index],
     workingTotal: entry.sets.filter((s) => !s.isWarmup).length,
+    isMaxTest: isMaxTestSet(entry, ref.setId),
   };
 }
 
@@ -127,6 +135,7 @@ export function focusTarget(
  */
 export function describeSetPosition(target: FocusTarget, lang: Language = 'en'): string {
   if (target.workingNumber == null) return t('warm-up', lang);
+  if (target.isMaxTest && !target.set.isCompleted) return t('max reps — go all out', lang);
   return t('set {n} of {total}', lang, { n: target.workingNumber, total: target.workingTotal });
 }
 

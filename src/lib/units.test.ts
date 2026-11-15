@@ -30,8 +30,8 @@ describe('the app-wide weight steps', () => {
   });
 
   it('leaves the PROGRESSION increment alone — it answers a different question', () => {
-    // What the overload engine may add to a working weight is still the exercise's
-    // own loadable step. A thumb nudge and a plan are not the same number.
+    // The step a working weight goes up by is still the exercise's own loadable
+    // step. A thumb nudge and a plan are not the same number.
     expect(resolveIncrementKg(5, 2.5, 'metric')).toBe(5);
     expect(resolveIncrementKg(undefined, 2.5, 'metric')).toBe(2.5);
   });

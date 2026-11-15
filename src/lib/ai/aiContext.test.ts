@@ -8,7 +8,6 @@ import {
   workoutFacts,
 } from './aiContext';
 import { recomputeWorkout, type CompletedWorkout } from '../completedWorkout';
-import { createDebrief } from '../debrief';
 import { seedExercises, seedExercisesById, seedRoutines } from '../../data/seed';
 import { fixtureHistory } from '../../../test/fixtures/history';
 import type { SetHistory } from '../../types/models';
@@ -75,42 +74,6 @@ describe('the workout context', () => {
     expect(built.json.length).toBeLessThanOrEqual(CONTEXT_CAP);
   });
 
-  it('carries what the user said after a workout, and only for workouts it sent', () => {
-    const latest = workouts[0];
-    const debrief = {
-      ...createDebrief(latest),
-      status: 'answered' as const,
-      answers: {
-        load: { choices: ['heavy'] },
-        pain: { choices: ['lower_back'], note: 'on the deadlift' },
-        plan: { choices: ['easier'] },
-      },
-    };
-    const orphan = { ...createDebrief(latest), workoutId: 'gone', answers: debrief.answers };
-    const withDebriefs = buildWorkoutContext({
-      exercises: seedExercises,
-      routines: seedRoutines,
-      workouts,
-      unitSystem: 'metric',
-      lang: 'en',
-      now: NOW,
-      debriefs: [debrief, orphan],
-    });
-    const rows = JSON.parse(withDebriefs.json).debriefs;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      routine: 'Pull',
-      routineId: 'r_pull',
-      answers: {
-        'How did the weights feel?': 'A bit heavy',
-        'Any pain or discomfort?': 'Lower back — on the deadlift',
-        'What should happen to this routine next time?': 'Make it easier',
-      },
-    });
-    expect(withDebriefs.debriefCount).toBe(1);
-    expect(withDebriefs.json.length).toBeLessThanOrEqual(CONTEXT_CAP);
-  });
-
   it('carries all-time records, the weekly line, the bodyweight log and a richer library', () => {
     const wide = JSON.parse(
       buildWorkoutContext({
@@ -156,10 +119,6 @@ describe('the workout context', () => {
     expect(json.sequence).toMatchObject({ on: false });
   });
 
-  it('sends no debriefs key when there are none', () => {
-    expect(json.debriefs).toBeUndefined();
-  });
-
   it('says what day it is, which language to answer in, and the units', () => {
     expect(json.today).toBe('2026-08-10');
     expect(json.language).toBe('Russian');
@@ -200,8 +159,7 @@ describe('the workout context', () => {
     expect(withWarmup.json).not.toContain('200');
   });
 
-  it('carries the app’s own verdicts as signals', () => {
-    expect(Array.isArray(json.signals)).toBe(true);
+  it('carries the sets per cluster', () => {
     expect(json.setsPerCluster4w.pull).toBeGreaterThan(0);
   });
 
@@ -244,7 +202,7 @@ describe('the workout context', () => {
     expect(JSON.parse(big.json).sessions[0].date).toBe('2026-08-10');
   });
 
-  it('carries the app’s workout settings, with the weekly goal’s default when unset', () => {
+  it('carries the app’s workout settings', () => {
     const withSettings = JSON.parse(
       buildWorkoutContext({
         exercises: seedExercises,
@@ -264,7 +222,6 @@ describe('the workout context', () => {
       restSecondsBetweenSets: 90,
       restSecondsBetweenExercises: 120,
       autoStartRest: true,
-      weeklyWorkoutGoal: 3,
     });
     // No settings handed in: no key, rather than a guess.
     expect(json.settings).toBeUndefined();
@@ -339,11 +296,11 @@ describe('the workout context', () => {
       expect(line.split(' | ').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('marks a superset on the row that joins the one above, never on the first of the group', () => {
+  it('says nothing about a superset group an older routine still carries', () => {
     const [routine] = seedRoutines;
     const sorted = [...routine.items].sort((a, b) => a.order - b.order);
     const items = sorted.map((item, i) =>
-      i === 0 || i === 1 ? { ...item, supersetGroup: 'g1' } : item,
+      i === 0 || i === 1 ? ({ ...item, supersetGroup: 'g1' } as typeof item) : item,
     );
     const rows = JSON.parse(
       buildWorkoutContext({
@@ -355,8 +312,7 @@ describe('the workout context', () => {
         now: NOW,
       }).json,
     ).routines[0].exercises;
-    expect(rows[0].superset).toBeUndefined();
-    expect(rows[1].superset).toBe(true);
+    expect(rows.some((row: Record<string, unknown>) => 'superset' in row)).toBe(false);
   });
 
   it('names the prompts from the user’s own log', () => {
@@ -409,67 +365,26 @@ describe('the workout context', () => {
 
 /* ------------------------------------------------------------------ */
 
-describe('effort per set (T-11)', () => {
-  const build = (workouts: CompletedWorkout[]) =>
-    JSON.parse(
+describe('per-set marks from an older build', () => {
+  it('says nothing about reps in reserve or set types a stored set still carries', () => {
+    const workouts = fixtureWorkouts();
+    const latest = workouts[0];
+    const marked = {
+      ...latest,
+      sets: latest.sets.map((set) => ({ ...set, rir: 1, setType: 'failure' }) as typeof set),
+    };
+    const json = JSON.parse(
       buildWorkoutContext({
         exercises: seedExercises,
         routines: seedRoutines,
-        workouts,
+        workouts: [marked, ...workouts.slice(1)],
         unitSystem: 'metric',
         lang: 'en',
         now: NOW,
       }).json,
     );
-
-  it('includes the reps in reserve of a graded session, in set order', () => {
-    const workouts = fixtureWorkouts();
-    const latest = workouts[0];
-    const exerciseId = latest.exercises[0].exerciseId;
-    const name = latest.exercises[0].name;
-    const working = latest.sets
-      .filter((set) => set.exerciseId === exerciseId && !set.isWarmup)
-      .sort((a, b) => a.setIndex - b.setIndex);
-    const grades = new Map(working.map((set, i) => [set.id, i === 1 ? undefined : i]));
-    const graded = {
-      ...latest,
-      sets: latest.sets.map((set) => {
-        const rir = grades.get(set.id);
-        return rir == null ? set : { ...set, rir };
-      }),
-    };
-    const json = build([graded, ...workouts.slice(1)]);
-    const expected = working.map((_, i) => (i === 1 ? '-' : String(i))).join(' ');
-    expect(json.sessions[0].rir).toEqual([`${name}: ${expected}`]);
-    expect(json.effortNote).toContain('reps in reserve');
-  });
-
-  it('carries set types in the shorthand, with a legend only when one is used', () => {
-    const workouts = fixtureWorkouts();
-    const latest = workouts[0];
-    const exerciseId = latest.exercises[0].exerciseId;
-    const last = latest.sets
-      .filter((set) => set.exerciseId === exerciseId && !set.isWarmup)
-      .sort((a, b) => a.setIndex - b.setIndex)
-      .at(-1);
-    if (!last) throw new Error('fixture has no working set');
-    const typed = recomputeWorkout(
-      {
-        ...latest,
-        sets: latest.sets.map((set) => (set.id === last.id ? { ...set, setType: 'failure' } : set)),
-      },
-      null,
-      'en',
-    );
-    const json = build([typed, ...workouts.slice(1)]);
-    expect(json.setTypeNote).toContain('failure');
-    expect(json.sessions[0].ex[0]).toMatch(/\dF/);
-    expect(build(workouts).setTypeNote).toBeUndefined();
-  });
-
-  it('says nothing about effort when no set was graded', () => {
-    const json = build(fixtureWorkouts());
     expect(json.effortNote).toBeUndefined();
+    expect(json.setTypeNote).toBeUndefined();
     expect(json.sessions.some((row: Record<string, unknown>) => 'rir' in row)).toBe(false);
   });
 });

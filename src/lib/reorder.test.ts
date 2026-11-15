@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AUTO_SCROLL_EDGE,
+  AUTO_SCROLL_MAX_SPEED,
+  autoScrollVelocity,
   dropIndex,
+  effectiveDragDy,
+  nextScrollOffset,
   liftIndex,
   liftedSlotHeight,
   moveToIndex,
@@ -321,5 +326,62 @@ describe('a row after the drop', () => {
 
   it('moves by a slot while some other row is up', () => {
     expect(rowOffsetMode(false, true)).toBe('slot');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Dragging past the edge                                              */
+/* ------------------------------------------------------------------ */
+
+describe('auto-scroll while a card is in the air', () => {
+  const viewport = { top: 100, height: 600 }; // 100..700
+
+  it('is still in the calm middle', () => {
+    expect(autoScrollVelocity(400, viewport)).toBe(0);
+    expect(autoScrollVelocity(100 + AUTO_SCROLL_EDGE, viewport)).toBe(0);
+  });
+
+  it('scrolls up near the top and down near the bottom, faster deeper in', () => {
+    const shallow = autoScrollVelocity(100 + AUTO_SCROLL_EDGE - 10, viewport);
+    const deep = autoScrollVelocity(105, viewport);
+    expect(shallow).toBeLessThan(0);
+    expect(deep).toBeLessThan(shallow);
+    expect(autoScrollVelocity(690, viewport)).toBeGreaterThan(0);
+  });
+
+  it('runs at full speed past the edge, never faster', () => {
+    expect(autoScrollVelocity(20, viewport)).toBe(-AUTO_SCROLL_MAX_SPEED);
+    expect(autoScrollVelocity(900, viewport)).toBe(AUTO_SCROLL_MAX_SPEED);
+  });
+
+  it('keeps a calm middle on a short viewport, and does nothing unmeasured', () => {
+    expect(autoScrollVelocity(150, { top: 100, height: 150 })).toBe(0);
+    expect(autoScrollVelocity(110, { top: 100, height: 0 })).toBe(0);
+    expect(autoScrollVelocity(Number.NaN, viewport)).toBe(0);
+  });
+
+  it('clamps the next offset to the content it has', () => {
+    const base = { contentHeight: 2000, viewportHeight: 600, dtMs: 16 };
+    expect(nextScrollOffset({ ...base, offset: 0, velocity: -900 })).toBe(0);
+    expect(nextScrollOffset({ ...base, offset: 1400, velocity: 900 })).toBe(1400);
+    expect(nextScrollOffset({ ...base, offset: 500, velocity: 1000 })).toBeCloseTo(516);
+    // A long-stalled frame does not fling the list.
+    expect(nextScrollOffset({ ...base, offset: 500, velocity: 1000, dtMs: 5000 })).toBeCloseTo(564);
+    // Content shorter than the viewport cannot scroll at all.
+    expect(nextScrollOffset({ ...base, contentHeight: 300, offset: 0, velocity: 900 })).toBe(0);
+  });
+
+  it('adds the scroll and the layout shift to the finger, so the drop index follows them', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    const layouts: Record<string, CardLayout> = Object.fromEntries(
+      ids.map((id, i) => [id, { y: i * 80, height: 72 }]),
+    );
+    // 'e' held still at the top edge while the list scrolled up 400: it is now above 'a'.
+    const dy = effectiveDragDy({ gestureDy: -40, scrollDelta: -400, liftY: 320, currentY: 320 });
+    expect(dropIndex({ ids, liftedId: 'e', layouts, dy, fallbackIndex: 4 })).toBe(0);
+    // A card that jumped up 300 when the open card above it collapsed is put back
+    // under the finger, not a card's height away from it.
+    expect(effectiveDragDy({ gestureDy: 0, scrollDelta: 0, liftY: 620, currentY: 320 })).toBe(300);
+    expect(effectiveDragDy({ gestureDy: 12, scrollDelta: 0, liftY: null, currentY: 320 })).toBe(12);
   });
 });

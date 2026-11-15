@@ -16,19 +16,12 @@
  * one would shadow the `Between sets` setting on almost every movement in the
  * app, which is precisely the bug `lib/rest.ts` exists to describe. Everything
  * here follows the setting until somebody says otherwise.
- *
- * The four `equipment: 'barbell'` rows carry `barWeightKg: 20`, which is what
- * turns on the `20 + 2×10 + 2×2.5` line under their weight cell. Only those four:
- * the flag is a fact about how a movement is loaded, and a machine or a dumbbell
- * showing a plate breakdown would be a lie about the equipment.
  */
 
 import type { Exercise, Routine, User } from '../types/models';
-import { DEFAULT_OVERLOAD_POLICY } from '../lib/progressiveOverload';
 
 export const seedUser: User = {
   id: 'u1',
-  overloadPolicy: DEFAULT_OVERLOAD_POLICY,
 };
 
 /* ------------------------------------------------------------------ */
@@ -334,7 +327,6 @@ export const seedExercises: Exercise[] = [
     isUnilateral: false,
     incrementKg: 5,
     equipment: 'barbell',
-    barWeightKg: 20,
   },
   {
     ...base,
@@ -348,7 +340,6 @@ export const seedExercises: Exercise[] = [
     isUnilateral: false,
     incrementKg: 2.5,
     equipment: 'barbell',
-    barWeightKg: 20,
   },
   {
     ...base,
@@ -403,7 +394,6 @@ export const seedExercises: Exercise[] = [
     isUnilateral: false,
     incrementKg: 2.5,
     equipment: 'barbell',
-    barWeightKg: 20,
   },
   {
     ...base,
@@ -417,7 +407,6 @@ export const seedExercises: Exercise[] = [
     isUnilateral: false,
     incrementKg: 5,
     equipment: 'barbell',
-    barWeightKg: 20,
   },
   {
     ...base,

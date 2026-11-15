@@ -6,7 +6,6 @@ import { useActiveWorkout } from './activeWorkoutStore';
 import { useSettings } from './settingsStore';
 import { seedRoutines } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
-import { DEFAULT_OVERLOAD_POLICY } from '../lib/progressiveOverload';
 import type { Exercise, ID } from '../types/models';
 
 /**
@@ -43,7 +42,6 @@ function startRoutineWithOwnRest(seconds: number) {
       [firstId]: { ...exercisesById[firstId], defaultRestSeconds: seconds },
     },
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: DEFAULT_OVERLOAD_POLICY,
     unitSystem: 'metric',
     defaultRestSeconds: useSettings.getState().restSecondsBetweenSets,
   });

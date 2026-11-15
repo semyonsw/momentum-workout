@@ -2,24 +2,19 @@ import { describe, expect, it } from 'vitest';
 
 import type { CompletedWorkout } from './completedWorkout';
 import { buildDraftSession, type DraftSession } from './draft';
-import { DEFAULT_OVERLOAD_POLICY } from './progressiveOverload';
 import {
-  describeGoalShort,
   describeRunningSet,
   emptyWorkoutRoutine,
-  goalPips,
-  lastSession,
-  nextFabExtended,
   progressSpark,
   runningSet,
+  suggestedRoutine,
 } from './workoutHome';
 import type { Exercise, Routine } from '../types/models';
 
 /**
- * The Workout section's and Home's decisions (redesign #7 #8 #11 #13 #18): which
- * set the running card names, when the ▶ folds, what the sparkline draws, which
- * workout the last-session card links into, the goal's pips, and the routine an
- * empty workout is built from.
+ * The Workout section's and Home's decisions (redesign #7 #8 #11 #18): which set
+ * the running card names, which routine the hero suggests, what the sparkline draws, and the
+ * routine an empty workout is built from.
  */
 
 function exercise(id: string, name: string): Exercise {
@@ -59,7 +54,6 @@ function session(items: [Exercise, number][]): DraftSession {
     routine,
     exercisesById: Object.fromEntries(items.map(([ex]) => [ex.id, ex])),
     historyByExerciseId: {},
-    policy: DEFAULT_OVERLOAD_POLICY,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     now: new Date('2026-10-30T18:00:00.000Z'),
@@ -142,14 +136,44 @@ describe('the running card (#7)', () => {
   });
 });
 
-describe('the extended ▶ (#8)', () => {
-  it('folds once the list moves and unfolds back at the top, with hysteresis', () => {
-    expect(nextFabExtended(true, 0)).toBe(true);
-    expect(nextFabExtended(true, 30)).toBe(true);
-    expect(nextFabExtended(true, 40)).toBe(false);
-    expect(nextFabExtended(false, 20)).toBe(false);
-    expect(nextFabExtended(false, 10)).toBe(true);
-    expect(nextFabExtended(false, Number.NaN)).toBe(false);
+describe('the hero (4.0)', () => {
+  const choice = (routineId: string, exerciseCount: number, lastTrainedAt: string | null) => ({
+    routineId,
+    exerciseCount,
+    lastTrainedAt,
+  });
+
+  it('is the sequence’s turn whenever the sequence names one', () => {
+    const next = choice('legs', 5, null);
+    expect(suggestedRoutine([choice('push', 5, null), next], next)).toBe(next);
+  });
+
+  it('is the first openable routine when nothing has been trained', () => {
+    const list = [choice('empty', 0, null), choice('push', 5, null), choice('pull', 4, null)];
+    expect(suggestedRoutine(list, null)?.routineId).toBe('push');
+  });
+
+  it('is the routine after the one trained last, in list order', () => {
+    const list = [
+      choice('push', 5, '2026-11-10T18:00:00Z'),
+      choice('pull', 4, '2026-11-12T18:00:00Z'),
+      choice('legs', 6, '2026-11-08T18:00:00Z'),
+    ];
+    expect(suggestedRoutine(list, null)?.routineId).toBe('legs');
+  });
+
+  it('wraps from the last routine back to the first, and skips empty ones', () => {
+    const list = [
+      choice('push', 5, '2026-11-10T18:00:00Z'),
+      choice('empty', 0, null),
+      choice('legs', 6, '2026-11-12T18:00:00Z'),
+    ];
+    expect(suggestedRoutine(list, null)?.routineId).toBe('push');
+  });
+
+  it('suggests nothing when no routine has an exercise in it', () => {
+    expect(suggestedRoutine([choice('a', 0, null)], null)).toBeNull();
+    expect(suggestedRoutine([], null)).toBeNull();
   });
 });
 
@@ -198,45 +222,6 @@ describe('the Progress sparkline (#11)', () => {
   });
 });
 
-describe('the last-session card (#11)', () => {
-  it('links the latest workout’s exercises, each once, in order', () => {
-    const old = workout('2026-10-01', 1);
-    const latest = {
-      ...workout('2026-10-09', 1),
-      exercises: [
-        { exerciseId: 'a', name: 'Bench press' },
-        { exerciseId: 'b', name: 'Cable fly' },
-        { exerciseId: 'a', name: 'Bench press' },
-      ],
-    } as unknown as CompletedWorkout;
-    const last = lastSession([latest, old]);
-    expect(last?.workoutId).toBe(latest.id);
-    expect(last?.exercises).toEqual([
-      { exerciseId: 'a', name: 'Bench press' },
-      { exerciseId: 'b', name: 'Cable fly' },
-    ]);
-    expect(lastSession([])).toBeNull();
-  });
-});
-
-describe('the weekly goal card (#11, #13)', () => {
-  it('lights one pip per workout done, up to the goal', () => {
-    expect(goalPips(2, 4)).toEqual([true, true, false, false]);
-    expect(goalPips(6, 4)).toEqual([true, true, true, true]);
-    expect(goalPips(0, 3)).toEqual([false, false, false]);
-  });
-
-  it('says it short, and says excused', () => {
-    expect(describeGoalShort({ done: 2, goal: 4, excused: false }, 'en')).toBe('2 of 4 this week');
-    expect(describeGoalShort({ done: 2, goal: 4, excused: false }, 'ru')).toBe(
-      '2 из 4 на этой неделе',
-    );
-    expect(describeGoalShort({ done: 1, goal: 3, excused: true }, 'en')).toBe(
-      '1 of 3 this week · excused',
-    );
-  });
-});
-
 describe('an empty workout (#18)', () => {
   it('is a routine with no items and no id, so nothing reads it as a routine', () => {
     const routine = emptyWorkoutRoutine({
@@ -250,7 +235,6 @@ describe('an empty workout (#18)', () => {
       routine,
       exercisesById: {},
       historyByExerciseId: {},
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       defaultRestSeconds: 120,
     });

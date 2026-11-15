@@ -145,8 +145,7 @@ export function TrendChart({ points, formatValue = defaultFormat, flatWash }: Tr
   const max = Math.max(...values);
   const min = Math.min(...values);
   /*
-   * A flat run (every session the same number — exactly the case the nudge fires
-   * on) would divide by zero and collapse the line onto one gridline. Give it a
+   * A flat run (every session the same number — a plateau) would divide by zero and collapse the line onto one gridline. Give it a
    * nominal span so it draws as a level line mid-plot instead.
    */
   const span = max === min ? Math.max(max * 0.1, 1) : max - min;

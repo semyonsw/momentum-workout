@@ -15,7 +15,6 @@
  *   │ │      Rest                  3:00 ( − )( + )│ │
  *   │ │      This movement, in every routine      │ │
  *   │ │      Follow the setting instead           │ │
- *   │ │      Superset with the one above  [ ●━ ]  │ │
  *   │ │      Open its history                     │ │
  *   │ │ ≡  Wide pull-ups machine           ›  ✕  │ │
  *   │ │ +  Add exercise                          │ │
@@ -52,15 +51,6 @@
  * states the ladder instead — `16 + 10 + 8 + 8 + 6`, for this item's set count —
  * and `Sets` re-shapes it live, because how many sets a routine plans is still the
  * routine's business.
- *
- * SUPERSETS ARE ONE TOGGLE: "with the exercise above". `supersetGroup` is a
- * string, and a UI that let people NAME groups would need a group-name concept, a
- * picker, and an answer for two groups that share a name — for a feature whose
- * whole content is "these two are done back to back". A superset is a run of
- * adjacent exercises, which is also what it is in a gym, so adjacency is the
- * model. Members carry a `green-dim` rule down their left edge — the same
- * vocabulary the drop target uses, because both mean "these belong together"
- * rather than "something is wrong".
  *
  * REST NAMES ITS SOURCE, and that is the point of the row rather than a detail of
  * it. `rest · setting` and a rest this movement owns are two different facts, and
@@ -111,8 +101,7 @@
  * underneath the finger to show it.
  *
  * The lifted row has NO SHADOW: the app's one elevation belongs to the rest timer.
- * It is marked with the `green-dim` rule instead — the same vocabulary the superset
- * bracket uses, and for the same reason. What it DOES need is for the card around
+ * It is marked with a `green-dim` hairline instead. What it DOES need is for the card around
  * it to stop clipping (`ListCard clip={false}`), or it is sliced off at the top and
  * bottom of the list the moment it moves.
  *
@@ -153,7 +142,6 @@ import {
   ListCard,
   Separator,
   TextButton,
-  Toggle,
 } from '../components/primitives';
 import { useDragReorder, type CardLayout } from '../hooks/useDragReorder';
 import { useLanguage, useT, type Translate } from '../hooks/useT';
@@ -172,15 +160,18 @@ import {
   bumpTargetCount,
   bumpTargetMin,
   bumpTargetSets,
-  isSupersettedWithAbove,
   routineDraftChanged,
-  supersetRunPosition,
   targetCountStep,
-  toggleSupersetWithAbove,
 } from '../lib/routinePlan';
 import { REST_LIMITS, bumpExerciseRest, clearExerciseRest, resolveRest } from '../lib/rest';
 import { moveToIndex } from '../lib/reorder';
-import { describeLadder, ladderOf, ladderTargets, ladderTotal } from '../lib/repLadder';
+import {
+  describeLadder,
+  isAwaitingMax,
+  ladderOf,
+  ladderTargets,
+  ladderTotal,
+} from '../lib/repLadder';
 import { countUnitLabel, formatClock, formatDuration } from '../lib/units';
 import { palette, pushedSlot } from '../theme/tokens';
 import type { Exercise, ID, Routine, RoutineItem } from '../types/models';
@@ -621,7 +612,6 @@ export function RoutineEditorScreen({
                       dimmed={lifted != null && !isLifted}
                       isLifted={isLifted}
                       isOpen={openId === item.id}
-                      superset={supersetRunPosition(items, index)}
                       summary={summarizeItem(item, exercise, defaultRestSeconds, t, lang)}
                       onPress={() => {
                         tap();
@@ -641,19 +631,8 @@ export function RoutineEditorScreen({
                         item={item}
                         exercise={exercise}
                         settingsRestSeconds={defaultRestSeconds}
-                        /* The first row has nothing above it to pair with. */
-                        supersetWithAbove={
-                          index === 0 ? null : isSupersettedWithAbove(items, index)
-                        }
                         onPatch={(fn) => patchItem(item.id, fn)}
                         onPatchExercise={(fn) => onPatchExercise(exercise.id, fn)}
-                        onToggleSuperset={() => {
-                          tap();
-                          setItems((current) => {
-                            const at = current.findIndex((i) => i.id === item.id);
-                            return at <= 0 ? current : toggleSupersetWithAbove(current, at);
-                          });
-                        }}
                         onOpenHistory={() => onOpenItem(item, draft())}
                       />
                     ) : null}
@@ -773,7 +752,6 @@ function RoutineRow({
   dimmed,
   isLifted,
   isOpen,
-  superset,
   summary,
   onPress,
   onLongPress,
@@ -785,8 +763,6 @@ function RoutineRow({
   /** THIS row is in the air: it follows the finger and marks itself. */
   isLifted: boolean;
   isOpen: boolean;
-  /** Where this row sits in a superset run — drives the rule down its left edge. */
-  superset: 'none' | 'start' | 'continue';
   /** Built by the screen, which is the only place that knows the live setting. */
   summary: string;
   onPress: () => void;
@@ -806,27 +782,13 @@ function RoutineRow({
       ].join(' ')}
       style={dimmed ? { opacity: 0.5 } : undefined}
     >
-      {/* The bracket. A 2 dp `green-dim` rule down the left edge of every member,
-          so a run reads as one block without a second hue or a label. */}
-      <View
-        className={[
-          'h-row-lg w-[2px]',
-          superset === 'none' ? 'bg-transparent' : 'bg-green-dim',
-        ].join(' ')}
-      />
       <Pressable
         onPress={onPress}
         onLongPress={onLongPress}
         delayLongPress={280}
         accessibilityRole="button"
         accessibilityState={{ expanded: isOpen }}
-        accessibilityLabel={[
-          exercise.name,
-          summary,
-          superset === 'continue' ? t('supersetted with the exercise above') : '',
-        ]
-          .filter(Boolean)
-          .join(', ')}
+        accessibilityLabel={`${exercise.name}, ${summary}`}
         accessibilityHint={onLongPress ? t('Long press, then slide to reorder') : undefined}
         className="h-row-lg flex-1 flex-row items-center pl-md"
       >
@@ -891,24 +853,19 @@ function ItemEditor({
   item,
   exercise,
   settingsRestSeconds,
-  supersetWithAbove,
   onPatch,
   onPatchExercise,
-  onToggleSuperset,
   onOpenHistory,
 }: {
   item: RoutineItem;
   exercise: Exercise;
   settingsRestSeconds: number;
-  /** On / off, or null on the first row — which has nothing above it to pair with. */
-  supersetWithAbove: boolean | null;
   onPatch: (fn: (item: RoutineItem) => RoutineItem) => void;
   /**
    * Edit the EXERCISE this row points at. Only rest uses it, and it lands in the
    * library immediately rather than in the routine draft — see the file header.
    */
   onPatchExercise: (fn: (exercise: Exercise) => Exercise) => void;
-  onToggleSuperset: () => void;
   onOpenHistory: () => void;
 }) {
   const t = useT();
@@ -979,14 +936,17 @@ function ItemEditor({
             <View className="flex-row items-center">
               <Text className="flex-1 pr-md text-label font-medium text-ink">{t('Ladder')}</Text>
               <Text className="text-body font-semibold tabular-nums text-ink">
-                {describeLadder(ladderPlan)}
+                {isAwaitingMax(ladder) ? t('MAX, then the ladder') : describeLadder(ladderPlan)}
               </Text>
             </View>
+            {/* Waiting for its max: there is no plan yet, only the test. */}
             <Text className="mt-[2px] text-micro text-ink-faint">
-              {t('Max {max} · {total} reps · one rep is added every session you meet it', {
-                max: ladderPlan[0],
-                total: ladderTotal(ladderPlan),
-              })}
+              {isAwaitingMax(ladder)
+                ? t('Your max is found in the next workout: set 1 is all-out')
+                : t('Max {max} · {total} reps · one rep is added every session you meet it', {
+                    max: ladderPlan[0],
+                    total: ladderTotal(ladderPlan),
+                  })}
             </Text>
           </View>
         </>
@@ -1056,31 +1016,6 @@ function ItemEditor({
           </Pressable>
         </>
       ) : null}
-
-      {/* One toggle, and only where there is an exercise above to pair with. See
-          the file header for why there is no group-name concept. */}
-      {supersetWithAbove == null ? null : (
-        <>
-          <Separator inset={40} />
-          <View className="min-h-[56px] flex-row items-center py-sm pl-xxl pr-lg">
-            <View className="flex-1 pr-md">
-              <Text className="text-label font-medium text-ink">
-                {t('Superset with the one above')}
-              </Text>
-              <Text className="mt-[2px] text-micro text-ink-faint">
-                {supersetWithAbove
-                  ? t('No rest between them — rest comes after the pair')
-                  : t('Rest after every set, as normal')}
-              </Text>
-            </View>
-            <Toggle
-              value={supersetWithAbove}
-              onChange={onToggleSuperset}
-              accessibilityLabel={t('Superset with the exercise above')}
-            />
-          </View>
-        </>
-      )}
 
       <Separator inset={40} />
       {/* Where tapping the row used to go, one level down: it is what you do
@@ -1198,7 +1133,11 @@ function summarizeItem(
   if (ladder) {
     // A ladder states every set, because that is what it is: five numbers, not a
     // count times a target. Same line the session's card shows.
-    parts.push(describeLadder(ladderTargets(ladder, item.targetSets)));
+    parts.push(
+      isAwaitingMax(ladder)
+        ? t('MAX, then the ladder')
+        : describeLadder(ladderTargets(ladder, item.targetSets)),
+    );
   } else if (countsToMax(exercise)) {
     // The item's own rep numbers still exist in the data and mean nothing here:
     // the exercise has said it has no target. `4 × MAX`, same as the card.

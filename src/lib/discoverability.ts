@@ -32,21 +32,18 @@
  * and it already asks (an exercise delete is not undoable from a toast, because
  * it reaches into routines).
  *
- * ── ONE DOOR FOR ROUTINES AND EXERCISES ───────────────────────────────────
+ * ── ROUTINES AND EXERCISES ARE ONE TAB, AND THE CORNER IS THE ASSISTANT ──
  *
- * The workout corner had ≡ and 📖, two unlabelled glyphs that look alike and
- * lead to two halves of one question — "what can I train". They are one
- * destination now, `Routines & exercises`, with a Routines | Exercises switch in
- * its header; the corner reads ✦, that door, then ⟲ last. Rejected: one long
- * screen with both lists (the library is a tree you open and would push the
- * routines a screen away from their own header), and keeping two glyphs with
- * captions (the corner is icons only, see `SectionTopBar`).
+ * The workout corner had ≡ and 📖 (U23 merged them into one `Routines &
+ * exercises` door) and the ⟲. Since 4.0 the routines and the history are roots
+ * on the bar (`lib/sectionNav.ts`), so the corner holds one thing — the AI
+ * coach, as a labelled pill — and the Routines tab keeps the `Routines |
+ * Exercises` switch the door had, so the library is still one tap away.
+ * Rejected: a tab of its own for the library (what can I train is one question)
+ * and leaving the glyphs beside the tabs (two doors to one room).
  *
- * ── A SECTION'S SETTINGS ARE AT THE FOOT OF ITS HISTORY ───────────────────
- *
- * The settings that shape the training (rest times, plates, weekly targets)
- * were reachable only from Settings → a row. The history is where you notice
- * one of them is wrong, so its foot carries `Settings ›`, to `workoutSettings`.
+ * The `Settings ›` row that used to sit at the foot of the history went the
+ * same way: Settings is one tap on the bar from anywhere, on one page.
  */
 
 /* ------------------------------------------------------------------ */
@@ -122,18 +119,13 @@ export function cueActions(surface: HoldSurface): HoldAction[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* The workout corner and its merged destination (U23)                */
+/* The workout corner and the Routines tab's switch (U23, 4.0)          */
 /* ------------------------------------------------------------------ */
 
-/** The workout corner, left to right, before the ⟲ (which is always last). */
-export const WORKOUT_CORNER = ['ai', 'library'] as const;
+/** The workout corner, left to right. The history is a tab now, not a ⟲. */
+export const WORKOUT_CORNER = ['ai'] as const;
 
-/** The two halves of `Routines & exercises`. */
+/** The two halves of the Routines tab. */
 export type LibraryTab = 'routines' | 'exercises';
 
 export const LIBRARY_TABS: readonly LibraryTab[] = ['routines', 'exercises'];
-
-/** The pushed route each half is. The switch replaces one with the other. */
-export function libraryTabRoute(tab: LibraryTab): 'routines' | 'library' {
-  return tab === 'routines' ? 'routines' : 'library';
-}

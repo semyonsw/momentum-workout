@@ -66,6 +66,8 @@ export function maxLabel(lang: Language = 'en'): string {
 export function showsMaxLabel(
   exercise: MaxRepsSubject,
   set: { count: number; isCompleted: boolean },
+  /** The set is a rep ladder's max test (`isMaxTestSet`) — the same open question. */
+  isMaxTest = false,
 ): boolean {
-  return countsToMax(exercise) && !set.isCompleted && set.count <= 0;
+  return (countsToMax(exercise) || isMaxTest) && !set.isCompleted && set.count <= 0;
 }

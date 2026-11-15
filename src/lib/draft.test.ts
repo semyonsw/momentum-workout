@@ -10,7 +10,6 @@ import {
   workingSetLabels,
   type DraftSession,
 } from './draft';
-import { DEFAULT_OVERLOAD_POLICY } from './progressiveOverload';
 import type { Exercise, Routine, SetHistory } from '../types/models';
 
 /**
@@ -55,7 +54,6 @@ function build(exercise: Exercise, history: SetHistory[] = [], routine = routine
     routine,
     exercisesById: { [exercise.id]: exercise },
     historyByExerciseId: { [exercise.id]: history },
-    policy: DEFAULT_OVERLOAD_POLICY,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,
@@ -165,7 +163,6 @@ describe('an exercise added mid-workout', () => {
     buildDraftEntry({
       exercise: machine,
       history,
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       restSeconds: 120,
       transitionRestSeconds: 150,
@@ -202,13 +199,6 @@ describe('an exercise added mid-workout', () => {
 
     expect(entry.sets[0].weightKg).toBe(30);
     expect(entry.sets[0].count).toBe(12);
-  });
-
-  it('carries a real overload verdict rather than an empty one', () => {
-    const entry = entryFor([loggedSet()]);
-
-    expect(entry.overload).toBeDefined();
-    expect(entry.overloadAccepted).toBe(false);
   });
 
   it('never builds an entry with no rows at all', () => {
@@ -557,8 +547,8 @@ describe('formatTarget follows the rows for an ordinary target', () => {
     expect(formatTarget(entry)).toBe('2 × 10 reps');
   });
 
-  it('does not count warm-ups or drop sets as sets of the plan', () => {
-    const sets = [row({ isWarmup: true }), row(), row(), row({ setType: 'drop' })];
+  it('does not count warm-ups as sets of the plan', () => {
+    const sets = [row({ isWarmup: true }), row(), row()];
     expect(formatTarget({ targetSets: 3, targetRepsMax: 10, exercise, sets })).toBe('2 × 10 reps');
   });
 
@@ -599,7 +589,6 @@ describe('an exercise whose reps are MAX', () => {
     buildDraftEntry({
       exercise: toFailure,
       history,
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       restSeconds: 120,
       transitionRestSeconds: 150,
@@ -629,7 +618,6 @@ describe('an exercise whose reps are MAX', () => {
     const entry = buildDraftEntry({
       exercise: machine,
       history: [loggedSet()],
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       restSeconds: 120,
       transitionRestSeconds: 150,
@@ -653,7 +641,6 @@ describe('a starting weight planned since last session', () => {
     buildDraftEntry({
       exercise,
       history: [loggedSet(), loggedSet({ id: 'sh2', setIndex: 1 })],
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       restSeconds: 120,
       transitionRestSeconds: 150,

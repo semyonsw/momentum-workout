@@ -1,9 +1,9 @@
 /**
- * RoutineListScreen — the `Routines` half of `Routines & exercises`.
+ * RoutineListScreen — the `Routines` half of the Routines tab.
  *
- * Since U23 the workout corner has one door for this list and the exercise
- * library; the `switcher` under the header (`components/LibrarySwitch.tsx`) is
- * how one reaches the other.
+ * A root on the bar since 4.0 (it was pushed from a glyph in the Workout
+ * corner); the `switcher` under the header (`components/LibrarySwitch.tsx`) is
+ * how the exercise library is reached from it.
  *
  * Not one of the fourteen designed frames: it is the landing surface the tab bar
  * needs in order to lead somewhere. Deliberately built from nothing but the
@@ -12,9 +12,10 @@
  * fifteenth layout to maintain.
  *
  * TWO TARGETS PER ROW, and they answer different questions. The row opens the
- * routine to EDIT it; the ▶ on the right OPENS THE WORKOUT (which then starts on
- * its own `Start` — see `ActiveWorkoutScreen`). This tab is where someone is
- * already looking at their routines, so it can reach either without a detour.
+ * routine to EDIT it; the `▶ Start` pill on the right STARTS THE WORKOUT, the
+ * same start as Home's (`navigation/sessionRoute.startsAfterOpen`). It was a
+ * bare ▶ in a circle until 4.0, and beside a row that edits, a lone triangle
+ * left "play what?" to guesswork; the word says it.
  *
  * The `Training sequence` row at the top is the way in to the optional running
  * order of those routines. It states whether it is on, because a feature that is
@@ -52,7 +53,7 @@ interface RoutineListScreenProps {
   exercisesById: Record<ID, Exercise>;
   sequence: TrainingSequence;
   onOpen: (routineId: ID) => void;
-  /** Open this routine as a workout. It starts inside, not here. */
+  /** Start this routine as a workout. */
   onStartWorkout: (routineId: ID) => void;
   /** `Empty` in the add-routine sheet. */
   onCreate: () => void;
@@ -64,10 +65,10 @@ interface RoutineListScreenProps {
   /** The whole library, for the random sheet's "N exercises to draw from". */
   library: readonly Exercise[];
   onOpenSequence: () => void;
-  /** `‹` — the screen is pushed from the workout section, never a tab root. */
-  onBack: () => void;
   /** The `Routines | Exercises` switch, under the header (U23). */
   switcher?: ReactNode;
+  /** The scroll's foot: clear of the nav pill, since this is a root. */
+  footInset?: number;
 }
 
 export function RoutineListScreen({
@@ -80,8 +81,8 @@ export function RoutineListScreen({
   onCreateRandom,
   library,
   onOpenSequence,
-  onBack,
   switcher,
+  footInset = 24,
 }: RoutineListScreenProps) {
   const t = useT();
   /** Which of the two add sheets is up: the choice, or the random spec. */
@@ -92,12 +93,12 @@ export function RoutineListScreen({
 
   return (
     <View className="flex-1 bg-bg">
-      <ScreenHeader kicker={t('Routines & exercises')} onBack={onBack} bordered={false}>
+      <ScreenHeader kicker={t('Routines')} bordered={false}>
         {switcher}
       </ScreenHeader>
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: switcher ? 16 : 8, paddingBottom: 24 }}
+        contentContainerStyle={{ paddingTop: switcher ? 16 : 8, paddingBottom: footInset }}
         showsVerticalScrollIndicator={false}
       >
         <Kicker className="mx-lg mb-sm">{t('Sequence')}</Kicker>
@@ -167,18 +168,21 @@ export function RoutineListScreen({
                     </View>
                   </Pressable>
 
-                  {/* 52 wide, full row height, and its own hit area: opening the
-                      workout must not be reachable by a thumb aiming at `Edit`. */}
+                  {/* Full row height and its own hit area: starting the workout
+                      must not be reachable by a thumb aiming at `Edit`. */}
                   {startable ? (
                     <Pressable
                       onPress={() => onStartWorkout(routine.id)}
                       accessibilityRole="button"
-                      accessibilityLabel={t('Open {name} as a workout', { name: routine.name })}
+                      accessibilityLabel={t('Start {name}', { name: routine.name })}
                       style={pressedStyle}
-                      className="h-row-lg w-[52px] items-center justify-center"
+                      className="h-row-lg items-center justify-center pl-sm pr-md"
                     >
-                      <View className="h-[32px] w-[32px] items-center justify-center rounded-pill border border-hairline bg-surface-alt">
-                        <Icon name="play" size={14} color={palette.greenBright} />
+                      <View className="h-[34px] flex-row items-center rounded-pill border border-hairline bg-surface-alt px-md">
+                        <Icon name="play" size={13} color={palette.greenBright} />
+                        <Text className="ml-xs text-label font-semibold text-green-bright">
+                          {t('Start')}
+                        </Text>
                       </View>
                     </Pressable>
                   ) : (

@@ -1,8 +1,8 @@
 /**
- * The weigh-in on Body measurements (redesign #14).
+ * The weigh-in on the Bodyweight screen (redesign #14).
  *
  * Bodyweight used to be set in one place only — a `−`/`+` stepper in Workout
- * settings, nudging by the coarse step — and Body measurements showed the log
+ * settings, nudging by the coarse step — and the Body screen showed the log
  * read-only. Typing 81.4 there was twenty taps. The Body screen now writes it
  * too: the value is a well that opens the keypad, `±` nudge it, and `Log weight`
  * records it. Every write still goes through `setBodyweightKg`, which updates
@@ -18,7 +18,7 @@ import { BODYWEIGHT_LIMITS, clampBodyweightKg, type BodyweightEntry } from './bo
 import { kgToLb, lbToKg, weightSteps } from './units';
 import type { UnitSystem } from '../types/models';
 
-/** Where the well starts with nothing logged — Workout settings' own seed. */
+/** Where the well starts with nothing logged — Settings' own seed. */
 export const WEIGH_IN_START_KG = 70;
 
 /** The value the well opens on: the last reading, else the setting, else the seed. */

@@ -33,18 +33,15 @@
  * count rolls and the clock ticks — and the one you glance at should be the
  * brighter of the two.
  *
- * THE ⋮ (U16). `Stop and exit` and `Restart clock` used to be two 34 dp chips
- * on a third line of this bar — 48 dp of header spent on the two actions you
- * least want to hit by accident, side by side, a thumb-slip apart. They live
+ * THE ⋮ (U16). `Stop and exit` used to be a 34 dp chip on a third line of this
+ * bar — header spent on the action you least want to hit by accident. It lives
  * behind `onMenu` now and the screen owns the menu; the bar only offers the
- * door. Rejected: keeping `Restart clock` in the bar and moving only Stop — the
- * line would stay for one chip, and the clock you might restart is already
- * up here to be read.
+ * door.
  *
  * THE 2.9 REDESIGN (#4, #7) named both corners. The ⋮ became a 46 dp glass
  * circle captioned `Options` — it now also holds `+ Add an exercise` and the
- * `Auto-start rest` switch, so it is a place worth finding, not a door to two
- * rare actions. And the back circle says what it does to the workout: `Back,
+ * `Auto-start rest` switch, so it is a place worth finding, not a door to one
+ * rare action. And the back circle says what it does to the workout: `Back,
  * workout keeps running` while one is running, because "back" out of a session
  * used to read as "end it", and people finished workouts to get to Home.
  */

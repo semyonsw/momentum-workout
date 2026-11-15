@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import { buildDraftSession, type DraftSession } from './draft';
 import { describeSetPosition, focusPlan } from './focusPlan';
-import { DEFAULT_OVERLOAD_POLICY } from './progressiveOverload';
 import type { Exercise, Routine } from '../types/models';
 
 /**
@@ -53,7 +52,6 @@ function session(items: [Exercise, number][]): DraftSession {
     routine,
     exercisesById: Object.fromEntries(items.map(([ex]) => [ex.id, ex])),
     historyByExerciseId: {},
-    policy: DEFAULT_OVERLOAD_POLICY,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     now: new Date('2026-09-09T18:00:00.000Z'),

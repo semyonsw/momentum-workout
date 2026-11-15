@@ -30,11 +30,8 @@
  *     key, and it stays quiet either way: a migration that could not run tries
  *     again next launch, and a dialog on launch about a storage system the user has
  *     never heard of is worse than a History tab that fills itself in tomorrow.
- *   • the REMINDER SYNC, which makes Android's notification queue match the
- *     workout schedule. Also here rather than in a
- *     screen, and also silent: a reminder that cannot be armed — no permission,
- *     exact alarms refused — must not become a dialog in front of somebody who
- *     opened the app to train, and the settings screen reports it instead.
+ *   • the RETIRED-REMINDER SWEEP, which cancels the weekly workout reminders an
+ *     earlier version left in Android's queue (`cancelRetiredReminders`).
  *   • the AUTOMATIC BACKUP, which rewrites the day's backup file in the folder the
  *     user granted once, two seconds after any change to the data it carries (and
  *     at once when the app goes to the background with a write still waiting).
@@ -47,38 +44,29 @@
  * deadline and is correct whether or not any of this works, and the log already on
  * disk is read synchronously before the first render whatever the migration does.
  *
- * ── AND THE LAUNCH SCREEN ─────────────────────────────────────────────────
+ * ── AND THE LAUNCH GATE ───────────────────────────────────────────────────
  *
- * `components/LaunchScreen.tsx`, drawn OVER everything else on a cold start: it
- * opens on the native splash's own picture — the green ✓ on the page colour — so
- * the handover from Android's splash to JS is not a cut, and it leaves once the
- * store this app is built on has really loaded (2.3 s at the least, 6 s at the most;
- * `lib/launchReady.ts`). The app renders UNDER it from the first frame, so by
- * the time it dissolves the screen behind it is already there. It is keyed to
- * this JS process, not to the app coming to the foreground: a resume never shows
- * it.
+ * Until the stores have loaded, the screen is the page colour and nothing else
+ * (`Root`) — the native splash's own background, so the handover from Android's
+ * splash reads as one held frame rather than a cut. No animation over the wait:
+ * the wait is a few frames, and a splash with choreography has to be at least as
+ * long as its choreography.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import { AppState, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
-import { vars } from 'nativewind';
 
 import './global.css';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
-import { DebriefHost } from './src/components/DebriefSheet';
-import { LaunchScreen } from './src/components/LaunchScreen';
 import { AppShell } from './src/navigation/AppShell';
-import { LanguageChoiceScreen } from './src/screens/LanguageChoiceScreen';
 import { useSettingsHydrated } from './src/hooks/useHydrated';
 import { reportRootHeight } from './src/hooks/useKeyboard';
-import { useSettings } from './src/state/settingsStore';
 import { prepareAudio } from './src/lib/beeper';
-import { rgbChannels, themeColors } from './src/lib/theme';
-import { applyTheme } from './src/theme/tokens';
 import {
   REMINDER_KIND,
+  cancelRetiredReminders,
   dismissTimerAlerts,
   ensureTimerChannels,
   notificationKind,
@@ -86,8 +74,8 @@ import {
 } from './src/lib/notify';
 import { migrateHistoryIfNeeded, useWorkoutHistory } from './src/state/workoutHistoryStore';
 import { useAutoBackup } from './src/hooks/useAutoBackup';
+import { syncWeighInFromSettings, useWeighInReminder } from './src/hooks/useWeighInReminder';
 import { useAutoRounds } from './src/hooks/useAutoRounds';
-import { useReminders } from './src/hooks/useReminders';
 import { useTimerAlerts } from './src/hooks/useTimerAlerts';
 import { useSetTimerCommit } from './src/hooks/useSetTimerCommit';
 
@@ -106,10 +94,10 @@ import { useSetTimerCommit } from './src/hooks/useSetTimerCommit';
  * background left the alert as a banner that vanished — a rest-over nobody
  * could find once they looked down).
  *
- * A REMINDER IS NOT A TIMER. It used to go through the same rule, so "Time to
- * train" firing at 18:00 while the app happened to be open was swallowed whole —
- * no banner, no list entry, nothing. Nothing on screen said it either:
- * the pill only counts rests. So a reminder always shows, whatever is in front.
+ * A REMINDER IS NOT A TIMER. It used to go through the same rule, so a reminder
+ * firing while the app happened to be open was swallowed whole — no banner, no
+ * list entry, nothing. Nothing on screen said it either: the pill only counts
+ * rests. So a reminder always shows, whatever is in front.
  *
  * Wrapped because this runs at module scope, before any boundary exists. A throw
  * here would be a crash on launch with no screen to report it on.
@@ -133,28 +121,20 @@ try {
   // Alerts will be silent-but-scheduled, or absent. The pill is unaffected.
 }
 
-/**
- * Whether the launch screen has already played in this JS process. Module scope,
- * so a remount of `App` — a fast refresh, an error boundary recovering — cannot
- * replay it; only a cold start, which is a new process, can.
- */
-let launchPlayed = false;
-
 export default function App() {
-  const [launching, setLaunching] = useState(() => !launchPlayed);
-  useEffect(() => {
-    launchPlayed = true;
-  }, []);
-
   /*
    * Mounted here, at the top, rather than inside a screen: it watches the stores
    * for the whole session, on the days the user never opens Settings, which is
    * all of them.
    */
   useAutoBackup();
+  // The weigh-in alerts — on by default, armed only once notifications are allowed.
+  useWeighInReminder();
 
   useEffect(() => {
-    void requestNotificationPermission();
+    // Re-synced once the answer is in: the reminder is on by default, and the
+    // first grant is the moment it can finally be armed.
+    void requestNotificationPermission().then(() => syncWeighInFromSettings(true));
     void ensureTimerChannels();
     // Warmed here rather than on the first beep, so 0:05 of a plank isn't where
     // the audio session gets configured.
@@ -174,7 +154,7 @@ export default function App() {
      * only when the first one failed. On a launch where it worked, re-reading
      * every row, re-parsing every workout and handing the store a new array that
      * equals the old one re-rendered every history subscriber and re-ran every
-     * overload verdict in the middle of the launch animation, to learn nothing.
+     * overload verdict in the middle of the launch, to learn nothing.
      */
     if (useWorkoutHistory.getState().loadFailed) {
       useWorkoutHistory.getState().reloadHistory();
@@ -186,6 +166,7 @@ export default function App() {
      * to place.
      */
     void migrateHistoryIfNeeded();
+    void cancelRetiredReminders();
 
     /*
      * Back in front: the timer alerts in the shade are stale news — the session
@@ -200,134 +181,51 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <Reminders />
-      <Themed>
-        {(themeKey) => (
-          <>
-            {/*
-              Inside the provider, outside the shell: a crash in any screen lands on a
-              readable error with a way out, instead of taking the process down. The
-              session is persisted, so without this a crash on the logging screen
-              repeats on every launch — see `ErrorBoundary`.
-
-              KEYED ON THE THEME. Every colour in the app is read from the tokens at
-              render time (`theme/tokens.ts`), so a new theme is a remount of the
-              tree under this line and nothing else. The launch is outside the key,
-              so the one moment the theme changes on its own — settings hydrating
-              under the launch mark — does not restart the mark.
-            */}
-            <View
-              key={themeKey}
-              className="flex-1"
-              onLayout={(event) => reportRootHeight(event.nativeEvent.layout.height)}
-            >
-              <ErrorBoundary>
-                <Root />
-              </ErrorBoundary>
-            </View>
-            {launching ? <LaunchScreen onDone={() => setLaunching(false)} /> : null}
-          </>
-        )}
-      </Themed>
+      {/*
+        Inside the provider, outside the shell: a crash in any screen lands on a
+        readable error with a way out, instead of taking the process down. The
+        session is persisted, so without this a crash on the logging screen
+        repeats on every launch — see `ErrorBoundary`.
+      */}
+      <View
+        className="flex-1 bg-bg"
+        onLayout={(event) => reportRootHeight(event.nativeEvent.layout.height)}
+      >
+        <ErrorBoundary>
+          <Root />
+        </ErrorBoundary>
+      </View>
     </SafeAreaProvider>
   );
 }
 
 /**
- * The theme, poured into the two places colour is read from: the token getters
- * (`applyTheme`) and NativeWind's CSS variables (`vars`), so `text-green-bright`
- * and `palette.greenBright` can never disagree about what the accent is.
+ * The launch gate: the page colour until the stores have loaded, then the app.
  *
- * `applyTheme` runs during render, inside the memo, on purpose: it has to have
- * happened before any child reads a token, and an effect would run after.
- */
-function Themed({ children }: { children: (themeKey: string) => ReactNode }) {
-  const themeId = useSettings((s) => s.themeId);
-  const customColors = useSettings((s) => s.customColors);
-  const { themeKey, cssVars } = useMemo(() => {
-    const colors = themeColors(themeId, customColors);
-    const theme = applyTheme(colors);
-    return {
-      themeKey: `${themeId}:${colors.join(',')}`,
-      cssVars: vars({
-        '--green-wash': rgbChannels(theme.wash),
-        '--green-dim': rgbChannels(theme.dim),
-        '--green': rgbChannels(theme.c2),
-        '--green-bright': rgbChannels(theme.acc),
-        '--acc': rgbChannels(theme.acc),
-        '--on-acc': rgbChannels(theme.onAcc),
-        '--c1': rgbChannels(theme.c1),
-        '--c2': rgbChannels(theme.c2),
-        '--c3': rgbChannels(theme.c3),
-      }),
-    };
-  }, [themeId, customColors]);
-  return (
-    <View className="flex-1 bg-bg" style={cssVars}>
-      {children(themeKey)}
-    </View>
-  );
-}
-
-/**
- * The language question, then the app.
+ * Its own component rather than a branch in `App`, because it has to re-render
+ * when the stores report in — and `App` is where the launch effects live, which
+ * must run once and not again.
  *
- * Its own component rather than a branch in `App`, because the branch has to
- * re-render when the store hydrates and when the language is answered — and
- * `App` is where the launch effects live, which must run once and not again.
- *
- * NOTHING until the store has been read: the picker's whole correctness rests on
- * `languageChosen`, and that flag reads false for a frame or two on every launch
- * while `persist` is still reading from disk (`useSettingsHydrated`). A bare
- * background for those two frames is the app's own colour, so it reads as the
- * splash rather than as a blank screen.
- *
- * ── IT IS A LAUNCH SCREEN, SO IT ONLY EVER APPEARS AT LAUNCH ──────────────
- *
- * The question is asked because of what was on disk when the app opened, and
- * that answer is latched the moment hydration finishes. Reading the flag live
- * instead would let it go false again mid-session — importing a backup written
- * before the picker existed does exactly that — and a launch screen arriving on
- * top of somebody who is three taps into Settings is worse than asking them
- * again next time they open the app, which is what latching gets us.
+ *  - SETTINGS hydrate asynchronously (`useSettingsHydrated`), and for a frame or
+ *    two the store holds its defaults — a shell drawn then would flash English at
+ *    a Russian user, or the wrong rest.
+ *  - HISTORY is read before the first frame, so it is normally ready already. It
+ *    is not ready only when that early read threw; the re-read in `App`'s effect
+ *    settles it either way (`reloadHistory` marks it ready even on a second
+ *    failure, and History then says the log could not be read rather than
+ *    showing an empty one), so the gate cannot hang on it.
  */
 function Root() {
-  const hydrated = useSettingsHydrated();
-  /** Null until hydration; then fixed for the life of this launch. */
-  const [asking, setAsking] = useState<boolean | null>(null);
+  const settingsReady = useSettingsHydrated();
+  const historyReady = useWorkoutHistory((s) => s.ready);
 
-  useEffect(() => {
-    if (hydrated) setAsking((current) => current ?? !useSettings.getState().languageChosen);
-  }, [hydrated]);
-
-  const chosen = useSettings((s) => s.languageChosen);
-
-  if (!hydrated || asking === null) return <View className="flex-1 bg-bg" />;
-  // `chosen` is still read live, for the one transition that has to be instant:
-  // the tap on the picker itself.
-  if (asking && !chosen) return <LanguageChoiceScreen />;
+  if (!settingsReady || !historyReady) return <View className="flex-1 bg-bg" />;
   return (
     <>
       <SessionClock />
       <AppShell />
-      {/* Above the shell, so it outlives whichever route is on top. */}
-      <DebriefHost />
     </>
   );
-}
-
-/**
- * The reminder sync, mounted with `App` for the same reason the backup is: a
- * reminder the user set has to be armed on the launches where they never open
- * its settings, which is most of them. `hooks/useReminders.ts` has the rest.
- *
- * A sibling rendering nothing rather than a hook in `App`, because it subscribes
- * to the settings — and in `App` every change would re-render the whole tree,
- * shell and all, to arm a debounced timer.
- */
-function Reminders() {
-  useReminders();
-  return null;
 }
 
 /**

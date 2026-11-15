@@ -19,6 +19,13 @@
  *
  * A non-digit keeps its position key AND its character in the key, so `1:05 →
  * 10:05` does not animate the colon as though it were a digit that changed.
+ *
+ * ── NO LONGER DRAWN ───────────────────────────────────────────────────────
+ *
+ * Since the calm pass `RollingNumber` swaps its text instead of rolling, so
+ * nothing on screen uses these columns. The functions and their tests stay as
+ * the record of the half-digit bugs (and `lib/focusFastTaps.test.ts` still
+ * exercises them); delete them together if the roll is never coming back.
  */
 
 export type DigitCell =

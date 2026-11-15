@@ -2,52 +2,26 @@
  * SectionTopBar — the strip at the top of a section root.
  *
  *   ┌──────────────────────────────────────────────┐
- *   │ WORKOUT                        (✦)  📖   ⟲   │
- *   │ DAILY TASKS                        (✦)   ⟲   │
+ *   │ WORKOUT                       ( ✦ AI coach ) │
  *   │ SETTINGS                            РУ  EN   │
  *   └──────────────────────────────────────────────┘
  *
- * ── WHY THE HISTORY GLYPH IS UP HERE ───────────────────────────────────────
+ * ── THE CORNER USED TO BE A ROW OF DESTINATIONS ───────────────────────────
  *
- * Every section used to keep its own past at the BOTTOM of the screen it was
- * looking at: the tasks' month grid and trend under the day's rows, the money's
- * charts under the category tiles. So "how has this been going" was a scroll
- * through everything you already know before you reach the part you came for,
- * and it got longer every time the top of the screen grew. One tap in a corner
- * that never moves is the same distance from every section, and the past gets a
- * screen of its own rather than a tail.
+ * Until 4.0 the Workout corner held three captioned 46 dp circles — the AI
+ * coach, `Routines & exercises` and the ⟲ history — because those were the
+ * places in the section that were not its content. The routines and the
+ * history are roots on the bar now (`lib/sectionNav.ts`), where a newcomer
+ * looks for places, so the ⟲ prop and the library glyph are gone and the corner
+ * holds what is left: the assistant.
  *
- * ── AND WHY IT IS NOW A ROW OF THEM ────────────────────────────────────────
+ * ── THE ASSISTANT IS A LABELLED PILL ──────────────────────────────────────
  *
- * The workout section's other two destinations — the routines and the exercise
- * library — lived at the FOOT of its scroll, under the routines they are about.
- * That was the right call when the alternative was a tab of their own, and it is
- * the wrong one against this corner: they are the same kind of thing as the ⟲.
- * All three are "somewhere else in this section", none of them is content, and
- * two of the three were a scroll away while the third was a tap.
- *
- * (They were two glyphs, ≡ and 📖, until U23 merged them into one
- * `Routines & exercises` door — two unlabelled marks that look alike are worse
- * than one; `lib/discoverability.ts`.)
- *
- * So the corner takes a LIST of actions, laid out left to right in the order
- * they are declared, then the ⟲ — all at the same 46 dp (v3; they were 36). Same size is not a detail — it is
- * what makes them read as one row of destinations rather than one button and two
- * things beside it. The ⟲ stays rightmost, under the thumb, because it is the
- * one every section has.
- *
- * ── EVERY CIRCLE SAYS WHERE IT GOES (2.9, redesign #9) ─────────────────────
- *
- * Each 46 dp circle carries a 12.5 px muted caption under it — `AI coach`,
- * `Routines`, `History`. The corner was icons-only on the argument that a row of
- * same-size glyphs reads as a row of destinations; it does, but it does not say
- * WHICH, and an icon nobody can name is an icon nobody taps. The caption is the
- * action's `caption` (and the ⟲'s `historyCaption`, `History` unless a section
- * says otherwise); the spoken `label` stays the longer, fuller name. The row grew
- * from 60 to 66 to hold the line, still inside the 76 the scrolls already clear
- * (`barInset.top`). Rejected: captions only on first use (a label that goes away
- * is a label you never learned) and putting the words BESIDE the glyphs (three of
- * them would not fit a 360 dp corner beside the section's name).
+ * With the corner to itself there is room to say what it is in words BESIDE
+ * the orb — `✦ AI coach` in one pill, one target — instead of a 12.5 px caption
+ * under a circle. An orb nobody can name is an orb nobody taps; a pill that
+ * reads `AI coach` is a button. Plain (non-AI) actions keep the 46 dp circle
+ * with a caption under it, for a caller that ever needs one.
  *
  * ── THE CORNER HOLDS DESTINATIONS ONLY ─────────────────────────────────────
  *
@@ -75,10 +49,9 @@
  *
  * ── THE ONE BUTTON THAT IS NOT GHOST GLASS ────────────────────────────────
  *
- * The assistant's action is drawn as `AiOrb` — its own spinning conic ring and
- * breathing sparkle, in fixed colours that no theme uses — instead of a ghost
- * circle. It is the one destination in the corner that is a conversation rather
- * than a place, and on eight themes it has to be findable on every one. An
+ * The assistant's pill carries the `AiOrb` — its own conic ring and sparkle,
+ * in fixed colours that no theme uses — instead of a theme glyph. It is the one destination in the corner that is a conversation rather
+ * than a place, so it has to stand apart from the app's own colours. An
  * action is the assistant's when it says `ai: true`, or, for the callers written
  * before that flag, when its glyph is the `sparkle` — nothing else uses it.
  *
@@ -146,35 +119,14 @@ interface SectionTopBarProps {
   title: string;
   /** Second line, for a count or a total the section wants in the corner. */
   subtitle?: string;
-  /**
-   * The ⟲ on the right. Absent on a section that has no past to show.
-   *
-   * Kept as its own prop rather than folded into `actions` because every section
-   * has one and it is always last: a section that had to remember to put it at
-   * the end of an array is a section that can put it in the middle.
-   */
-  onOpenHistory?: () => void;
-  /** What the glyph opens, spoken. "Training history", "Task history". */
-  historyLabel?: string;
-  /** The ⟲'s caption. `History` unless a section has a better word. */
-  historyCaption?: string;
-  /** Everything to the LEFT of the ⟲, in declared order. */
+  /** The corner's actions, left to right. */
   actions?: readonly TopBarAction[];
   /** Anything the corner cannot be — Settings' two letters. */
   trailing?: ReactNode;
 }
 
-export function SectionTopBar({
-  title,
-  subtitle,
-  onOpenHistory,
-  historyLabel = 'History',
-  historyCaption,
-  actions = [],
-  trailing,
-}: SectionTopBarProps) {
+export function SectionTopBar({ title, subtitle, actions = [], trailing }: SectionTopBarProps) {
   const insets = useSafeAreaInsets();
-  const t = useT();
 
   return (
     <View
@@ -214,28 +166,15 @@ export function SectionTopBar({
 
             {trailing}
 
-            {actions.map((action) => (
-              <Captioned key={action.key} caption={action.caption}>
-                {(action.ai ?? action.icon === 'sparkle') ? (
-                  <AiButton action={action} />
-                ) : (
+            {actions.map((action) =>
+              (action.ai ?? action.icon === 'sparkle') ? (
+                <AiButton key={action.key} action={action} />
+              ) : (
+                <Captioned key={action.key} caption={action.caption}>
                   <TopBarButton action={action} />
-                )}
-              </Captioned>
-            ))}
-
-            {onOpenHistory ? (
-              <Captioned caption={historyCaption ?? t('History')}>
-                <TopBarButton
-                  action={{
-                    key: 'history',
-                    icon: 'history',
-                    label: historyLabel,
-                    onPress: onOpenHistory,
-                  }}
-                />
-              </Captioned>
-            ) : null}
+                </Captioned>
+              ),
+            )}
           </View>
         </View>
       </GlassBar>
@@ -320,13 +259,13 @@ function TopBarButton({ action }: { action: TopBarAction }) {
 }
 
 /**
- * The assistant's button: the same 46 dp and the same press, drawn as the
- * `AiOrb` with its sheen and stars. `lit` is not shown — the orb is always
- * alive, whether a key is connected or not, because the card under the hero is
- * where "not connected yet" is said in words.
+ * The assistant's button: the `AiOrb` and its caption side by side in one
+ * 46 dp ghost pill, so the corner says `AI coach` in words at body size. `lit`
+ * is not shown — the orb is always alive, whether a key is connected or not,
+ * because the card under the hero is where "not connected yet" is said.
  */
 function AiButton({ action }: { action: TopBarAction }) {
-  const press = usePressScale(0.94);
+  const press = usePressScale(0.96);
   return (
     <BubblePressable
       onPress={action.onPress}
@@ -337,11 +276,38 @@ function AiButton({ action }: { action: TopBarAction }) {
       bubbleColor={ai.glyph}
       accessibilityRole="button"
       accessibilityLabel={action.label}
-      // Not clipped: the stars sit a few dp outside the circle.
-      style={{ height: BUTTON, width: BUTTON }}
+      style={{ height: BUTTON, borderRadius: radius.pill }}
     >
-      <Animated.View style={press.style}>
-        <AiOrb size={BUTTON} glyph={22} stars />
+      <Animated.View
+        style={[
+          {
+            height: BUTTON,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingLeft: 5,
+            paddingRight: action.caption ? 16 : 5,
+            borderRadius: radius.pill,
+            borderWidth: 1,
+            borderColor: 'rgba(236,241,238,0.07)',
+            backgroundColor: 'rgba(236,241,238,0.055)',
+          },
+          press.style,
+        ]}
+      >
+        <AiOrb size={36} glyph={18} />
+        {action.caption ? (
+          <Text
+            numberOfLines={1}
+            maxFontSizeMultiplier={1.2}
+            importantForAccessibility="no"
+            accessibilityElementsHidden
+            style={{ fontSize: 15, lineHeight: 20, fontWeight: '600' }}
+            className="text-ink"
+          >
+            {action.caption}
+          </Text>
+        ) : null}
       </Animated.View>
     </BubblePressable>
   );

@@ -99,7 +99,6 @@ describe('the settings suggestions', () => {
       'rest_between_sets',
       'rest_between_exercises',
       'auto_rest',
-      'weekly_goal',
     ]) {
       expect(workout).toContain(`"${field}"`);
     }
@@ -114,10 +113,10 @@ describe('the settings suggestions', () => {
 });
 
 describe('the routine suggestions', () => {
-  it('teach ranges, supersets and order, and leave a ladder’s reps to the ladder', () => {
+  it('teach ranges and order, and leave a ladder’s reps to the ladder', () => {
     const prompt = systemPrompt('en');
     expect(prompt).toContain('"repsMin":8,"reps":10');
-    expect(prompt).toContain('"superset":true');
+    expect(prompt).not.toContain('superset');
     expect(prompt).toContain('list the whole routine in the new order');
     expect(prompt).not.toContain('Do not change an exercise that runs a rep ladder');
     expect(prompt).toContain('keeps the reps CONTEXT shows');

@@ -10,7 +10,7 @@
  *
  * A routine proposal is a list of rows — sets, reps, weight — and that is all it
  * can say. Everything else the user tunes lived out of the assistant's reach: an
- * exercise's rest, its ladder max, its cue; the app's own rest and weekly goal.
+ * exercise's rest, its ladder max, its cue; the app's own rest.
  * Asked "my pull-up max is 14 now", the
  * model could only reply in prose and leave the user to find the field. Now it
  * writes one card listing each change as `from → to`, and Apply writes them all,
@@ -39,14 +39,41 @@
 
 import { BODYWEIGHT_LIMITS } from '../bodyweightLog';
 import { dayKey } from '../days';
-import { clampMax, ladderOf, supportsLadder } from '../repLadder';
+import { parseClockTime, weekdayLabels, type Weekday } from '../days';
+import { applyDraftToExercise, exerciseToDraft, findMaxNextWorkout } from '../exerciseDraft';
+import { CLUSTERS } from '../muscles';
+import { clampMax, isAwaitingMax, ladderOf, supportsLadder } from '../repLadder';
 import { TARGET_SETS_LIMITS } from '../routinePlan';
 import { REST_LIMITS, clampRest, ownRestSeconds } from '../rest';
 import { formatClock } from '../units';
-import { WEEKLY_GOAL_LIMITS, usableWeeklyGoal } from '../weeklyGoal';
 import { t, type Language } from '../i18n';
-import { kindName, setKindOf, type SetKind, type SetType } from '../setType';
-import type { Exercise, ID } from '../../types/models';
+import {
+  describeEdit,
+  draftWithKind,
+  editIdentity,
+  isPastSetEdit,
+  kindLabel,
+  kindOf,
+  newExercise,
+  parseKind,
+  parseMuscles,
+  validateEdit,
+  validateExerciseCreate,
+  validateRoutineCreate,
+  type EditChange,
+  type EditEnv,
+  type EditRoutine,
+  type EditSession,
+  type EditWorkout,
+  type ExerciseKind,
+} from './aiEdits';
+import type {
+  Exercise,
+  ID,
+  MuscleCluster,
+  MuscleGroup,
+  TrainingSequence,
+} from '../../types/models';
 
 /* ------------------------------------------------------------------ */
 /* The changes                                                         */
@@ -60,10 +87,31 @@ export type ExerciseField =
   | 'ladder'
   | 'increment_kg'
   | 'cue'
-  | 'prepare_seconds';
+  | 'prepare_seconds'
+  | 'name'
+  | 'muscles'
+  | 'kind'
+  | 'start_weight'
+  | 'find_max';
 
 export type SettingField =
-  'rest_between_sets' | 'rest_between_exercises' | 'auto_rest' | 'weekly_goal';
+  | 'rest_between_sets'
+  | 'rest_between_exercises'
+  | 'auto_rest'
+  | 'timer_step'
+  | 'get_ready'
+  | 'beep_seconds'
+  | 'sound'
+  | 'vibration'
+  | 'keep_awake'
+  | 'timer_notifications'
+  | 'ladder_all'
+  | 'units'
+  | 'language'
+  | 'weekly_target'
+  | 'weigh_in_reminder'
+  | 'weigh_in_days'
+  | 'weigh_in_time';
 
 /**
  * One change, already checked. `value` is the new value in the field's own
@@ -71,8 +119,23 @@ export type SettingField =
  * cleared (an exercise's rest back to the setting, a ladder off).
  */
 export type AiChange =
-  | { target: 'exercise'; id: ID; field: ExerciseField; value: number | boolean | string | null }
-  | { target: 'setting'; field: SettingField; value: number | boolean }
+  | {
+      target: 'exercise';
+      id: ID;
+      field: ExerciseField;
+      value: number | boolean | string | MuscleGroup[] | null;
+    }
+  | {
+      target: 'setting';
+      field: SettingField;
+      /**
+       * `null` clears a weekly target. `weigh_in_days` is the whole set of days,
+       * Monday = 0; `weigh_in_time` is `HH:MM`.
+       */
+      value: number | boolean | string | Weekday[] | null;
+      /** `weekly_target` only: which cluster. */
+      cluster?: MuscleCluster;
+    }
   /** Today's weigh-in, kg. */
   | { target: 'bodyweight'; field: 'log'; value: number }
   /** A saved set's kind — `that first set was a warm-up`. */
@@ -89,23 +152,35 @@ export type AiChange =
       /** For the card: the workout's day and the set's place, `Bench · 27 Oct · set 1`. */
       day: string;
       position: number;
-    };
+    }
+  /** Create, remove, edit — `aiEdits.ts`. */
+  | EditChange;
+
+/**
+ * A saved set is a warm-up or a working set — the one mark a set carries. Drop,
+ * failure and AMRAP types were here until 4.0.
+ */
+export type SetKind = 'working' | 'warmup';
+
+function kindName(kind: SetKind, lang: Language): string {
+  return kind === 'warmup' ? t('Warm-up', lang) : t('Working set', lang);
+}
 
 /** What the validator needs to know about the stores. */
 export interface ChangeContext {
   exercises: readonly Exercise[];
-  /** Saved workouts, for a set correction. */
-  workouts?: readonly {
-    id: ID;
-    startedAt: string;
-    sets: readonly {
-      id: ID;
-      exerciseId: ID;
-      setIndex: number;
-      isWarmup: boolean;
-      setType?: SetType;
-    }[];
-  }[];
+  /** Saved workouts, for a set correction or a workout edit. */
+  workouts?: readonly EditWorkout[];
+  routines?: readonly EditRoutine[];
+  sequence?: TrainingSequence;
+  /** The workout in flight, if one is open. */
+  session?: EditSession | null;
+  /** `YYYY-MM-DD` — a workout is not moved into the future. */
+  today?: string;
+  /** `Make every exercise a rep ladder`, which a new exercise is created under. */
+  ladderAll?: boolean;
+  /** The between-sets setting, which a new exercise follows. */
+  restSeconds?: number;
 }
 
 /** An exercise cue is one line — the editor's own cap. */
@@ -179,6 +254,24 @@ const EXERCISE_ALIASES: Record<string, ExerciseField> = {
   form_cue: 'cue',
   prepare_seconds: 'prepare_seconds',
   countdown: 'prepare_seconds',
+  name: 'name',
+  rename: 'name',
+  muscles: 'muscles',
+  muscle: 'muscles',
+  muscle_groups: 'muscles',
+  kind: 'kind',
+  type: 'kind',
+  start_weight: 'start_weight',
+  default_weight: 'start_weight',
+  weight: 'start_weight',
+  weight_kg: 'start_weight',
+  find_max: 'find_max',
+  find_my_max: 'find_max',
+  test_max: 'find_max',
+  max_test: 'find_max',
+  retest: 'find_max',
+  retest_max: 'find_max',
+  awaiting_max: 'find_max',
 };
 
 const SETTING_ALIASES: Record<string, SettingField> = {
@@ -188,9 +281,95 @@ const SETTING_ALIASES: Record<string, SettingField> = {
   rest_seconds_between_exercises: 'rest_between_exercises',
   auto_rest: 'auto_rest',
   auto_start_rest: 'auto_rest',
-  weekly_goal: 'weekly_goal',
-  weekly_workout_goal: 'weekly_goal',
+  timer_step: 'timer_step',
+  adjust_step_seconds: 'timer_step',
+  get_ready: 'get_ready',
+  prepare_seconds: 'get_ready',
+  beep_seconds: 'beep_seconds',
+  countdown_beeps: 'beep_seconds',
+  sound: 'sound',
+  sounds: 'sound',
+  vibration: 'vibration',
+  haptics: 'vibration',
+  keep_awake: 'keep_awake',
+  keep_screen_on: 'keep_awake',
+  timer_notifications: 'timer_notifications',
+  notify_on_timer_end: 'timer_notifications',
+  notifications: 'timer_notifications',
+  ladder_all: 'ladder_all',
+  ladder_all_exercises: 'ladder_all',
+  units: 'units',
+  unit_system: 'units',
+  language: 'language',
+  weekly_target: 'weekly_target',
+  weekly_sets: 'weekly_target',
+  weigh_in_reminder: 'weigh_in_reminder',
+  weighin_reminder: 'weigh_in_reminder',
+  weigh_in: 'weigh_in_reminder',
+  weigh_in_reminder_enabled: 'weigh_in_reminder',
+  weigh_in_days: 'weigh_in_days',
+  weigh_in_reminder_days: 'weigh_in_days',
+  weighin_days: 'weigh_in_days',
+  weigh_in_time: 'weigh_in_time',
+  weigh_in_reminder_time: 'weigh_in_time',
+  weighin_time: 'weigh_in_time',
 };
+
+/** The numeric settings past the two rests, with the ranges their steppers keep. */
+const SETTING_NUMBERS: Partial<Record<SettingField, { min: number; max: number; step: number }>> = {
+  timer_step: { min: 5, max: 60, step: 5 },
+  get_ready: { min: 0, max: 60, step: 1 },
+  beep_seconds: { min: 0, max: 30, step: 1 },
+};
+const SETTING_FLAGS: SettingField[] = [
+  'auto_rest',
+  'sound',
+  'vibration',
+  'keep_awake',
+  'timer_notifications',
+  'ladder_all',
+  'weigh_in_reminder',
+];
+
+/** A weekday as a model writes it — English or Russian, full or short — Monday = 0. */
+const WEEKDAY_WORDS: Record<string, Weekday> = Object.fromEntries(
+  [
+    ['mon', 'monday', 'пн', 'понедельник'],
+    ['tue', 'tues', 'tuesday', 'вт', 'вторник'],
+    ['wed', 'wednesday', 'ср', 'среда'],
+    ['thu', 'thur', 'thurs', 'thursday', 'чт', 'четверг'],
+    ['fri', 'friday', 'пт', 'пятница'],
+    ['sat', 'saturday', 'сб', 'суббота'],
+    ['sun', 'sunday', 'вс', 'воскресенье'],
+  ].flatMap((words, day) => words.map((word) => [word, day as Weekday])),
+);
+
+/**
+ * The days a weigh-in item names — `"Wed, Sun"`, `["mon","thu"]` — sorted, each
+ * once. NAMES only: a bare number is Monday-is-1 to a person and Monday-is-0 to
+ * this app, and a reminder on the wrong morning is worse than none. Null when
+ * any word is not a day, or none is: an empty set would switch the reminder off
+ * (the store's rule), which is `weigh_in_reminder` off, said plainly.
+ */
+export function parseWeekdays(value: unknown): Weekday[] | null {
+  const words = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(/[\s,;/+&]+/)
+      : [];
+  const days = new Set<Weekday>();
+  for (const raw of words) {
+    if (typeof raw !== 'string') return null;
+    const word = raw.trim().toLowerCase().replace(/\.$/, '');
+    if (word === '' || word === 'and' || word === 'и') continue;
+    const day = WEEKDAY_WORDS[word];
+    if (day == null) return null;
+    days.add(day);
+  }
+  return days.size > 0 ? [...days].sort((a, b) => a - b) : null;
+}
+/** A weekly set target someone could plan — Settings' own stepper range. */
+const WEEKLY_TARGET_LIMITS = { min: 1, max: 60 } as const;
 
 /** The kind names a model writes for a set — the app's own first. */
 const KIND_ALIASES: Record<string, SetKind> = {
@@ -199,11 +378,6 @@ const KIND_ALIASES: Record<string, SetKind> = {
   working: 'working',
   work: 'working',
   normal: 'working',
-  drop: 'drop',
-  drop_set: 'drop',
-  failure: 'failure',
-  to_failure: 'failure',
-  amrap: 'amrap',
 };
 
 function validateExerciseItem(item: Rec, exercise: Exercise): AiChange | null {
@@ -271,6 +445,29 @@ function validateExerciseItem(item: Rec, exercise: Exercise): AiChange | null {
         field,
         value: clamp(Math.round(n), PREPARE_LIMITS.min, PREPARE_LIMITS.max),
       };
+    case 'name': {
+      const name = str(item.text ?? item.name, 40);
+      return name && name !== exercise.name ? { target: 'exercise', id, field, value: name } : null;
+    }
+    case 'muscles': {
+      const muscles = parseMuscles(item.text ?? item.muscle ?? item.muscles);
+      return muscles.length > 0 ? { target: 'exercise', id, field, value: muscles } : null;
+    }
+    case 'kind': {
+      const kind = parseKind(item.text ?? item.kind);
+      return kind && kind !== kindOf(exercise)
+        ? { target: 'exercise', id, field, value: kind }
+        : null;
+    }
+    case 'start_weight':
+      if (!exercise.requiresWeight || n == null || n < 0) return null;
+      return { target: 'exercise', id, field, value: Math.round(Math.min(500, n) * 4) / 4 };
+    case 'find_max':
+      /* `Find my max in the next workout`: the ladder on, waiting for its test —
+         or a retest of the max it has. Not while it is already waiting: the
+         editor hides the button then, because there is nothing left to ask. */
+      if (!supportsLadder(exercise.countUnit) || isAwaitingMax(ladderOf(exercise))) return null;
+      return { target: 'exercise', id, field, value: true };
   }
 }
 
@@ -278,15 +475,53 @@ function validateSettingItem(item: Rec): AiChange | null {
   const field = SETTING_ALIASES[fieldKey(item.field)];
   if (!field) return null;
   const n = num(item.number);
-  if (field === 'auto_rest') {
+  if (SETTING_FLAGS.includes(field)) {
     const on = flag(item);
     return on == null ? null : { target: 'setting', field, value: on };
   }
-  if (n == null) return null;
-  if (field === 'weekly_goal') {
-    const goal = usableWeeklyGoal(n);
-    return goal == null ? null : { target: 'setting', field, value: goal };
+  if (field === 'weigh_in_days') {
+    const days = parseWeekdays(item.text ?? item.days);
+    return days ? { target: 'setting', field, value: days } : null;
   }
+  if (field === 'weigh_in_time') {
+    const at = parseClockTime(item.text);
+    if (!at) return null;
+    const value = `${String(at.hour).padStart(2, '0')}:${String(at.minute).padStart(2, '0')}`;
+    return { target: 'setting', field, value };
+  }
+  if (field === 'units') {
+    const word = fieldKey(item.text);
+    const value = ['metric', 'kg', 'kilograms'].includes(word)
+      ? 'metric'
+      : ['imperial', 'lb', 'lbs', 'pounds'].includes(word)
+        ? 'imperial'
+        : null;
+    return value ? { target: 'setting', field, value } : null;
+  }
+  if (field === 'language') {
+    const word = fieldKey(item.text);
+    const value = ['en', 'english'].includes(word)
+      ? 'en'
+      : ['ru', 'russian'].includes(word) || item.text === 'русский'
+        ? 'ru'
+        : null;
+    return value ? { target: 'setting', field, value } : null;
+  }
+  if (field === 'weekly_target') {
+    const cluster = CLUSTERS.find((c) => c === fieldKey(item.text ?? item.cluster));
+    if (!cluster) return null;
+    if (item.on === false || n === 0) return { target: 'setting', field, cluster, value: null };
+    if (n == null) return null;
+    const value = clamp(Math.round(n), WEEKLY_TARGET_LIMITS.min, WEEKLY_TARGET_LIMITS.max);
+    return { target: 'setting', field, cluster, value };
+  }
+  const range = SETTING_NUMBERS[field];
+  if (range) {
+    if (n == null) return null;
+    const snapped = Math.round(n / range.step) * range.step;
+    return { target: 'setting', field, value: clamp(snapped, range.min, range.max) };
+  }
+  if (n == null) return null;
   // On the setting's own 15-second grid, as its ± chips move it.
   const snapped = Math.round(n / REST_LIMITS.step) * REST_LIMITS.step;
   return { target: 'setting', field, value: clampRest(snapped) };
@@ -305,6 +540,8 @@ function validateBodyweightItem(item: Rec): AiChange | null {
  * out of reach (it is not on the page to point at).
  */
 function validateWorkoutSetItem(item: Rec, ctx: ChangeContext): AiChange | null {
+  // `set` is the place, as every set edit names it; a kind item wrote it as `number`.
+  if (item.set != null && item.number == null) item = { ...item, number: item.set };
   const kind = KIND_ALIASES[fieldKey(item.text)];
   if (!kind) return null;
   const id = typeof item.id === 'string' ? item.id.trim() : '';
@@ -317,14 +554,15 @@ function validateWorkoutSetItem(item: Rec, ctx: ChangeContext): AiChange | null 
     .filter((s) => s.exerciseId === exerciseId && !s.isWarmup)
     .sort((a, b) => a.setIndex - b.setIndex);
   const set = working[position - 1];
-  if (!set || setKindOf(set) === kind) return null;
+  // Only working sets are reachable, so a set is only ever corrected TO a warm-up.
+  if (!set || kind === 'working') return null;
   return {
     target: 'workout_set',
     field: 'kind',
     id,
     exerciseId,
     setId: set.id,
-    from: setKindOf(set),
+    from: 'working',
     value: kind,
     // The phone's own day, as `aiContext` dates the log the model read: the UTC
     // prefix put a session started before dawn east of Greenwich on the day before.
@@ -334,40 +572,146 @@ function validateWorkoutSetItem(item: Rec, ctx: ChangeContext): AiChange | null 
 }
 
 /** Same thing changed twice in one card — the later one is what the model settled on. */
-function identity(change: AiChange): string {
-  if (change.target === 'setting') return `setting:${change.field}`;
+function identity(change: AiChange, seq: number): string {
+  if (change.target === 'setting') return `setting:${change.field}:${change.cluster ?? ''}`;
   if (change.target === 'bodyweight') return 'bodyweight';
-  if (change.target === 'workout_set') return `workout_set:${change.setId}`;
-  return `${change.target}:${change.id}:${change.field}`;
+  if (change.target === 'workout_set' && change.field === 'kind') {
+    return `workout_set:${change.setId}`;
+  }
+  if (change.target === 'exercise') return `exercise:${change.id}:${change.field}`;
+  return editIdentity(change as EditChange, seq);
+}
+
+/** The model's target names, folded onto the ones this app has. */
+const TARGET_ALIASES: Record<string, string> = {
+  exercise: 'exercise',
+  setting: 'setting',
+  settings: 'setting',
+  bodyweight: 'bodyweight',
+  weight: 'bodyweight',
+  workout_set: 'workout_set',
+  set: 'workout_set',
+  routine: 'routine',
+  routine_item: 'routine_item',
+  routine_exercise: 'routine_item',
+  sequence: 'sequence',
+  loop: 'sequence',
+  workout: 'workout',
+  session: 'workout',
+  live: 'live',
+  active_workout: 'live',
+  live_set: 'live_set',
+  active_set: 'live_set',
+};
+
+/** What survived, and how many items did not — the card says the second number. */
+export interface ChangesReport {
+  changes: AiChange[];
+  dropped: number;
 }
 
 /**
- * The changes worth offering out of what the model wrote. Unknown targets,
- * unknown ids and fields an exercise cannot take are all dropped — see the file header.
+ * The changes worth offering out of what the model wrote, and a count of the
+ * rest. Unknown targets, unknown ids and fields a thing cannot take are all
+ * dropped — see the file header.
+ *
+ * Two passes: things the card CREATES (an exercise, a routine) are read first,
+ * so an item anywhere in the card may point at their handle — "make Farmer
+ * carry and add it to Legs" is two items in either order.
  */
-export function validateChanges(items: readonly unknown[], ctx: ChangeContext): AiChange[] {
-  const byExercise = new Map(ctx.exercises.filter((e) => !e.isArchived).map((e) => [e.id, e]));
-  const out = new Map<string, AiChange>();
-  for (const raw of items) {
-    if (!isRec(raw)) continue;
-    const target = fieldKey(raw.target);
-    let change: AiChange | null = null;
+export function validateChangesReport(
+  items: readonly unknown[],
+  ctx: ChangeContext,
+): ChangesReport {
+  const exercises = new Map(ctx.exercises.filter((e) => !e.isArchived).map((e) => [e.id, e]));
+  const routines = new Map<ID, EditRoutine>((ctx.routines ?? []).map((r) => [r.id, r]));
+  const env: EditEnv = {
+    exercises,
+    routines,
+    workouts: ctx.workouts ?? [],
+    sequence: ctx.sequence,
+    session: ctx.session,
+    today: ctx.today,
+    added: new Set(),
+  };
+  const recs = items.map((raw) => (isRec(raw) ? raw : null));
+  const created = new Map<number, AiChange>();
+  recs.forEach((raw, index) => {
+    if (!raw || fieldKey(raw.field) !== 'create') return;
+    const target = TARGET_ALIASES[fieldKey(raw.target)];
     if (target === 'exercise') {
-      const exercise = byExercise.get(typeof raw.id === 'string' ? raw.id.trim() : '');
-      change = exercise ? validateExerciseItem(raw, exercise) : null;
-    } else if (target === 'setting' || target === 'settings') {
-      change = validateSettingItem(raw);
-    } else if (target === 'bodyweight' || target === 'weight') {
-      change = validateBodyweightItem(raw);
-    } else if (target === 'workout_set' || target === 'set') {
-      change = validateWorkoutSetItem(raw, ctx);
+      const change = validateExerciseCreate(raw, env);
+      if (!change) return;
+      created.set(index, change);
+      // A stand-in row, so later items are checked against what it WILL be.
+      exercises.set(
+        change.ref,
+        newExercise({
+          id: change.ref,
+          ownerId: '',
+          name: change.name,
+          muscle: change.muscle,
+          kind: change.kind,
+          restSeconds: ctx.restSeconds ?? 120,
+          ladderAll: ctx.ladderAll === true,
+        }),
+      );
+    } else if (target === 'routine') {
+      const change = validateRoutineCreate(raw, env);
+      if (!change) return;
+      created.set(index, change);
+      routines.set(change.id, { id: change.id, name: change.name, items: [] });
     }
-    if (!change) continue;
-    const key = identity(change);
-    out.delete(key);
-    out.set(key, change);
-  }
-  return [...out.values()];
+  });
+
+  const out = new Map<string, AiChange>();
+  let dropped = 0;
+  recs.forEach((raw, index) => {
+    if (!raw) {
+      dropped += 1;
+      return;
+    }
+    const target = TARGET_ALIASES[fieldKey(raw.target)] ?? '';
+    const field = fieldKey(raw.field);
+    let change: AiChange | null = created.get(index) ?? null;
+    if (change) {
+      // Already read in the first pass.
+    } else if (field === 'create') {
+      change = null;
+    } else if (target === 'exercise' && (field === 'delete' || field === 'remove')) {
+      change = validateEdit('exercise_delete', raw, env);
+    } else if (target === 'exercise') {
+      const exercise = exercises.get(typeof raw.id === 'string' ? raw.id.trim() : '');
+      change = exercise ? validateExerciseItem(raw, exercise) : null;
+    } else if (target === 'setting') {
+      change = validateSettingItem(raw);
+    } else if (target === 'bodyweight') {
+      change = validateBodyweightItem(raw);
+    } else if (target === 'workout_set' && !isPastSetEdit(raw.field)) {
+      // `kind`, or no field at all — how a set correction was written before 4.0.
+      change = validateWorkoutSetItem(raw, ctx);
+    } else if (target) {
+      change = validateEdit(target, raw, env);
+    }
+    if (!change) {
+      dropped += 1;
+      return;
+    }
+    const id = identity(change, index);
+    out.delete(id);
+    out.set(id, change);
+  });
+  return { changes: [...out.values()], dropped };
+}
+
+/** The line under a card (or in place of one) saying what was left out. */
+export function droppedNote(dropped: number, lang: Language): string {
+  return t('{n} suggested changes could not be applied and were left out.', lang, { n: dropped });
+}
+
+/** `validateChangesReport` without the count. */
+export function validateChanges(items: readonly unknown[], ctx: ChangeContext): AiChange[] {
+  return validateChangesReport(items, ctx).changes;
 }
 
 /* ------------------------------------------------------------------ */
@@ -381,7 +725,20 @@ export interface CurrentValues {
     restSecondsBetweenSets: number;
     restSecondsBetweenExercises: number;
     autoStartRest: boolean;
-    weeklyWorkoutGoal?: number;
+    adjustStepSeconds?: number;
+    prepareSeconds?: number;
+    beepSeconds?: number;
+    soundEnabled?: boolean;
+    hapticsEnabled?: boolean;
+    keepAwakeEnabled?: boolean;
+    notifyOnTimerEnd?: boolean;
+    ladderAllExercises?: boolean;
+    unitSystem?: 'metric' | 'imperial';
+    language?: Language;
+    weeklySetTargets?: Partial<Record<MuscleCluster, number>>;
+    weighInReminderEnabled?: boolean;
+    weighInReminderDays?: readonly Weekday[];
+    weighInReminderTime?: string;
   };
   /** Today's weight, for the weigh-in row's `from`. */
   bodyweightKg?: number;
@@ -396,10 +753,19 @@ export interface ChangeRow {
   /** Empty when there was nothing before (a first weigh-in). */
   from: string;
   to: string;
+  /** It takes something away — the card draws it in red. */
+  destructive?: boolean;
 }
 
 function onOff(value: boolean, lang: Language): string {
   return value ? t('On', lang) : t('Off', lang);
+}
+
+/** A ladder as the card's `from` says it: its max, waiting for a test, or off. */
+function ladderState(e: Exercise, lang: Language): string {
+  const ladder = ladderOf(e);
+  if (!ladder) return t('Off', lang);
+  return isAwaitingMax(ladder) ? t('MAX, then the ladder', lang) : String(ladder.max);
 }
 
 function exerciseRow(
@@ -442,15 +808,20 @@ function exerciseRow(
         from: onOff(e.countToMax === true, lang),
         to: onOff(change.value === true, lang),
       };
-    case 'ladder': {
-      const ladder = ladderOf(e);
+    case 'ladder':
       return {
         subject,
         label: tr('Rep ladder max'),
-        from: ladder ? String(ladder.max) : tr('Off'),
+        from: ladderState(e, lang),
         to: change.value == null ? tr('Off') : String(change.value),
       };
-    }
+    case 'find_max':
+      return {
+        subject,
+        label: tr('Rep ladder'),
+        from: ladderState(e, lang),
+        to: tr('Find my max in the next workout'),
+      };
     case 'increment_kg':
       return {
         subject,
@@ -472,6 +843,121 @@ function exerciseRow(
         from: e.prepareSeconds != null ? `${e.prepareSeconds} s` : '',
         to: `${String(change.value)} s`,
       };
+    case 'name':
+      return { subject, label: tr('Name'), from: e.name, to: String(change.value) };
+    case 'muscles':
+      return {
+        subject,
+        label: tr('Muscles'),
+        from: e.muscleGroups.join(', '),
+        to: (change.value as string[]).join(', '),
+      };
+    case 'kind':
+      return {
+        subject,
+        label: tr('Exercise type'),
+        from: kindLabel(kindOf(e), lang),
+        to: kindLabel(change.value as ExerciseKind, lang),
+      };
+    case 'start_weight':
+      return {
+        subject,
+        label: tr('Start weight'),
+        from: e.defaultWeightKg != null ? `${e.defaultWeightKg} ${tr('kg')}` : '',
+        to: `${String(change.value)} ${tr('kg')}`,
+      };
+  }
+}
+
+/** The labels and current values of the settings past the two rests. */
+function settingRow(
+  change: Extract<AiChange, { target: 'setting' }>,
+  s: CurrentValues['settings'],
+  lang: Language,
+): ChangeRow {
+  const tr = (k: string, vars?: Record<string, string | number>) => t(k, lang, vars);
+  const subject = tr('Settings');
+  const flagRow = (label: string, from: boolean | undefined) => ({
+    subject,
+    label: tr(label),
+    from: from == null ? '' : onOff(from, lang),
+    to: onOff(change.value === true, lang),
+  });
+  const secondsRow = (label: string, from: number | undefined) => ({
+    subject,
+    label: tr(label),
+    from: from == null ? '' : `${from} s`,
+    to: `${String(change.value)} s`,
+  });
+  const units = (u: unknown) =>
+    u === 'imperial' ? tr('Pounds') : u === 'metric' ? tr('Kilograms') : '';
+  const language = (l: unknown) => (l === 'ru' ? 'Русский' : l === 'en' ? 'English' : '');
+  switch (change.field) {
+    case 'auto_rest':
+      return flagRow('Start rest automatically', s.autoStartRest);
+    case 'sound':
+      return flagRow('Sound', s.soundEnabled);
+    case 'vibration':
+      return flagRow('Vibration', s.hapticsEnabled);
+    case 'keep_awake':
+      return flagRow('Keep the screen on', s.keepAwakeEnabled);
+    case 'timer_notifications':
+      return flagRow('Notify when a timer ends', s.notifyOnTimerEnd);
+    case 'ladder_all':
+      return flagRow('Make every exercise a rep ladder', s.ladderAllExercises);
+    case 'weigh_in_reminder':
+      return flagRow('Remind me to weigh in', s.weighInReminderEnabled);
+    case 'weigh_in_days': {
+      const labels = weekdayLabels(lang);
+      const days = (list: readonly Weekday[] | undefined) =>
+        (list ?? []).map((d) => labels[d]).join(', ');
+      return {
+        subject: tr('Weigh-in reminder'),
+        label: tr('On which days'),
+        from: days(s.weighInReminderDays),
+        to: days(change.value as Weekday[]),
+      };
+    }
+    case 'weigh_in_time':
+      return {
+        subject: tr('Weigh-in reminder'),
+        label: tr('At what time'),
+        from: s.weighInReminderTime ?? '',
+        to: String(change.value),
+      };
+    case 'timer_step':
+      return secondsRow('Timer ± step', s.adjustStepSeconds);
+    case 'get_ready':
+      return secondsRow('Get ready', s.prepareSeconds);
+    case 'beep_seconds':
+      return secondsRow('Beep the last', s.beepSeconds);
+    case 'units':
+      return { subject, label: tr('Units'), from: units(s.unitSystem), to: units(change.value) };
+    case 'language':
+      return {
+        subject,
+        label: tr('Language'),
+        from: language(s.language),
+        to: language(change.value),
+      };
+    case 'weekly_target': {
+      const from = change.cluster ? s.weeklySetTargets?.[change.cluster] : undefined;
+      return {
+        subject,
+        label: tr('Weekly sets · {cluster}', { cluster: change.cluster ?? '' }),
+        from: from == null ? tr('Off') : String(from),
+        to: change.value == null ? tr('Off') : String(change.value),
+      };
+    }
+    default: {
+      const between = change.field === 'rest_between_sets';
+      return {
+        subject,
+        label: between ? tr('Rest between sets') : tr('Rest between exercises'),
+        from: formatClock(between ? s.restSecondsBetweenSets : s.restSecondsBetweenExercises),
+        to: formatClock(change.value as number),
+      };
+    }
   }
 }
 
@@ -488,6 +974,22 @@ export function describeChanges(
   const exercises = new Map(now.exercises.map((e) => [e.id, e]));
   const tr = (key: string) => t(key, lang);
   const rows: ChangeRow[] = [];
+  // A field change on an exercise this same card creates reads it from its stand-in.
+  for (const change of changes) {
+    if (change.target !== 'exercise_create') continue;
+    exercises.set(
+      change.ref,
+      newExercise({
+        id: change.ref,
+        ownerId: '',
+        name: change.name,
+        muscle: change.muscle,
+        kind: change.kind,
+        restSeconds: now.settings.restSecondsBetweenSets,
+        ladderAll: now.settings.ladderAllExercises === true,
+      }),
+    );
+  }
   for (const change of changes) {
     if (change.target === 'exercise') {
       const exercise = exercises.get(change.id);
@@ -496,30 +998,7 @@ export function describeChanges(
       continue;
     }
     if (change.target === 'setting') {
-      const s = now.settings;
-      if (change.field === 'auto_rest') {
-        rows.push({
-          subject: tr('Settings'),
-          label: tr('Start rest automatically'),
-          from: onOff(s.autoStartRest, lang),
-          to: onOff(change.value === true, lang),
-        });
-      } else if (change.field === 'weekly_goal') {
-        rows.push({
-          subject: tr('Settings'),
-          label: tr('Weekly workout goal'),
-          from: String(s.weeklyWorkoutGoal ?? WEEKLY_GOAL_LIMITS.default),
-          to: String(change.value),
-        });
-      } else {
-        const between = change.field === 'rest_between_sets';
-        rows.push({
-          subject: tr('Settings'),
-          label: between ? tr('Rest between sets') : tr('Rest between exercises'),
-          from: formatClock(between ? s.restSecondsBetweenSets : s.restSecondsBetweenExercises),
-          to: formatClock(change.value as number),
-        });
-      }
+      rows.push(settingRow(change, now.settings, lang));
       continue;
     }
     const dayText = (day: string) => (now.formatDay ? now.formatDay(day) : day);
@@ -532,7 +1011,7 @@ export function describeChanges(
       });
       continue;
     }
-    if (change.target === 'workout_set') {
+    if (change.target === 'workout_set' && change.field === 'kind') {
       const name = exercises.get(change.exerciseId)?.name ?? '';
       rows.push({
         subject: `${name} · ${dayText(change.day)}`,
@@ -540,7 +1019,9 @@ export function describeChanges(
         from: kindName(change.from, lang),
         to: kindName(change.value, lang),
       });
+      continue;
     }
+    rows.push(describeEdit(change as EditChange, lang, dayText));
   }
   return rows;
 }
@@ -559,6 +1040,7 @@ export function describeChanges(
 export function applyExerciseChange(
   exercise: Exercise,
   change: Extract<AiChange, { target: 'exercise' }>,
+  now: Date = new Date(),
 ): Exercise {
   const next: Exercise = { ...exercise };
   switch (change.field) {
@@ -606,5 +1088,28 @@ export function applyExerciseChange(
     case 'prepare_seconds':
       next.prepareSeconds = change.value as number;
       return next;
+    case 'name':
+      next.name = change.value as string;
+      return next;
+    case 'muscles':
+      next.muscleGroups = [...(change.value as MuscleGroup[])];
+      return next;
+    case 'start_weight':
+      /* Stamped like a weight set in the editor or by a routine proposal, so the
+         next session starts here rather than at last session's carried weight. */
+      next.defaultWeightKg = change.value as number;
+      next.startWeightSetAt = now.toISOString();
+      return next;
+    case 'find_max':
+      /* The editor's own button on the editor's own draft, then its `Save` —
+         so a retest drops the earned reps and MAX goes off exactly as by hand. */
+      return applyDraftToExercise(findMaxNextWorkout(exerciseToDraft(exercise)), exercise);
+    case 'kind':
+      /* Through the editor's own draft, so a unit switch drops a ladder or a
+         weight the new kind cannot have exactly as `Save` would. */
+      return applyDraftToExercise(
+        draftWithKind(exerciseToDraft(exercise), change.value as ExerciseKind),
+        exercise,
+      );
   }
 }

@@ -21,7 +21,7 @@
  *     frozen — and a paused rest cannot expire in the user's pocket.
  *
  *  3. `completeSet` is the only action the finger needs in the happy path: it
- *     marks the set, starts the right rest period — or none, mid-superset — and
+ *     marks the set, starts the right rest period, and
  *     advances the cursor. `commitSetTimer` routes through it rather than
  *     reimplementing it, so a plank logged by the clock and a set logged by the ✓
  *     take the same path.
@@ -57,38 +57,25 @@ import {
   type SetTimerSpec,
 } from '../lib/setTimer';
 import { countsToMax } from '../lib/maxReps';
-import { MAX_PLAUSIBLE_REST_SECONDS } from '../lib/restHistory';
 import { clearExerciseRest, resolveRest } from '../lib/rest';
 import {
-  ladderAfterTopSet,
+  inFlightLadderTargets,
   ladderOf,
-  ladderTargets,
   normalizeLadder,
   reshapeLadderSets,
+  testedMax,
 } from '../lib/repLadder';
+import { toggleWarmupSets } from '../lib/warmup';
 import { moveToIndex } from '../lib/reorder';
 import { moveSetTo } from '../lib/setOrder';
 import { hasRoundLeft, isRoundExercise } from '../lib/rounds';
-import { nextInSupersetRound, nextSupersetRound } from '../lib/superset';
 import { carriesWeight, carryWeightForward, defaultWeightUpdate } from '../lib/weightCarry';
-import {
-  acceptWarmupOffer,
-  undoWarmupCarry,
-  warmupOfferFor,
-  type WarmupOffer,
-} from '../lib/warmupOffer';
-import { cleanRir, withRir } from '../lib/effort';
-import { cleanSetType, isLadderRung, withKind, type SetKind } from '../lib/setType';
 import { currentSettings } from './settingsStore';
-import { forgetDefaultWeight, rememberDefaultWeight } from './weightSync';
+import { rememberDefaultWeight } from './weightSync';
+import { rememberTestedMax } from './ladderSync';
 import type { Exercise, ID, SessionEffort } from '../types/models';
 
 export type RestSource = 'set' | 'transition' | 'manual';
-
-/** The offer, plus what the library's starting weight was before the ✓ moved it. */
-export interface PendingWarmupOffer extends WarmupOffer {
-  previousDefaultKg: number | null;
-}
 
 export interface RestState {
   /**
@@ -139,12 +126,6 @@ interface ActiveWorkoutState {
    * that records "the user said stop".
    */
   roundsAuto: ID | null;
-  /**
-   * "Was that a warm-up?" — set by a ✓ that looks like an unmarked warm-up
-   * (`lib/warmupOffer.ts`), cleared by the next ✓, an undo, or an answer. Not
-   * persisted: it is a question about the last ten seconds.
-   */
-  warmupOffer: PendingWarmupOffer | null;
 
   /* --- lifecycle --- */
   startSession: (params: BuildDraftParams) => void;
@@ -159,8 +140,7 @@ interface ActiveWorkoutState {
   /**
    * Append an exercise to the session in flight — the neck work you decided on
    * halfway through pull day. The ENTRY is built by the caller (`buildDraftEntry`),
-   * because prefills and the overload verdict need the history and the policy, and
-   * neither belongs in this store.
+   * because prefills need the history, and it does not belong in this store.
    */
   addEntry: (entry: DraftEntry) => void;
   /** Drop an exercise from the session. Nothing logged against it is kept. */
@@ -183,9 +163,7 @@ interface ActiveWorkoutState {
    * "I'm starting now." Anchors the session clock to this instant.
    *
    * Opening a routine builds a session with NO start time — the exercises can be
-   * read, and nothing is dated or timed until this is called. It is also the fix
-   * for a workout left open while the phone sat in a locker: pressing it again
-   * re-anchors the clock without touching a single logged set.
+   * read, and nothing is dated or timed until this is called.
    */
   startWorkout: () => void;
 
@@ -193,32 +171,7 @@ interface ActiveWorkoutState {
   completeSet: (entryId: ID, setId: ID) => void;
   uncompleteSet: (entryId: ID, setId: ID) => void;
   patchSet: (entryId: ID, setId: ID, patch: Partial<DraftSet>) => void;
-  /**
-   * Annotate a set — its effort (`rir`, `null` to clear) and its kind (warm-up,
-   * drop, failure, AMRAP) — WITHOUT touching its numbers.
-   *
-   * Not `patchSet`, because `patchSet` is an EDIT: it turns `isPrefilled` off, and
-   * that flag is what lets an accepted nudge and the ladder keep rewriting a row
-   * nobody has touched. Saying how hard a set was is not touching its weight, so
-   * a graded row stays exactly as overwritable as it was.
-   */
-  markSet: (entryId: ID, setId: ID, marks: SetMarks) => void;
-  /** Take the offer: the set becomes a warm-up and the planned weights come back. */
-  acceptWarmupOffer: () => void;
-  dismissWarmupOffer: () => void;
   addSet: (entryId: ID) => void;
-  /**
-   * Put generated warm-up rows at the TOP of an exercise.
-   *
-   * At the top because that is where they happen and because `workingSetLabels`
-   * numbers the working sets around them — a warm-up appended below set 3 would
-   * read `1 2 3 W`, which is a lie about the order of a session. Already-logged
-   * rows are never disturbed: nothing is inserted once the exercise has started,
-   * because warming up after your first working set is not a thing that happens.
-   *
-   * `lib/warmup.ts` decides the weights; this only files them.
-   */
-  addWarmupSets: (entryId: ID, sets: readonly { weightKg: number; count: number }[]) => void;
   /**
    * Remove one set. THE LAST SET OF AN EXERCISE TAKES THE EXERCISE WITH IT: an
    * entry with no rows is a header with nothing under it and no way back to a
@@ -237,9 +190,12 @@ interface ActiveWorkoutState {
   insertSet: (entryId: ID, set: DraftSet, index: number) => void;
   /** Drop the bottom row — the other half of `addSet`. Four sets back to three. */
   removeLastSet: (entryId: ID) => void;
-  /** Applies the overload suggestion to every not-yet-completed set. */
-  acceptOverload: (entryId: ID) => void;
-  dismissOverload: (entryId: ID) => void;
+  /**
+   * The first row's `Warm-up` toggle: insert one warm-up on top (half the first
+   * working set's weight, its reps), or take the unlogged one back off. Working
+   * sets are never touched — see `lib/warmup.ts`.
+   */
+  toggleWarmup: (entryId: ID) => void;
   /**
    * How the session felt — the one tap on the Finish sheet. See `SessionEffort`.
    *
@@ -326,7 +282,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
       rest: NO_REST,
       setTimer: null,
       roundsAuto: null,
-      warmupOffer: null,
 
       /* ---------------------------------------------------------- */
 
@@ -338,7 +293,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           rest: NO_REST,
           setTimer: null,
           roundsAuto: null,
-          warmupOffer: null,
         });
       },
 
@@ -349,7 +303,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           rest: NO_REST,
           setTimer: null,
           roundsAuto: null,
-          warmupOffer: null,
         }),
 
       finishSession: () => {
@@ -360,7 +313,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           rest: NO_REST,
           setTimer: null,
           roundsAuto: null,
-          warmupOffer: null,
         });
         return session;
       },
@@ -411,7 +363,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
               : activeEntryId,
           setTimer: setTimer?.entryId === entryId ? null : setTimer,
           rest: rest.originSetId && removedSetIds.has(rest.originSetId) ? NO_REST : rest,
-          warmupOffer: get().warmupOffer?.entryId === entryId ? null : get().warmupOffer,
           // A chain pointing at an exercise that is gone would start a round on the
           // next entry's rows the moment rest ran out. Same rule as the cursor.
           roundsAuto: get().roundsAuto === entryId ? null : get().roundsAuto,
@@ -499,26 +450,11 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
        *     the next thing to do is Finish. Starting a 2:30 countdown there was a
        *     pill sitting over the Finish button counting down to nothing.
        *  3. COMPLETING A SET NEVER CLEARS A REST IT DIDN'T START. With
-       *     `autoStartRest` off — some people superset, and a pill over the next
-       *     exercise's rows is in the way — a rest the user started by hand used
+       *     `autoStartRest` off — for people who would rather start rest by
+       *     hand — a rest the user started by hand used
        *     to be wiped by the next ✓. Now rest is only ever REPLACED, by a rest
        *     this set actually earned.
-       *
-       * ── AND THE THIRD BRANCH: A SUPERSET ROUND ─────────────────────────────
-       *
-       * This used to choose between two rests, set and transition. A superset adds
-       * a third answer, which is NO rest: if another member of the group still
-       * owes a set in this round, the next thing to do is that set, so the cursor
-       * moves there and no pill appears. Rest fires after the LAST member of the
-       * round, exactly as `RoutineItem.supersetGroup` has said since the model was
-       * written — the identifier existed in one file for two releases and this
-       * function never consulted it.
-       *
-       * "Whose turn is it" is `nextInSupersetRound`, in `lib/superset.ts`, because
-       * that is where the edge cases live: unequal set counts between members, a
-       * member removed mid-session, a member already finished, sets logged out of
-       * order. All of them testable without a store, none of them a session in a
-       * gym.
+
        */
       completeSet: (entryId, setId) => {
         const { session, rest } = get();
@@ -562,10 +498,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
          */
         const justLogged = logged.find((s) => s.localId === setId);
         const carried = carriesWeight(target.exercise) ? carryWeightForward(logged, setId) : logged;
-        // Asked against the rows BEFORE the carry, so the undo has the plan to restore.
-        const offer = carriesWeight(target.exercise)
-          ? warmupOfferFor(logged, entryId, setId)
-          : null;
         /*
          * A WARM-UP TEACHES THE LIBRARY NOTHING. It is a fraction of the working
          * weight by construction, so writing 40 kg onto an exercise because the
@@ -574,11 +506,9 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
          * it skips warm-up ROWS — but a warm-up ✓ still names a weight, and this is
          * where that weight would have escaped.)
          */
-        // ...nor does a drop set, which is lighter than the working weight on purpose.
-        const newDefault =
-          justLogged?.isWarmup || justLogged?.setType === 'drop'
-            ? null
-            : defaultWeightUpdate(target.exercise, justLogged?.weightKg ?? null);
+        const newDefault = justLogged?.isWarmup
+          ? null
+          : defaultWeightUpdate(target.exercise, justLogged?.weightKg ?? null);
         const sets = carried;
         const exercise =
           newDefault != null
@@ -593,29 +523,20 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
          * ladder, no change. See `withLadderPlan`.
          */
         entries[index] = withLadderPlan({ ...target, exercise, sets });
+        /*
+         * A MAX TEST JUST LANDED: the rows above were rebuilt from it, and the
+         * exercise learns the max now rather than at Finish — `state/ladderSync.ts`
+         * says why. Only when THIS ✓ is the test; a later set of the same exercise
+         * must not write it again.
+         */
+        const proved = testedMax(normalizeLadder(target.ladder), sets);
+        if (proved != null && sets.find((s) => !s.isWarmup)?.localId === setId) {
+          rememberTestedMax(target.exercise.id, proved);
+        }
 
         const exerciseDone = sets.every((s) => s.isCompleted);
 
-        /*
-         * The superset question, asked against the session AS IT NOW IS — the ✓
-         * that just landed is what moves the group's round on, so the check has to
-         * see it. Null means "not in a superset, or the round is over", which is
-         * every non-superset exercise and therefore the old behaviour untouched.
-         */
-        const partner = nextInSupersetRound({ ...session, entries }, entryId);
-
-        /*
-         * A round that just closed sends the card to whoever starts the next one
-         * (`nextSupersetRound`) — back to A after B1, not left on B for B2.
-         */
-        const nextRound = partner ? null : nextSupersetRound({ ...session, entries }, entryId);
-        const advanceTo = partner
-          ? partner.entryId
-          : nextRound
-            ? nextRound.entryId
-            : exerciseDone
-              ? (session.entries[index + 1]?.localId ?? null)
-              : null;
+        const advanceTo = exerciseDone ? (session.entries[index + 1]?.localId ?? null) : null;
         /*
          * The workout is over: every set of every exercise is logged, so there is
          * nothing to rest FOR. Deliberately not "this was the last exercise in the
@@ -648,25 +569,18 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           ? settings.restSecondsBetweenExercises
           : resolveRest(target.exercise, settings.restSecondsBetweenSets).seconds;
         /*
-         * `!partner` is the superset rule: mid-round, the next thing to do is the
-         * other exercise, and a countdown over its rows is the pill getting in the
-         * way of the work. The round's rest comes after its last member.
-         */
-        /*
          * A BAG SESSION RESTS WHETHER OR NOT AUTO-REST IS ON, and this is the one
          * exception to that setting.
          *
-         * `autoStartRest: false` is for people who superset: they want the pill out
-         * of the way because the next thing to do is the other exercise. A round
-         * chain is the opposite claim — the minute between rounds IS part of the
+         * `autoStartRest: false` is for people who want the pill out of the way
+         * and start rest by hand. A round chain is the opposite claim — the minute between rounds IS part of the
          * exercise, the next round starts when it ends, and without it the chain
          * would run twelve rounds back to back with no gap at all. So an armed
          * chain rests, and every other exercise keeps obeying the setting exactly
          * as it did.
          */
         const chained = get().roundsAuto === entryId && isRoundExercise(target.exercise);
-        const startsRest =
-          (settings.autoStartRest || chained) && restSeconds > 0 && !workoutDone && !partner;
+        const startsRest = (settings.autoStartRest || chained) && restSeconds > 0 && !workoutDone;
 
         set({
           session: {
@@ -708,9 +622,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
            * and the cursor moved off the card the user had walked on to.
            */
           setTimer: get().setTimer?.setId === setId ? null : get().setTimer,
-          warmupOffer: offer
-            ? { ...offer, previousDefaultKg: target.exercise.defaultWeightKg ?? null }
-            : null,
         });
       },
 
@@ -722,23 +633,33 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           // The measured rest goes with the ✓ it was measured for: `completeSet`
           // only writes one when a rest is on screen, so a set ticked again later
           // with no rest running would otherwise log a rest that never happened.
-          session: withCarryUndone(
-            mapSet(session, entryId, setId, ({ restTakenSeconds: _rest, ...s }) => ({
-              ...s,
-              isCompleted: false,
-              completedAt: null,
-            })),
-            get().warmupOffer,
-            setId,
-          ),
+          session: mapSet(session, entryId, setId, ({ restTakenSeconds: _rest, ...s }) => ({
+            ...s,
+            isCompleted: false,
+            completedAt: null,
+          })),
           rest: rest.originSetId === setId ? NO_REST : rest,
-          warmupOffer: get().warmupOffer?.setId === setId ? null : get().warmupOffer,
         });
       },
 
       patchSet: (entryId, setId, patch) => {
         const { session } = get();
         if (!session) return;
+        /*
+         * "I actually got 17" on a max test that is already logged: the rows
+         * follow (below, through the ladder) and so does the exercise's max.
+         */
+        const entry = session.entries.find((e) => e.localId === entryId);
+        const ladder = normalizeLadder(entry?.ladder);
+        const before = entry ? testedMax(ladder, entry.sets) : null;
+        if (entry && before != null && entry.sets.find((s) => !s.isWarmup)?.localId === setId) {
+          const after = testedMax(
+            ladder,
+            entry.sets.map((s) => (s.localId === setId ? { ...s, ...patch } : s)),
+          );
+          if (after != null && after !== before)
+            rememberTestedMax(entry.exercise.id, after, before);
+        }
         set({
           session: mapEntry(session, entryId, (entry) =>
             /*
@@ -758,65 +679,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
         });
       },
 
-      markSet: (entryId, setId, marks) => {
-        const { warmupOffer } = get();
-        /*
-         * Marking the offered set a warm-up through its sheet is the same answer
-         * as the chip, so it gets the same weights back.
-         */
-        if (warmupOffer?.setId === setId && marks.kind !== undefined) {
-          if (marks.kind === 'warmup') get().acceptWarmupOffer();
-          else set({ warmupOffer: null });
-        }
-        // Read after the offer, which may have just rewritten this entry.
-        const { session } = get();
-        if (!session) return;
-        set({
-          session: mapEntry(session, entryId, (entry) =>
-            withLadderPlan({
-              ...entry,
-              sets: entry.sets.map((s) => (s.localId === setId ? applySetMarks(s, marks) : s)),
-            }),
-          ),
-        });
-      },
-
-      acceptWarmupOffer: () => {
-        const { session, warmupOffer: offer } = get();
-        if (!session || !offer) return;
-        const entry = session.entries.find((e) => e.localId === offer.entryId);
-        if (!entry) {
-          set({ warmupOffer: null });
-          return;
-        }
-        /*
-         * The ✓ also taught the library the warm-up's weight as the movement's
-         * starting point (`defaultWeightUpdate`). Put the old one back, but only
-         * if nothing has moved it since.
-         */
-        const taught = entry.exercise.defaultWeightKg === offer.carriedKg;
-        const restoreDefault = taught ? offer.previousDefaultKg : null;
-        if (restoreDefault != null) rememberDefaultWeight(entry.exercise.id, restoreDefault);
-        // No starting weight before the ✓: the warm-up's must not become one.
-        else if (taught) forgetDefaultWeight(entry.exercise.id, offer.carriedKg);
-        set({
-          session: mapEntry(session, offer.entryId, (e) =>
-            withLadderPlan({
-              ...e,
-              exercise: !taught
-                ? e.exercise
-                : restoreDefault != null
-                  ? { ...e.exercise, defaultWeightKg: restoreDefault }
-                  : withoutDefaultWeight(e.exercise),
-              sets: acceptWarmupOffer(e.sets, offer),
-            }),
-          ),
-          warmupOffer: null,
-        });
-      },
-
-      dismissWarmupOffer: () => set({ warmupOffer: null }),
-
       addSet: (entryId) => {
         const { session } = get();
         if (!session) return;
@@ -824,18 +686,7 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
         set({
           session: mapEntry(session, entryId, (entry) => {
             // A new set inherits the last one — the near-universal intent.
-            const bottom = entry.sets[entry.sets.length - 1];
-            /*
-             * ...unless the bottom row is a DROP SET. A drop is lighter on purpose
-             * and `Add set` makes a working set, so copying it would hand the user
-             * a working row at the stripped weight. The working row above the drop
-             * is the one the new set continues; with none, the drop is all there is.
-             */
-            const last =
-              bottom?.setType === 'drop'
-                ? ([...entry.sets].reverse().find((s) => !s.isWarmup && s.setType !== 'drop') ??
-                  bottom)
-                : bottom;
+            const last = entry.sets[entry.sets.length - 1];
             /*
              * EXCEPT ON A `MAX` EXERCISE, where inheriting is the one thing that
              * must not happen: the previous set's twelve is what you managed last
@@ -856,45 +707,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
             // A sixth set changes what a ladder prescribes for all six, so the
             // whole exercise re-shapes rather than the new row guessing.
             return withLadderPlan({ ...entry, sets: [...entry.sets, next] });
-          }),
-        });
-      },
-
-      addWarmupSets: (entryId, warmups) => {
-        const { session } = get();
-        if (!session || warmups.length === 0) return;
-
-        set({
-          session: mapEntry(session, entryId, (entry) => {
-            // Refused once anything is logged: see the note on the action. And
-            // once warm-ups are there — the ramp is added once, not per tap.
-            if (entry.sets.some((s) => s.isCompleted || s.isWarmup)) return entry;
-
-            const rows: DraftSet[] = warmups.map((warmup) => ({
-              localId: uid('set'),
-              weightKg: warmup.weightKg,
-              count: warmup.count,
-              isWarmup: true,
-              isCompleted: false,
-              completedAt: null,
-              /*
-               * NOT prefilled. `isPrefilled` means "carried over from last session,
-               * untouched" and renders the numbers ghosted — the visual promise of
-               * "tap ✓ if nothing changed". These numbers came from the working
-               * weight the user is looking at right now, which is a fact about this
-               * session, so they read in full ink.
-               */
-              isPrefilled: false,
-            }));
-
-            /*
-             * `withLadderPlan` is NOT called. A ladder prescribes the working sets
-             * and its rung count is the number of sets that count — warm-ups are
-             * out of the set count by definition (`SetRow`, `ladderTargets`), so
-             * adding three of them must not re-shape the ladder into a six-rung
-             * session.
-             */
-            return { ...entry, sets: [...rows, ...entry.sets] };
           }),
         });
       },
@@ -929,7 +741,6 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
           // Same for a rest this row started: the pill would dim a row that is
           // gone. `uncompleteSet` and `removeEntry` already clear it.
           rest: rest.originSetId === setId ? NO_REST : rest,
-          warmupOffer: get().warmupOffer?.setId === setId ? null : get().warmupOffer,
         });
       },
 
@@ -954,53 +765,28 @@ export const useActiveWorkout = create<ActiveWorkoutState>()(
         get().removeSet(entryId, last.localId);
       },
 
-      /* ---------------------------------------------------------- */
-
-      acceptOverload: (entryId) => {
+      toggleWarmup: (entryId) => {
         const { session } = get();
         if (!session) return;
-
-        set({
-          session: mapEntry(session, entryId, (entry) => {
-            /*
-             * One suggestion, two axes, and the same rule for both: a suggested
-             * number replaces the current one on every set that has NOT been
-             * logged, and a set already ticked is history.
-             *
-             * `suggestedCount` covers reps-before-weight on a weighted lift AND
-             * the whole of `due_count` — one more push-up, fifteen more seconds of
-             * plank, twenty-five more metres. It is one field because it is one
-             * thing: the number that goes into `count`.
-             */
-            const { suggestedWeightKg, suggestedCount } = entry.overload;
-            // A warm-up keeps its ramp: the suggestion is for the WORKING sets.
-            const sets = entry.sets.map((s) =>
-              s.isCompleted || s.isWarmup
-                ? s
-                : {
-                    ...s,
-                    weightKg: suggestedWeightKg ?? s.weightKg,
-                    count: suggestedCount ?? s.count,
-                    isPrefilled: false,
-                  },
-            );
-            return { ...entry, sets, overloadAccepted: true };
-          }),
-        });
+        const entry = session.entries.find((e) => e.localId === entryId);
+        if (!entry) return;
+        const sets = toggleWarmupSets(entry.sets, entry.exercise, () => uid('set'));
+        if (sets === entry.sets) return;
+        /*
+         * NOT through `withLadderPlan`, deliberately: a warm-up takes no rung, so
+         * the working rows' plan is exactly what it was, and the guarantee that
+         * this toggle cannot move a working number is easier to keep by not
+         * asking the one function that moves them.
+         */
+        set({ session: mapEntry(session, entryId, (e) => ({ ...e, sets })) });
       },
+
+      /* ---------------------------------------------------------- */
 
       setSessionEffort: (effort) => {
         const { session } = get();
         if (!session) return;
         set({ session: { ...session, effort: session.effort === effort ? undefined : effort } });
-      },
-
-      dismissOverload: (entryId) => {
-        const { session } = get();
-        if (!session) return;
-        set({
-          session: mapEntry(session, entryId, (entry) => ({ ...entry, overloadAccepted: true })),
-        });
       },
 
       /**
@@ -1346,7 +1132,6 @@ function isRenderableSession(value: unknown): value is DraftSession {
     if (typeof e.exercise.countUnit !== 'string' || typeof e.exercise.name !== 'string')
       return false;
     if (!Array.isArray(e.exercise.muscleGroups)) return false;
-    if (typeof e.overload !== 'object' || e.overload === null) return false;
     if (!Number.isFinite(e.restSeconds) || !Number.isFinite(e.transitionRestSeconds)) return false;
 
     return e.sets.every((s: unknown) => {
@@ -1386,11 +1171,12 @@ function sanitizeState(persisted: unknown): PersistedSlice {
 }
 
 /**
- * A persisted session with every set's annotations put through their validators.
+ * A persisted session with the per-set marks of 2.3 to 3.x taken off.
  *
- * The set's NUMBERS are already guarded by `isRenderableSession`; the annotations
- * are optional, so a bad one is dropped and the set is kept — a session restored
- * from disk must never lose a logged set over a chip.
+ * A session left open across the 4.0 update can still carry `rir` and `setType`
+ * on its rows. Nothing reads them any more, but a spread would carry them into
+ * the log on Finish, so they go here: a drop, failure or AMRAP set becomes the
+ * plain working set it always counted as, and no set is lost.
  */
 function withCleanMarks(session: DraftSession): DraftSession {
   return {
@@ -1398,15 +1184,14 @@ function withCleanMarks(session: DraftSession): DraftSession {
     entries: session.entries.map((entry) => ({
       ...entry,
       sets: entry.sets.map((raw) => {
-        let set = raw;
-        if (set.rir !== undefined) {
-          const rir = cleanRir(set.rir);
-          set = rir == null ? withRir(set, null) : rir === set.rir ? set : { ...set, rir };
-        }
-        if (set.setType !== undefined && cleanSetType(set.setType, set.isWarmup) == null) {
-          // An unknown type, or one on a warm-up: the set stays, the claim goes.
-          set = withKind(set, set.isWarmup ? 'warmup' : 'working');
-        }
+        const {
+          rir: _rir,
+          setType: _type,
+          ...set
+        } = raw as DraftSet & {
+          rir?: unknown;
+          setType?: unknown;
+        };
         return set;
       }),
     })),
@@ -1492,6 +1277,13 @@ function sanitizeTimer(value: unknown, entryIds: Set<string>): SetTimerState | n
  * rest, and writing nothing is more honest than writing either the true eight
  * hours or a clamped thirty minutes.
  */
+/**
+ * The longest gap that is still a rest. Thirty minutes, and beyond it the sample
+ * is thrown away rather than clamped: a two-hour "rest" is a phone that sat in a
+ * locker with the app open, and a clamped 30:00 would be a number the app invented.
+ */
+export const MAX_PLAUSIBLE_REST_SECONDS = 1800;
+
 function measureRestTaken(rest: RestState, now: number): number | null {
   if (!isResting(rest) || rest.startedAt == null) return null;
   const seconds = Math.round((now - rest.startedAt) / 1000);
@@ -1503,10 +1295,10 @@ function measureRestTaken(rest: RestState, now: number): number | null {
  * The rest after the ✓ that measured it, when that ✓ starts no rest of its own.
  *
  * Only the first set after a rest TOOK that rest. A rest that ran out stays in the
- * store (the pill hides at zero, it is not cleared), and with auto-rest off, or
- * mid-superset, nothing replaces it — so every later ✓ used to measure from the
+ * store (the pill hides at zero, it is not cleared), and with auto-rest off
+ * nothing replaces it — so every later ✓ used to measure from the
  * same old `startedAt`: 95 s, then 160, then 240, a rising staircase of rests
- * nobody took, all fed into the medians `restHistory` reports.
+ * nobody took, all written into the log as data.
  *
  * Only the measurement is spent. The deadline, the pause and the origin row are
  * left exactly as they were, because a rest started by hand is still the user's
@@ -1549,14 +1341,11 @@ function withLadderPlan(entry: DraftEntry): DraftEntry {
   const ladder = normalizeLadder(entry.ladder);
   if (!ladder) return entry;
 
-  // Rungs: working sets that are not drop sets — see `isLadderRung`.
-  const working = entry.sets.filter(isLadderRung);
-  if (working.length === 0) return entry;
-
-  const top = working[0];
-  const targets = top.isCompleted
-    ? ladderAfterTopSet(ladder, top.count, working.length)
-    : ladderTargets(ladder, working.length);
+  // Rungs: the working sets — a warm-up is never one. Which plan they follow
+  // (the ladder, the ladder re-shaped round its top set, or — for a max test not
+  // yet logged — nothing at all) is `inFlightLadderTargets`' call.
+  const targets = inFlightLadderTargets(ladder, entry.sets);
+  if (!targets) return entry;
 
   const reshaped = reshapeLadderSets(entry.sets, targets);
   if (reshaped.every((count) => count == null)) return entry;
@@ -1589,7 +1378,7 @@ function withLadderPlan(entry: DraftEntry): DraftEntry {
  * on, untouched unlogged rows become the zeroed counter a max set starts from;
  * switched off, a counter still at zero gets a number to aim at (the entry's
  * target, then the exercise's default) instead of a working set of nothing.
- * Logged rows, warm-ups, drop sets and hand-edited rows are never touched.
+ * Logged rows, warm-ups and hand-edited rows are never touched.
  */
 function withEditedShape(entry: DraftEntry, exercise: Exercise): DraftEntry {
   const ladder = ladderOf(exercise);
@@ -1605,7 +1394,7 @@ function withEditedShape(entry: DraftEntry, exercise: Exercise): DraftEntry {
     next = {
       ...next,
       sets: next.sets.map((s) => {
-        if (s.isCompleted || !s.isPrefilled || !isLadderRung(s)) return s;
+        if (s.isCompleted || !s.isPrefilled || s.isWarmup) return s;
         if (isMax) return s.count === 0 ? s : { ...s, count: 0 };
         return s.count > 0 ? s : { ...s, count: fallback };
       }),
@@ -1622,40 +1411,6 @@ function finiteCount(value: unknown): number | null {
 /* ------------------------------------------------------------------ */
 /* Immutable helpers                                                   */
 /* ------------------------------------------------------------------ */
-
-/** What `markSet` may change on a set. An absent key means "leave it". */
-/**
- * Un-ticking the set the warm-up offer is about takes its carry back with it.
- * Otherwise a ✓ undone and re-done as a `W` left the working rows at the
- * warm-up's weight — the original bug by another door.
- */
-function withCarryUndone(
-  session: DraftSession,
-  offer: WarmupOffer | null,
-  setId: ID,
-): DraftSession {
-  if (!offer || offer.setId !== setId) return session;
-  return mapEntry(session, offer.entryId, (entry) => ({
-    ...entry,
-    sets: undoWarmupCarry(entry.sets, offer),
-  }));
-}
-
-function withoutDefaultWeight(exercise: Exercise): Exercise {
-  const { defaultWeightKg: _taught, ...rest } = exercise;
-  return rest;
-}
-
-export interface SetMarks {
-  rir?: number | null;
-  /** Warm-up, working, drop, failure, AMRAP — both kind fields at once. */
-  kind?: SetKind;
-}
-
-function applySetMarks(set: DraftSet, marks: SetMarks): DraftSet {
-  const graded = marks.rir !== undefined ? withRir(set, marks.rir) : set;
-  return marks.kind !== undefined ? withKind(graded, marks.kind) : graded;
-}
 
 function mapEntry(
   session: DraftSession,

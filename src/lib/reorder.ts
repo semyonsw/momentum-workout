@@ -31,6 +31,8 @@
  * and drag every drop target up with it; skipping it means the drop index is
  * computed from what is actually known, which is also what the user can see.
  *
+ * Dragging past the screen edge (auto-scroll) is at the bottom of this file.
+ *
  * Pure, and over layouts and a finger offset rather than over a component — so the
  * expanded-card case, the ends of the list, the unmeasured card and the
  * single-card list are four assertions instead of four sessions in a gym.
@@ -238,4 +240,110 @@ export function liftedSlotHeight(
 export function rowOffsetMode(lifted: boolean, dragging: boolean): 'finger' | 'slot' | 'none' {
   if (lifted) return 'finger';
   return dragging ? 'slot' : 'none';
+}
+
+/* ------------------------------------------------------------------ */
+/* Dragging past the edge of the screen                                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A drag used to stop where the finger could reach: the list refused to scroll
+ * while a card was in the air, so moving the fifth exercise to the top was drop,
+ * scroll, lift again. Now holding the card near the top or bottom edge of the
+ * viewport scrolls the list under it, continuously, faster the deeper into the
+ * edge band the finger is — the way every launcher and every mail app does it.
+ *
+ * Three numbers come together for the drop index, and getting any one wrong is a
+ * card that lands somewhere it was not drawn:
+ *
+ *   • the finger's travel since the lift (`gestureDy`),
+ *   • how far the CONTENT has scrolled since the lift (`scrollDelta`) — the card is
+ *     inside the content, so a list scrolled 300 down has carried every slot 300
+ *     up past a finger that never moved,
+ *   • how far the lifted card's own LAYOUT moved since the lift (`layoutShift`) —
+ *     the session collapses every card on lift, and a card under an expanded one
+ *     jumps up by that card's height the frame after.
+ *
+ * `effectiveDragDy` sums them, and that one number is both what the lifted card is
+ * translated by (so it stays under the finger) and what `dropIndex` is handed (so
+ * the gap opens where it is drawn).
+ */
+
+/** How deep the auto-scroll band is at each edge of the viewport, in dp. */
+export const AUTO_SCROLL_EDGE = 80;
+
+/** The scroll speed at the very edge, in dp per second. */
+export const AUTO_SCROLL_MAX_SPEED = 900;
+
+/** The visible part of the scroll view, in the same coordinates as the finger. */
+export interface ScrollViewport {
+  /** The viewport's top edge (window coordinates). */
+  top: number;
+  height: number;
+}
+
+/**
+ * The auto-scroll velocity for a finger at `fingerY`, in dp per second: negative
+ * scrolls up, positive scrolls down, zero outside the edge bands.
+ *
+ * Linear in how far INTO the band the finger is, so creeping to the edge scrolls
+ * slowly and slamming into it scrolls fast. A finger past the edge (over the
+ * header, below the dock) counts as at the edge — full speed, not zero. A band
+ * never takes more than a third of the viewport, so a short screen keeps a calm
+ * middle to drop in.
+ */
+export function autoScrollVelocity(
+  fingerY: number,
+  viewport: ScrollViewport,
+  edge: number = AUTO_SCROLL_EDGE,
+  maxSpeed: number = AUTO_SCROLL_MAX_SPEED,
+): number {
+  if (!Number.isFinite(fingerY) || !(viewport.height > 0)) return 0;
+  const band = Math.min(edge, viewport.height / 3);
+  if (band <= 0) return 0;
+  const fromTop = fingerY - viewport.top;
+  const fromBottom = viewport.top + viewport.height - fingerY;
+  if (fromTop < band) return -maxSpeed * Math.min(1, (band - fromTop) / band);
+  if (fromBottom < band) return maxSpeed * Math.min(1, (band - fromBottom) / band);
+  return 0;
+}
+
+/**
+ * One frame of auto-scroll: where the list goes, clamped to the content it has.
+ *
+ * Returns the new offset; the caller derives the scroll delta from it. Clamped at
+ * zero and at `contentHeight − viewportHeight`, so holding a card at the top of a
+ * list already at the top asks for nothing — and an offset that did not move is
+ * the signal to stop issuing `scrollTo`s.
+ */
+export function nextScrollOffset(params: {
+  offset: number;
+  velocity: number;
+  dtMs: number;
+  contentHeight: number;
+  viewportHeight: number;
+}): number {
+  const { offset, velocity, dtMs, contentHeight, viewportHeight } = params;
+  const maxOffset = Math.max(0, contentHeight - viewportHeight);
+  // A frame that took a second (the app was backgrounded) must not fling the list.
+  const dt = Math.min(Math.max(0, dtMs), 64) / 1000;
+  const next = offset + velocity * dt;
+  return Math.min(maxOffset, Math.max(0, next));
+}
+
+/**
+ * The lifted card's offset from its CURRENT layout position — see the section
+ * header for the three terms. Feed it to both the transform and `dropIndex`.
+ */
+export function effectiveDragDy(params: {
+  gestureDy: number;
+  /** Scroll offset now minus at the lift. */
+  scrollDelta: number;
+  /** The card's layout `y` at the lift, and now. */
+  liftY: number | null;
+  currentY: number | null;
+}): number {
+  const { gestureDy, scrollDelta, liftY, currentY } = params;
+  const layoutShift = liftY != null && currentY != null ? liftY - currentY : 0;
+  return gestureDy + scrollDelta + layoutShift;
 }

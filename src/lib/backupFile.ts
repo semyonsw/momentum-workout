@@ -45,34 +45,15 @@ import { dayKey } from './days';
 import { t, type Language } from './i18n';
 
 /**
- * The backup's type.
- *
- * `saveTextFile` takes the type as a parameter rather than closing over it, because
- * the MIME type is what SAF derives the EXTENSION from — a file written under the
+ * The backup's type. SAF derives the EXTENSION from it — a file written under the
  * wrong one arrives with the wrong suffix holding the right bytes, and every tool
- * that opens it is then wrong about what it is. The CSV exports are the second
- * caller.
+ * that opens it is then wrong about what it is.
  */
 const JSON_MIME = 'application/json';
-
-/** The spreadsheet exports (`lib/csv.ts`). SAF appends `.csv` from this. */
-const CSV_MIME = 'text/csv';
 
 /** Can this platform show a folder picker at all? SAF is Android-only. */
 function canPickFolder(): boolean {
   return Platform.OS === 'android' && FileSystem.StorageAccessFramework != null;
-}
-
-/**
- * The app's own documents directory, as a fallback destination.
- *
- * Reachable by the app and nobody else, which makes it a weak backup — it dies with
- * an uninstall. It exists so that "export" still produces a file on a platform with
- * no picker, and so the path can be shown to a user who wants to pull it off with
- * `adb` or a desktop file browser.
- */
-function appFolderUri(): string | null {
-  return FileSystem.documentDirectory ?? null;
 }
 
 /** The name a SAF URI ends in, decoded: `...%2FDownload%2Fbackup.json` → `backup.json`. */
@@ -143,14 +124,13 @@ export async function writeToFolder(
   folderUri: string,
   baseName: string,
   contents: string,
-  mimeType: string = JSON_MIME,
 ): Promise<{ name: string; uri: string }> {
   let fileUri: string;
   try {
     fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
       folderUri,
       baseName,
-      mimeType,
+      JSON_MIME,
     );
   } catch (error) {
     // The folder refused a new file: the grant was revoked or the folder is gone.
@@ -247,68 +227,6 @@ export async function deleteFile(uri: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** Write into the app's own documents directory. Returns the full path. */
-async function writeToAppFolder(
-  baseName: string,
-  contents: string,
-  extension = 'json',
-  lang: Language = 'en',
-): Promise<string> {
-  const folder = appFolderUri();
-  // In the caller's language: this message reaches the screen via `describeError`.
-  if (!folder) throw new Error(t('This device has no writable app folder.', lang));
-  const fileUri = `${folder}${baseName}.${extension}`;
-  await FileSystem.writeAsStringAsync(fileUri, contents);
-  return fileUri.replace('file://', '');
-}
-
-/**
- * What `saveCsvFile` did. `cancelled` is a user decision, not a failure.
- *
- * `folderUri` is present only when the file went into a folder the user granted —
- * i.e. not on the sandbox fallback.
- */
-export type SaveOutcome =
-  | { saved: true; name: string; where: string; folderUri?: string; uri?: string }
-  | { saved: false; cancelled: true };
-
-/**
- * A spreadsheet, somewhere the user picked and can find again: the folder picker,
- * else (no picker on this platform) the app's own documents directory, stated as
- * a path so it is at least reachable over a cable.
- *
- * Always the picker, unlike the backup: a CSV is a snapshot somebody takes to a
- * spreadsheet, not the phone's one restorable copy, so where it goes is asked
- * each time and nothing is rotated — two of them in a folder is two files the
- * user asked for.
- */
-export async function saveCsvFile(
-  baseName: string,
-  contents: string,
-  lang: Language = 'en',
-): Promise<SaveOutcome> {
-  return saveTextFile(baseName, contents, CSV_MIME, 'csv', lang);
-}
-
-async function saveTextFile(
-  baseName: string,
-  contents: string,
-  mimeType: string,
-  extension: string,
-  lang: Language,
-): Promise<SaveOutcome> {
-  if (!canPickFolder()) {
-    const path = await writeToAppFolder(baseName, contents, extension, lang);
-    return { saved: true, name: `${baseName}.${extension}`, where: path };
-  }
-
-  const folder = await pickFolder();
-  if (!folder) return { saved: false, cancelled: true };
-
-  const { name, uri } = await writeToFolder(folder, baseName, contents, mimeType);
-  return { saved: true, name, where: folderLabel(folder, lang), folderUri: folder, uri };
 }
 
 /**

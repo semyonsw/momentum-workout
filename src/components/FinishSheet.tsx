@@ -60,30 +60,6 @@
  *    to update, and an exercise added mid-session has no routine item — deciding to
  *    do neck work halfway through pull day says something about today.
  *    `plannedSetDiff` is where all of that is decided and tested.
- *
- * ── RECORDS THIS SESSION (W6) ──────────────────────────────────────────────
- *
- *   │ RECORDS THIS SESSION                       │
- *   │ ╭ ✦ Bench press · 82.5 × 5 · new best ──╮  │  ← lit, one spark lands
- *   │ ╰   e1RM, 96.3 kg ──────────────────────╯  │
- *   │ ╭ ✦ Plank · 3:10 · longest yet, 3:10 ───╮  │
- *
- * One to three rows, one per exercise, and NOTHING when nothing moved — no
- * "no records today" line, which would turn an ordinary good session into a
- * miss. `recordsBrokenIn` decides which and in what order. Quiet on purpose
- * (IMPLEMENTATION_DECISIONS row 7): ONE `SparkBurst` on the first row as the
- * sheet lands, and one line each. Rejected: the design's light sweep and a
- * banner, and a spark per row — the README's "no medals, no banners" is the
- * reason the bests were a micro line in the first place.
- *
- * ── THE MILESTONE (E4, Wave 3 switch on only) ─────────────────────────────
- *
- * At the 50th, 100th, 250th, 500th… workout, once, a lit card sits above the
- * records: `Workout 100 · Since 14 Feb 2025. 2,014 sets.` It takes the sheet's
- * one spark (the first record row then lands without its own), so the sheet
- * still has a single celebration. Which finish, and "only once", are
- * `lib/milestones.ts`; with the switch off the prop is null and the sheet is
- * exactly as before.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -99,7 +75,6 @@ import { curve, glass, gradientFill, motion, palette, radius, tint } from '../th
 import { SpecularEdge } from './glass';
 import { Kicker, PrimaryButton } from './primitives';
 import { RollingNumber } from './RollingNumber';
-import { SparkBurst } from './SparkBurst';
 import { sparkle } from '../lib/feedback';
 import { SlidingThumb } from './SlidingThumb';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -168,30 +143,6 @@ interface FinishSheetProps {
   volumeKg?: number;
   /** Shown in the lifter's own unit: a pounds user sees pounds moved. */
   unitSystem?: UnitSystem;
-  /**
-   * The records this session broke, already worded (`describeSessionRecord`):
-   * at most three, most significant first. Empty hides the block entirely.
-   */
-  records?: readonly FinishRecord[];
-  /**
-   * E4: the milestone card (`lib/milestones.ts`), already worded, or null. Only
-   * ever set with Wave 3's switch on; null (the default) draws nothing.
-   */
-  milestone?: FinishMilestone | null;
-}
-
-/** The milestone card's three facts: `100`, `Workout 100`, `Since … . 2,014 sets.` */
-export interface FinishMilestone {
-  n: number;
-  title: string;
-  line: string;
-}
-
-/** One row of `Records this session`: the set, and the record it set (lit). */
-export interface FinishRecord {
-  key: string;
-  lead: string;
-  record: string;
 }
 
 export function FinishSheet({
@@ -208,8 +159,6 @@ export function FinishSheet({
   minutes = null,
   volumeKg = 0,
   unitSystem = 'metric',
-  records = [],
-  milestone = null,
 }: FinishSheetProps) {
   const t = useT();
   const lang = useLanguage();
@@ -290,7 +239,7 @@ export function FinishSheet({
         }}
       >
         <View className="mb-[18px] h-[4px] w-[36px] self-center rounded-pill bg-hairline" />
-        {/* Scrolls only when it must: three records, a plan line and a ladder line
+        {/* Scrolls only when it must: a plan card, a ladder line and the effort
             on a short phone would otherwise push the title off the top. */}
         <ScrollView bounces={false} showsVerticalScrollIndicator={false} style={{ flexGrow: 0 }}>
           <Kicker tone="green">{t('Session complete')}</Kicker>
@@ -330,28 +279,6 @@ export function FinishSheet({
               lit
             />
           </View>
-
-          {/* E4: above the records, as the design draws it. It takes the
-              sheet's one spark; the record row below it then lands quietly. */}
-          {milestone ? <MilestoneCard milestone={milestone} /> : null}
-
-          {records.length > 0 ? (
-            <>
-              <Kicker tone="faint" className="mt-[20px]">
-                {t('Records this session')}
-              </Kicker>
-              <View className="mt-[8px]" style={{ gap: 6 }}>
-                {records.map((record, index) => (
-                  <RecordRow
-                    key={record.key}
-                    record={record}
-                    lit={index === 0}
-                    spark={index === 0 && !milestone}
-                  />
-                ))}
-              </View>
-            </>
-          ) : null}
 
           {/* Only when there is something to lose. A session with everything logged
             is on this sheet to be saved, and telling it "0 sets are still
@@ -470,132 +397,6 @@ export function FinishSheet({
           </View>
         </ScrollView>
       </Animated.View>
-    </View>
-  );
-}
-
-/**
- * One record. The first is lit and is where the session's single spark lands; the
- * rest sit on plain glass, so the block reads as one moment with footnotes.
- */
-function RecordRow({
-  record,
-  lit,
-  spark,
-}: {
-  record: FinishRecord;
-  lit: boolean;
-  /** The sheet's single spark — moved to the milestone card when there is one. */
-  spark: boolean;
-}) {
-  const motionScale = useMotionScale();
-  return (
-    <View
-      accessible
-      accessibilityLabel={`${record.lead} · ${record.record}`}
-      style={{
-        minHeight: 56,
-        borderRadius: radius.row,
-        borderWidth: 1,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        backgroundColor: lit ? tint(0.13) : glass.raised,
-        borderColor: lit ? tint(0.3) : glass.raisedEdge,
-      }}
-    >
-      <Text
-        maxFontSizeMultiplier={1.3}
-        style={{
-          fontSize: 20,
-          width: 22,
-          textAlign: 'center',
-          color: lit ? palette.c1 : palette.acc,
-        }}
-      >
-        ✦
-      </Text>
-      <Text
-        maxFontSizeMultiplier={1.3}
-        style={{ flex: 1, fontSize: 15.5, lineHeight: 21 }}
-        className="tabular-nums text-ink"
-      >
-        {record.lead} · <Text className="text-green-bright">{record.record}</Text>
-      </Text>
-      {spark && motionScale > 0 ? <SparkBurst y={20} /> : null}
-    </View>
-  );
-}
-
-/**
- * The milestone (E4, design 2): a lit card, the number in a gradient disc, one
- * line of what it adds up to. ONE `SparkBurst` and nothing else — no rise, no
- * light sweep (IMPLEMENTATION_DECISIONS row 7). It is shown once per milestone,
- * which `lib/milestones.ts` decides; this only draws it.
- */
-function MilestoneCard({ milestone }: { milestone: FinishMilestone }) {
-  const t = useT();
-  const motionScale = useMotionScale();
-  return (
-    <View
-      accessible
-      accessibilityLabel={`${t('Milestone')}. ${milestone.title}. ${milestone.line}`}
-      style={{
-        marginTop: 20,
-        minHeight: 84,
-        borderRadius: radius.card,
-        borderWidth: 1,
-        padding: 14,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 14,
-        backgroundColor: tint(0.13),
-        borderColor: tint(0.3),
-      }}
-    >
-      <View
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          overflow: 'hidden',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <LinearGradient
-          {...gradientFill()}
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-        />
-        <Text
-          maxFontSizeMultiplier={1.3}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          style={{ fontSize: milestone.n >= 1000 ? 15 : 19, paddingHorizontal: 4 }}
-          className="font-semibold tabular-nums text-on-acc"
-        >
-          {milestone.n}
-        </Text>
-      </View>
-      <View className="flex-1">
-        <Kicker tone="green">{t('Milestone')}</Kicker>
-        <Text
-          maxFontSizeMultiplier={1.3}
-          style={{ fontSize: 22, lineHeight: 27, letterSpacing: -0.4 }}
-          className="mt-[2px] font-semibold text-ink"
-        >
-          {milestone.title}
-        </Text>
-        <Text
-          maxFontSizeMultiplier={1.3}
-          className="mt-[2px] text-label tabular-nums text-ink-muted"
-        >
-          {milestone.line}
-        </Text>
-      </View>
-      {motionScale > 0 ? <SparkBurst y={40} /> : null}
     </View>
   );
 }

@@ -1,116 +1,53 @@
 /**
- * BubblePressable — the app's press feedback, with a bubble that leaves the
- * finger.
+ * BubblePressable — the app's press feedback: a dim under the finger, nothing
+ * that outlives the touch.
  *
- *   ┌─────────────────────────┐
- *   │        ·  ∘  ○          │   a ring opening from where you touched,
- *   │      ( ● )              │   fading as it goes, gone in 620ms
- *   └─────────────────────────┘
+ * ── WHAT IT USED TO BE, AND WHY IT IS NOT ANY MORE ────────────────────────
  *
- * ── WHY THIS IS A COMPONENT AND NOT A FLAG ON EVERY BUTTON ────────────────
+ * Every press used to open a ring from the touch point that faded out over
+ * 620 ms. On forty tappable things that is a lot of motion for a log you open
+ * between sets, and it made fast taps feel slower than they were: the app was
+ * still animating the last press while you were making the next one. The owner
+ * asked for an app that feels fast and calm, so the ring went and what is left
+ * is the one sentence that matters — "this is under your finger, right now".
  *
- * There are about forty tappable things in this app and they are spread across
- * thirty files. Adding a bubble to each of them would be forty places to get the
- * timing slightly different, and the first one anybody forgot would be the one
- * that reads as broken. So the feedback lives in the thing that RECEIVES the
- * touch, and the shared vocabulary in `primitives.tsx` — the buttons, the rows,
- * the chips, the segments — uses it. One swap, and the whole app answers a
- * thumb the same way.
+ * The dim is a plain style swap on press-in and press-out, not an animation:
+ * zero frames is the fastest feedback there is, and it is immune to "Remove
+ * animations" by construction. A caller that passes `style` as a function owns
+ * its pressed look (usually `pressedStyle` from `motion.tsx`), so the default dim
+ * only applies when it does not — never both, which would dim twice.
  *
- * It keeps `pressedStyle` rather than replacing it. The dim-and-shrink is what
- * says "this is being pressed, right now, and it is still under your finger";
- * the bubble is what says "that landed". They are two different sentences and
- * the app was only saying the first one.
- *
- * ── THREE THINGS THAT MAKE IT CHEAP ENOUGH TO PUT EVERYWHERE ──────────────
- *
- *  • IT ONLY EXISTS WHILE IT IS RUNNING. No animation is mounted, no `Animated
- *    .Value` allocated, until a finger lands; the overlay unmounts itself when
- *    the last bubble finishes. A screen of forty rows costs forty plain
- *    `Pressable`s at rest, which is what it cost before.
- *  • IT IS NATIVE-DRIVEN. `opacity` and `transform` only — no layout, no colour
- *    interpolation — so the whole thing runs off the JS thread and a bubble
- *    cannot stutter because a set was being saved at the same moment.
- *  • IT IS CAPPED. A thumb drumming on a row can start bubbles faster than they
- *    finish; `MAX_BUBBLES` is what stops that becoming a growing array of live
- *    animations behind a list that is being scrolled.
- *
- * ── AND IT CLIPS ITSELF ───────────────────────────────────────────────────
- *
- * The overlay is `overflow: hidden` INSIDE the pressable rather than the
- * pressable being clipped, because clipping the pressable would cut off
- * everything else a caller puts in it — a lifted reorder row, a superset rule
- * that runs past an edge. The ring is drawn round, at the container's own
- * radius, and the caller passes that radius: a bubble with square corners
- * escaping a pill button is the one way this can look wrong.
+ * The component keeps its name and its props (`radius`, `bubbleColor`) so the
+ * shared vocabulary in `primitives.tsx` and every screen compile unchanged.
  */
 
-import { useCallback, useRef, useState, type ReactNode } from 'react';
-import {
-  Animated,
-  Easing,
-  Pressable,
-  StyleSheet,
-  View,
-  type GestureResponderEvent,
-  type PressableProps,
-} from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Pressable, type PressableProps } from 'react-native';
 
-import { palette } from '../theme/tokens';
 import { press } from '../lib/feedback';
 
-/**
- * The v3 spec's 620 ms. Long enough to be seen leaving, and since the ripple
- * never blocks a touch, a second tap before it is over simply starts another.
- */
-const DURATION = 620;
-
-/**
- * Live bubbles at once. Four is two more than a fast double-tap needs and far
- * fewer than a drumming thumb can start.
- */
-const MAX_BUBBLES = 4;
-
-/** Matches `components/motion.tsx`, which is the app's one curve. */
-const EASING = Easing.bezier(0.2, 0.8, 0.2, 1);
-
-interface Bubble {
-  key: number;
-  x: number;
-  y: number;
-  progress: Animated.Value;
-  /**
-   * Its two interpolations, built once with the bubble. Built in render they
-   * would be new nodes on every press-in/press-out re-render, and a new node
-   * makes the Animated.View detach and re-attach its native animation graph.
-   */
-  opacity: Animated.AnimatedInterpolation<number>;
-  scale: Animated.AnimatedInterpolation<number>;
-}
+/** The default pressed look, for a caller that does not supply its own. */
+const PRESSED = { opacity: 0.7 } as const;
 
 export interface BubblePressableProps extends Omit<PressableProps, 'children'> {
   /**
    * Plain children only.
    *
-   * `Pressable` also accepts a render function taking `{ pressed }`, and this
-   * cannot: the overlay has to be a sibling of the content inside the same node,
-   * and a function child would have to be called to find out what it returns.
-   * Nothing in this app uses that form — `pressedStyle` is how the pressed state
+   * `Pressable` also accepts a render function taking `{ pressed }`. Nothing in this app uses that form — `pressedStyle` is how the pressed state
    * is expressed here — so narrowing it is free and it keeps the type honest.
    */
   children?: ReactNode;
   /**
-   * The container's corner radius, so the ring is clipped to the shape the user
-   * can see rather than to its bounding box. `pill` for anything round-ended,
-   * a number for a surface corner, 0 for a plain row.
+   * Accepted and ignored: the corner radius the old ring was clipped to. Kept so
+   * forty call sites did not have to change when the ring went.
    */
   radius?: number | 'pill';
-  /**
-   * The ring's colour. Defaults to the theme's accent (`palette.greenBright` is
-   * `acc` now), read at render so a theme change is picked up on the remount.
-   */
+  /** Accepted and ignored: the old ring's colour. See `radius`. */
   bubbleColor?: string;
-  /** Off, for the few places a bubble would be noise — a drag handle, a scrim. */
+  /**
+   * Off, for the few places a press dim would be noise — a drag handle, a scrim.
+   * The name is the old ring's; the meaning is "give default press feedback".
+   */
   bubbles?: boolean;
   /**
    * The tick (`feedback.press`) when the press lands. On for every button by
@@ -123,84 +60,35 @@ export interface BubblePressableProps extends Omit<PressableProps, 'children'> {
 }
 
 export function BubblePressable({
-  radius = 0,
-  bubbleColor = palette.greenBright,
+  radius: _radius,
+  bubbleColor: _bubbleColor,
   bubbles = true,
   haptic = true,
   onPress,
   onPressIn,
   onPressOut,
-  onLayout,
   children,
   style,
   ...rest
 }: BubblePressableProps) {
-  const [live, setLive] = useState<Bubble[]>([]);
   /**
    * WHETHER A FINGER IS DOWN, TRACKED HERE RATHER THAN BY `Pressable`.
    *
-   * `Pressable` accepts `style` as a callback taking `{ pressed }`, and this
-   * component used to hand that callback straight down. It never arrived:
+   * `Pressable` accepts `style` as a callback taking `{ pressed }`, but
    * `jsxImportSource: 'nativewind'` wraps every React Native component at the
-   * JSX call site, and NativeWind's wrapper resolves `style` so it can merge
-   * `className` into it — a FUNCTION is not something it can merge, so it goes
-   * on the floor.
-   *
-   * That was invisible for a long time because every caller in the app put its
-   * layout in `className` and only the press dim in `style`: the dim silently
-   * stopped working and nothing moved. The moment a caller put real layout in
-   * there — `flexDirection`, a height, a background — the control rendered as
-   * bare unstyled children, which is exactly what the glass redesign's rows,
-   * chips and keypad keys did.
-   *
-   * So the callback is resolved HERE, into a plain object, before NativeWind
-   * ever sees it. One extra render per press, which is what `Pressable` does
-   * internally for the same feature anyway.
+   * JSX call site and resolves `style` so it can merge `className` into it — a
+   * FUNCTION is not something it can merge, so it goes on the floor, and a
+   * control whose layout lived in that callback renders as bare children. So the
+   * callback is resolved HERE, into a plain object, before NativeWind sees it.
    */
   const [pressed, setPressed] = useState(false);
-  const nextKey = useRef(0);
-  /** Measured on layout, so a bubble knows how far it has to grow to cover. */
-  const box = useRef({ width: 0, height: 0 });
 
-  const burst = useCallback((event: GestureResponderEvent) => {
-    const { locationX, locationY } = event.nativeEvent;
-    const progress = new Animated.Value(0);
-    const bubble: Bubble = {
-      key: nextKey.current++,
-      x: Number.isFinite(locationX) ? locationX : box.current.width / 2,
-      y: Number.isFinite(locationY) ? locationY : box.current.height / 2,
-      progress,
-      // Starts as a dot under the thumb and opens outwards. The fill fades
-      // faster than the ring, so what is left at the end is an outline leaving
-      // rather than a wash sitting on the button.
-      opacity: progress.interpolate({
-        inputRange: [0, 0.25, 1],
-        outputRange: [0.34, 0.2, 0],
-      }),
-      scale: progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.06, 1],
-      }),
-    };
-    setLive((current) => [...current.slice(-(MAX_BUBBLES - 1)), bubble]);
-    Animated.timing(bubble.progress, {
-      toValue: 1,
-      duration: DURATION,
-      easing: EASING,
-      useNativeDriver: true,
-    }).start(() => {
-      // Unmounts the overlay entirely once the last one is done — see the
-      // file header on why that matters for a list of forty rows.
-      setLive((current) => current.filter((b) => b.key !== bubble.key));
-    });
-  }, []);
-
-  /**
-   * The ring's resting size. Half the diagonal is the radius that reaches every
-   * corner from the middle; doubling it covers a touch in a corner reaching the
-   * far one, which is what stops the bubble from visibly stopping short.
-   */
-  const reach = Math.max(box.current.width, box.current.height) || 56;
+  const resolved =
+    typeof style === 'function'
+      ? style({ pressed })
+      : pressed && bubbles
+        ? [style, PRESSED]
+        : style;
 
   return (
     <Pressable
@@ -214,7 +102,6 @@ export function BubblePressable({
           : undefined
       }
       onPressIn={(event) => {
-        if (bubbles) burst(event);
         setPressed(true);
         onPressIn?.(event);
       }}
@@ -222,46 +109,9 @@ export function BubblePressable({
         setPressed(false);
         onPressOut?.(event);
       }}
-      onLayout={(event) => {
-        const { width, height } = event.nativeEvent.layout;
-        box.current = { width, height };
-        // Chained rather than replaced: a caller that needs the layout of its
-        // own row — the reorderable lists all do — must not lose it by being
-        // wrapped in a bubble.
-        onLayout?.(event);
-      }}
-      style={typeof style === 'function' ? style({ pressed }) : style}
+      style={resolved}
     >
       {children}
-
-      {live.length > 0 ? (
-        <View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFillObject,
-            { overflow: 'hidden', borderRadius: radius === 'pill' ? 999 : radius },
-          ]}
-        >
-          {live.map((bubble) => (
-            <Animated.View
-              key={bubble.key}
-              style={{
-                position: 'absolute',
-                left: bubble.x - reach,
-                top: bubble.y - reach,
-                width: reach * 2,
-                height: reach * 2,
-                borderRadius: reach,
-                borderWidth: 2,
-                borderColor: bubbleColor,
-                backgroundColor: bubbleColor,
-                opacity: bubble.opacity,
-                transform: [{ scale: bubble.scale }],
-              }}
-            />
-          ))}
-        </View>
-      ) : null}
     </Pressable>
   );
 }

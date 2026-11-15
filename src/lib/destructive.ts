@@ -82,10 +82,13 @@ export function confirmsMissingDanger(source: string): ConfirmUse[] {
 
 /**
  * Files allowed to import the `danger` hue: the confirm that wears it, the
- * button it outlines, the token file, and the AI key form's error mark (an
- * error, not a control).
+ * button it outlines, the token file, the AI key form's error mark (an
+ * error, not a control), and the AI's suggested-changes card — whose Apply is
+ * the only confirm a delete the assistant drafted ever gets, so its delete rows
+ * wear the confirm's hue the way the confirm sheet does.
  */
 export const DANGER_HUE_ALLOWED: readonly string[] = [
+  'components/AiChangesCard.tsx',
   'components/ConfirmSheet.tsx',
   'components/primitives.tsx',
   'screens/AiSettingsScreen.tsx',

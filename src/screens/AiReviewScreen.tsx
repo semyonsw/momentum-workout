@@ -296,7 +296,7 @@ function RowCard({
             </Text>
             {row.was && ((state === 'changed' && !moved) || removed) ? (
               <Text className="mt-[2px] text-[12.5px] tabular-nums text-ink-faint">
-                {t('was {value}', { value: formatRow(row.was, kg, bw, t('superset')) })}
+                {t('was {value}', { value: formatRow(row.was, kg, bw) })}
               </Text>
             ) : null}
           </View>

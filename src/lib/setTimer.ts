@@ -4,8 +4,8 @@
  *   press start ──► GET READY 5 4 3 2 1 ──► 2:00 ◄─ countdown ─► 0:00  bell
  *                                     └──► 0:00 ─── count up ──► 1:47  stop
  *
- * Pure math, zero state, injectable clock — same contract as the overload
- * engine, and for the same reason: this is the part that must be right, so it
+ * Pure math, zero state, injectable clock — same contract as the rest of
+ * `lib/`, and for the same reason: this is the part that must be right, so it
  * must be testable without a phone.
  *
  * ── ONE STORED FACT: WHEN START WAS PRESSED ────────────────────────────────

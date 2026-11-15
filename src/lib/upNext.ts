@@ -45,7 +45,6 @@
  */
 
 import type { DraftSession } from './draft';
-import { nextInSupersetRound, nextSupersetRound } from './superset';
 import type { ID } from '../types/models';
 
 export interface UpNext {
@@ -130,21 +129,6 @@ export function upNextSet(session: DraftSession | null): UpNext | null {
 
   const flat = flatten(session);
   const lastDone = lastLoggedIndex(flat);
-
-  /*
-   * A SUPERSET ROUND FIRST. Mid-round the next set is the partner's, not the
-   * next row down — the store already moves the cursor there on the ✓, and
-   * without this focus mode and the glow ring still pointed at A2: DONE logged
-   * A1, A2, A3 back to back and B never got its turn.
-   */
-  if (lastDone !== -1) {
-    const partner = nextInSupersetRound(session, flat[lastDone].entryId);
-    if (partner) return partner;
-    // ...and a round just closed starts the next one at its first member, not
-    // at the next row down. See `nextSupersetRound`.
-    const nextRound = nextSupersetRound(session, flat[lastDone].entryId);
-    if (nextRound) return nextRound;
-  }
 
   /* Forward from the last ✓, then round again for anything skipped above it. */
   for (let i = lastDone + 1; i < flat.length; i += 1) {

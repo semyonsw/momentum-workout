@@ -19,7 +19,13 @@
  * The rows are the ones STORED with the message (`describeChanges` ran when the
  * answer arrived), not recomputed here: after Apply the stores hold the new
  * values, and a `from` read now would say `1:30 → 1:30`. An empty `from` — a new
- * task, a first budget — draws only the new value rather than a struck-out blank.
+ * routine, a first weigh-in — draws only the new value rather than a struck-out blank.
+ *
+ * A row that TAKES SOMETHING AWAY — a routine, an exercise, a workout, a set —
+ * is drawn in the danger hue with a "Removes" line above the buttons: Apply is
+ * the only confirm such a delete gets, so it has to read as one. Items the
+ * model wrote that could not be applied are counted under the card rather than
+ * silently missing.
  */
 
 import { Text, View } from 'react-native';
@@ -31,7 +37,7 @@ import { Icon } from './Icon';
 import { pressedStyle } from './motion';
 import { useT } from '../hooks/useT';
 import type { ChangesChatBlock } from '../state/aiStore';
-import { gradientFill, palette, radius, specularHeavy } from '../theme/tokens';
+import { danger, gradientFill, palette, radius, specularHeavy } from '../theme/tokens';
 
 export function AiChangesCard({
   block,
@@ -44,6 +50,7 @@ export function AiChangesCard({
 }) {
   const t = useT();
   const pending = block.status === 'pending';
+  const removes = block.rows.filter((row) => row.destructive).length;
 
   return (
     <View style={block.status === 'discarded' ? { opacity: 0.6 } : undefined}>
@@ -82,7 +89,11 @@ export function AiChangesCard({
                   {row.subject}
                 </Text>
                 <View className="flex-row items-center" style={{ gap: 8 }}>
-                  <Text numberOfLines={1} className="flex-1 text-label font-medium text-ink">
+                  <Text
+                    numberOfLines={1}
+                    className="flex-1 text-label font-medium text-ink"
+                    style={row.destructive ? { color: danger } : undefined}
+                  >
                     {row.label}
                   </Text>
                   <View className="flex-row items-center" style={{ flexShrink: 1 }}>
@@ -100,7 +111,7 @@ export function AiChangesCard({
                     ) : null}
                     <Text
                       numberOfLines={1}
-                      style={{ flexShrink: 1 }}
+                      style={[{ flexShrink: 1 }, row.destructive ? { color: danger } : null]}
                       className="text-label font-semibold tabular-nums text-green-bright"
                     >
                       {row.to}
@@ -114,6 +125,20 @@ export function AiChangesCard({
           {block.why ? (
             <Text className="mt-md text-label text-ink-muted" style={{ lineHeight: 19 }}>
               {block.why}
+            </Text>
+          ) : null}
+
+          {block.dropped ? (
+            <Text className="mt-sm text-micro text-ink-faint">
+              {t('{n} suggested changes could not be applied and were left out.', {
+                n: block.dropped,
+              })}
+            </Text>
+          ) : null}
+
+          {pending && removes > 0 ? (
+            <Text className="mt-md text-label font-medium" style={{ color: danger }}>
+              {t('Applying removes {n} — Undo is offered right after.', { n: removes })}
             </Text>
           ) : null}
 

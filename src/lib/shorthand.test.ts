@@ -222,7 +222,7 @@ describe('sessionRows', () => {
     expect(topWeightSeries(rows).map((p) => p.value)).toEqual([60, 70, 75, 80, 80, 80]);
   });
 
-  it('drops warm-ups and incomplete sets, exactly as the overload engine does', () => {
+  it('drops warm-ups and incomplete sets, exactly as the records do', () => {
     const history: SetHistory[] = [
       ...sets('ex_pulldown_wide', 100, [1]).map((s) => ({ ...s, isWarmup: true })),
       ...sets('ex_pulldown_wide', 95, [1], 1).map((s) => ({ ...s, isCompleted: false })),
@@ -292,7 +292,7 @@ describe('the shorthand ignores warm-ups', () => {
   });
 
   it('never lets a heavy warm-up single lead the line', () => {
-    // The bug this fixes twice over: the same row also drove the overload verdict.
+    // The bug this fixes twice over: the same row also drove the records.
     const rows = [
       { ...sets(exercise.id, 60, [1])[0], isWarmup: true, setIndex: 0 },
       ...sets(exercise.id, 40, [4, 4]).map((r, i) => ({ ...r, setIndex: i + 1 })),

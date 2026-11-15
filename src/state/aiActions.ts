@@ -27,11 +27,13 @@ import { buildWorkoutContext, nextStartWeights } from '../lib/ai/aiContext';
 import {
   applyExerciseChange,
   describeChanges,
-  validateChanges,
+  droppedNote,
+  validateChangesReport,
   type AiChange,
   type ChangeContext,
   type CurrentValues,
 } from '../lib/ai/aiChanges';
+import { moveItem, newExercise, patchRoutineItems } from '../lib/ai/aiEdits';
 import { suggestionNote, systemPrompt, type SuggestionFate } from '../lib/ai/aiPrompts';
 import { normalizeProposal, planApply, type Library } from '../lib/ai/aiProposal';
 import { validateBlocks, type AiSection } from '../lib/ai/aiSchema';
@@ -56,16 +58,18 @@ import {
 } from '../lib/ai/gemini';
 import { clearKey, getKey, setKey } from '../lib/ai/secureKey';
 import { send } from '../lib/ai/transport';
-import { workoutNumbers } from '../lib/completedWorkout';
-import { monthNames } from '../lib/days';
+import { historyByExerciseId, workoutNumbers } from '../lib/completedWorkout';
+import { dayKey, monthNames, parseClockTime, parseDay, type Weekday } from '../lib/days';
+import { buildDraftEntry, defaultTargetCount, defaultTargetSets } from '../lib/draft';
+import { resolveRest } from '../lib/rest';
+import { warmupToggleState } from '../lib/warmup';
 import type { CompletedWorkout } from '../lib/completedWorkout';
-import type { ID } from '../types/models';
+import type { Exercise, ID } from '../types/models';
 import { t } from '../lib/i18n';
 import { seedUser } from '../data/seed';
 import { useActiveWorkout } from './activeWorkoutStore';
 import { useAi, type AiMessage, type ChatBlock } from './aiStore';
 import { setRestBetweenExercises, setRestBetweenSets } from './restSync';
-import { useDebriefs } from './debriefStore';
 import { useLibrary } from './libraryStore';
 import { useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
@@ -168,7 +172,6 @@ export function chatContext(): {
   const history = useWorkoutHistory.getState();
   const settings = useSettings.getState();
   const built = buildWorkoutContext({
-    debriefs: useDebriefs.getState().debriefs,
     sequence: library.sequence,
     bodyweightLog: settings.bodyweightLog,
     exercises: library.exercises,
@@ -176,12 +179,8 @@ export function chatContext(): {
     workouts: history.workouts,
     numbers: workoutNumbers(history.workouts, history.numbering),
     bodyweightKg: settings.bodyweightKg,
-    settings: {
-      restSecondsBetweenSets: settings.restSecondsBetweenSets,
-      restSecondsBetweenExercises: settings.restSecondsBetweenExercises,
-      autoStartRest: settings.autoStartRest,
-      weeklyWorkoutGoal: settings.weeklyWorkoutGoal,
-    },
+    settings: settingsData(),
+    live: liveForContext(),
     unitSystem: settings.unitSystem,
     lang: lang(),
   });
@@ -191,6 +190,13 @@ export function chatContext(): {
     routineIds: new Set(library.routines.map((r) => r.id)),
     routineNames: new Map(library.routines.map((r) => [r.id, r.name])),
   };
+}
+
+/** The workout in flight, for the context — or null. */
+function liveForContext() {
+  const session = useActiveWorkout.getState().session;
+  if (!session) return null;
+  return { title: session.title, started: session.startedAt != null, entries: session.entries };
 }
 
 /* ------------------------------------------------------------------ */
@@ -386,7 +392,7 @@ export async function sendMessage(
       }
       if (block.type === 'changes_proposal') {
         // Checked against the stores NOW, and the card's `from` read now too.
-        const changes = validateChanges(block.changes.items, changeContext());
+        const { changes, dropped } = validateChangesReport(block.changes.items, changeContext());
         const rows = describeChanges(changes, currentValues(), language);
         if (rows.length > 0) {
           chatBlocks.push({
@@ -395,10 +401,15 @@ export async function sendMessage(
             rows,
             why: block.changes.why,
             status: 'pending',
+            ...(dropped > 0 ? { dropped } : {}),
           });
-        } else if (block.changes.why) {
-          // Nothing it named could be applied; its reason is still the answer.
-          chatBlocks.push({ type: 'text', text: block.changes.why });
+        } else {
+          // Nothing it named could be applied; its reason is still the answer,
+          // and the user is told why there is no card to press.
+          if (block.changes.why) chatBlocks.push({ type: 'text', text: block.changes.why });
+          if (dropped > 0) {
+            chatBlocks.push({ type: 'text', text: droppedNote(dropped, language) });
+          }
         }
         continue;
       }
@@ -530,11 +541,19 @@ export function discardSequence(section: AiSection, messageId: string): void {
 /* Deciding a settings card                                            */
 /* ------------------------------------------------------------------ */
 
-/** What `validateChanges` checks ids against. */
+/** What `validateChanges` checks ids against — every store an item can name. */
 function changeContext(): ChangeContext {
+  const library = useLibrary.getState();
+  const settings = useSettings.getState();
   return {
-    exercises: useLibrary.getState().exercises,
+    exercises: library.exercises,
     workouts: useWorkoutHistory.getState().workouts,
+    routines: library.routines,
+    sequence: library.sequence,
+    session: useActiveWorkout.getState().session,
+    today: dayKey(new Date()),
+    ladderAll: settings.ladderAllExercises,
+    restSeconds: settings.restSecondsBetweenSets,
   };
 }
 
@@ -545,25 +564,63 @@ function formatDay(day: string): string {
   return `${d} ${month.slice(0, 3)}`;
 }
 
+/** The settings a card can move, as plain data — its `from`s, and its Undo. */
+function settingsData() {
+  const s = useSettings.getState();
+  return {
+    restSecondsBetweenSets: s.restSecondsBetweenSets,
+    restSecondsBetweenExercises: s.restSecondsBetweenExercises,
+    autoStartRest: s.autoStartRest,
+    adjustStepSeconds: s.adjustStepSeconds,
+    prepareSeconds: s.prepareSeconds,
+    beepSeconds: s.beepSeconds,
+    soundEnabled: s.soundEnabled,
+    hapticsEnabled: s.hapticsEnabled,
+    keepAwakeEnabled: s.keepAwakeEnabled,
+    notifyOnTimerEnd: s.notifyOnTimerEnd,
+    ladderAllExercises: s.ladderAllExercises,
+    unitSystem: s.unitSystem,
+    language: s.language,
+    weeklySetTargets: s.weeklySetTargets,
+    weighInReminderEnabled: s.weighInReminderEnabled,
+    weighInReminderDays: s.weighInReminderDays,
+    weighInReminderTime: s.weighInReminderTime,
+  };
+}
+
 /** The values in force, for the card's `from`. */
 function currentValues(): CurrentValues {
   const settings = useSettings.getState();
   return {
     exercises: useLibrary.getState().exercises,
-    settings: {
-      restSecondsBetweenSets: settings.restSecondsBetweenSets,
-      restSecondsBetweenExercises: settings.restSecondsBetweenExercises,
-      autoStartRest: settings.autoStartRest,
-      weeklyWorkoutGoal: settings.weeklyWorkoutGoal,
-    },
+    settings: settingsData(),
     bodyweightKg: settings.bodyweightKg,
     formatDay,
   };
 }
 
 /**
+ * Applied first to last: settings (a new between-sets rest clears every
+ * exercise's own rest, and an exercise rest on the same card must survive it),
+ * then what the card creates (later items name it), then the edits in the
+ * model's order, and whole-thing deletions last — an edit to a routine the
+ * same card deletes is harmless before the delete and lost after it.
+ */
+function rank(change: AiChange): number {
+  if (change.target === 'setting') return 0;
+  if (change.target === 'exercise_create') return 1;
+  if (change.target === 'routine' && change.field === 'create') return 2;
+  if (change.target === 'exercise_delete') return 4;
+  if ((change.target === 'routine' || change.target === 'workout') && change.field === 'delete') {
+    return 4;
+  }
+  return 3;
+}
+
+/**
  * `Apply changes` on a settings card: every change, through each store's own
- * action, and ONE Undo that puts every touched store back as it was.
+ * action — the same ones the screens call — and ONE Undo that puts every touched
+ * store back as it was.
  *
  * Null when there is nothing to apply — the card is gone, already decided, or
  * everything it named has been deleted since. Each change is re-checked against
@@ -580,15 +637,13 @@ export function applyChanges(section: AiSection, messageId: string): Applied | n
   const settings = useSettings.getState();
   const snapshot = {
     library: { exercises: library.exercises, routines: library.routines },
-    rest: settings.restSecondsBetweenSets,
-    restExercises: settings.restSecondsBetweenExercises,
-    autoRest: settings.autoStartRest,
-    goal: settings.weeklyWorkoutGoal,
+    sequence: library.sequence,
+    settings: settingsData(),
     bodyweightKg: settings.bodyweightKg,
     bodyweightLog: settings.bodyweightLog,
+    numbering: useWorkoutHistory.getState().numbering,
   };
-  /* The workouts the set corrections touched, as they were, for the Undo. */
-  const written: Written = { workouts: new Map() };
+  const ctx: ApplyContext = { workouts: new Map(), refs: new Map(), routinesCreated: [] };
   /* The workout in flight carries its own copy of each exercise, and Apply
      writes into it (`syncExercise`, `followGlobalRest`) — so the Undo has to put
      those copies back too, or the open card keeps the change it just undid. */
@@ -597,89 +652,438 @@ export function applyChanges(section: AiSection, messageId: string): Applied | n
     ? { localId: session.localId, exercises: session.entries.map((e) => e.exercise) }
     : null;
 
-  /* Settings first: a new between-sets rest clears every exercise's own rest
-     (`restSync`), and an exercise rest on the same card must survive it. */
-  const ordered = [...(block.changes as AiChange[])].sort(
-    (a, b) => Number(b.target === 'setting') - Number(a.target === 'setting'),
-  );
+  const ordered = [...(block.changes as AiChange[])]
+    .map((change, index) => ({ change, index }))
+    .sort((a, b) => rank(a.change) - rank(b.change) || a.index - b.index)
+    .map(({ change }) => change);
   let applied = 0;
   for (const change of ordered) {
-    if (applyOne(change, written)) applied += 1;
+    if (applyOne(change, ctx)) applied += 1;
   }
   if (applied === 0) return null;
   useAi.getState().setChangesStatus(section, messageId, 'accepted');
+  const touched = (target: string) => ordered.some((c) => c.target === target);
 
   return {
     message: t('{n} changes applied', lang(), { n: applied }),
     undo: () => {
       useLibrary.getState().replaceLibrary(snapshot.library);
+      useLibrary.getState().replaceSequence(snapshot.sequence);
+      for (const id of ctx.routinesCreated) useAi.getState().markRoutineSeen(id);
       const live = useActiveWorkout.getState();
       // The same session only: a workout started since never held these copies.
-      if (liveBefore && live.session?.localId === liveBefore.localId) {
-        for (const e of liveBefore.exercises) useActiveWorkout.getState().syncExercise(e.id, e);
+      if (session && liveBefore && live.session?.localId === liveBefore.localId) {
+        if (touched('live') || touched('live_set')) {
+          useActiveWorkout.setState({ session });
+        } else {
+          for (const e of liveBefore.exercises) useActiveWorkout.getState().syncExercise(e.id, e);
+        }
       }
-      const s = useSettings.getState();
-      s.setNumber('restSecondsBetweenSets', snapshot.rest);
-      s.setNumber('restSecondsBetweenExercises', snapshot.restExercises);
-      s.setFlag('autoStartRest', snapshot.autoRest);
-      s.setWeeklyWorkoutGoal(snapshot.goal);
+      if (touched('setting')) useSettings.setState(snapshot.settings);
       // Only a card that weighed in puts the weight back: a weigh-in made by hand
       // since another card was applied is not this Undo's to take.
       // And FIRST, because restoring a workout reprices it at the weight in force.
-      if (ordered.some((c) => c.target === 'bodyweight')) {
+      if (touched('bodyweight')) {
         useSettings.setState({
           bodyweightKg: snapshot.bodyweightKg,
           bodyweightLog: snapshot.bodyweightLog,
         });
       }
-      for (const workout of written.workouts.values()) {
-        useWorkoutHistory.getState().restoreWorkout(workout);
+      // `reinstate`, not `restore`: a workout this card deleted comes back too.
+      for (const workout of ctx.workouts.values()) {
+        useWorkoutHistory.getState().reinstateWorkout(workout);
+      }
+      if (touched('workout')) {
+        const history = useWorkoutHistory.getState();
+        if (snapshot.numbering) {
+          history.setWorkoutNumber(snapshot.numbering.workoutId, snapshot.numbering.number);
+        } else {
+          history.clearWorkoutNumbering();
+        }
       }
       useAi.getState().setChangesStatus(section, messageId, 'pending');
     },
   };
 }
 
-/** What the set corrections wrote over, for the Undo. */
-interface Written {
-  /** The workout as it was before its FIRST correction on this card. */
+/** What Apply carries from one change to the next. */
+interface ApplyContext {
+  /** Each workout as it was before this card's FIRST write to it, for the Undo. */
   workouts: Map<ID, CompletedWorkout>;
+  /** A card's handle (`new_1`) → the id the store gave it. */
+  refs: Map<string, ID>;
+  /** Routines this card created, which get the AI mark until the Undo. */
+  routinesCreated: ID[];
+}
+
+/** An exercise id no row has, for a library row this card creates. */
+function freshExerciseId(): ID {
+  const taken = new Set(useLibrary.getState().exercises.map((e) => e.id));
+  const base = `ex_${Date.now().toString(36)}`;
+  for (let n = 0; ; n += 1) {
+    const id = n === 0 ? base : `${base}_${n}`;
+    if (!taken.has(id)) return id;
+  }
+}
+
+/**
+ * The entry for an exercise added to the workout in flight — built exactly as
+ * `+ Add an exercise` builds it (`AppShell.addExerciseToSession`): what the
+ * exercise plans anywhere else, prefilled from its history, at its own rest.
+ */
+function sessionEntryFor(exercise: Exercise) {
+  const settings = useSettings.getState();
+  const planned = defaultTargetSets(exercise);
+  return buildDraftEntry({
+    exercise,
+    history: historyByExerciseId(useWorkoutHistory.getState().workouts)[exercise.id] ?? [],
+    unitSystem: settings.unitSystem,
+    restSeconds: resolveRest(exercise, settings.restSecondsBetweenSets).seconds,
+    transitionRestSeconds: settings.restSecondsBetweenExercises,
+    targetSets: planned,
+    targetRepsMax: defaultTargetCount(exercise),
+    plannedSetCount: planned,
+    lang: settings.language,
+  });
 }
 
 /** One change, through its store. False when its target is gone. */
-function applyOne(change: AiChange, written: Written): boolean {
-  if (change.target === 'bodyweight') {
-    useSettings.getState().setBodyweightKg(change.value);
+function applyOne(change: AiChange, ctx: ApplyContext): boolean {
+  const resolve = (id: string) => ctx.refs.get(id) ?? id;
+  const keep = (workoutId: ID) => {
+    const workout = useWorkoutHistory.getState().workouts.find((w) => w.id === workoutId);
+    if (workout && !ctx.workouts.has(workoutId)) ctx.workouts.set(workoutId, workout);
+    return workout;
+  };
+  switch (change.target) {
+    case 'bodyweight':
+      useSettings.getState().setBodyweightKg(change.value);
+      return true;
+    case 'setting':
+      return applySetting(change);
+    case 'exercise': {
+      const library = useLibrary.getState();
+      const id = resolve(change.id);
+      const exercise = library.exercises.find((e) => e.id === id && !e.isArchived);
+      if (!exercise) return false;
+      // Through `updateExercise`, which also re-plans the routines on a `sets` change.
+      const next = applyExerciseChange(exercise, { ...change, id });
+      library.updateExercise(exercise.id, next);
+      // And on the card of a workout in flight, as an edit made by hand lands there.
+      useActiveWorkout.getState().syncExercise(next.id, next);
+      return true;
+    }
+    case 'exercise_create': {
+      const settings = useSettings.getState();
+      const exercise = newExercise({
+        id: freshExerciseId(),
+        ownerId: seedUser.id,
+        name: change.name,
+        muscle: change.muscle,
+        kind: change.kind,
+        restSeconds: settings.restSecondsBetweenSets,
+        ladderAll: settings.ladderAllExercises,
+      });
+      useLibrary.getState().addExercise(exercise);
+      ctx.refs.set(change.ref, exercise.id);
+      return true;
+    }
+    case 'exercise_delete': {
+      const library = useLibrary.getState();
+      const id = resolve(change.id);
+      if (!library.exercises.some((e) => e.id === id)) return false;
+      library.deleteExercise(id);
+      return true;
+    }
+    case 'routine':
+      return applyRoutine(change, ctx);
+    case 'routine_item':
+      return applyRoutineItem(change, resolve);
+    case 'sequence': {
+      const library = useLibrary.getState();
+      const steps = library.sequence.routineIds.length;
+      if (change.field === 'on') {
+        library.setSequenceActive(change.value === true);
+        return true;
+      }
+      const index = change.value;
+      if (typeof index !== 'number' || index < 0 || index >= steps) return false;
+      if (change.field === 'next') {
+        library.setSequenceCursor(index);
+        return true;
+      }
+      return library.varySequenceStep(index) != null;
+    }
+    case 'workout':
+      return applyWorkout(change, keep, resolve);
+    case 'workout_set': {
+      const history = useWorkoutHistory.getState();
+      if (!keep(change.id)) return false;
+      if (change.field === 'kind') {
+        return history.updateWorkoutSet(change.id, change.setId, {
+          isWarmup: change.value === 'warmup',
+        });
+      }
+      if (change.field === 'add') return history.addWorkoutSet(change.id, change.exerciseId);
+      if (!change.setId) return false;
+      if (change.field === 'delete') return history.deleteWorkoutSet(change.id, change.setId);
+      if (change.field === 'weight') {
+        return history.updateWorkoutSet(change.id, change.setId, { weightKg: change.value });
+      }
+      return history.updateWorkoutSet(change.id, change.setId, { count: change.value });
+    }
+    case 'live':
+      return applyLive(change, resolve);
+    case 'live_set': {
+      const live = useActiveWorkout.getState();
+      const entry = live.session?.entries.find((e) => e.localId === change.entryId);
+      const set = entry?.sets.find((s) => s.localId === change.setId);
+      if (!entry || !set) return false;
+      if (change.field === 'log') {
+        if (set.isCompleted) return false;
+        live.completeSet(entry.localId, set.localId);
+      } else if (change.field === 'remove') {
+        live.removeSet(entry.localId, set.localId);
+      } else if (change.field === 'weight') {
+        live.patchSet(entry.localId, set.localId, { weightKg: change.value });
+      } else {
+        live.patchSet(entry.localId, set.localId, { count: change.value });
+      }
+      return true;
+    }
+  }
+}
+
+/** A setting, through the same write its Settings row makes. */
+function applySetting(change: Extract<AiChange, { target: 'setting' }>): boolean {
+  const settings = useSettings.getState();
+  const on = change.value === true;
+  switch (change.field) {
+    case 'auto_rest':
+      settings.setFlag('autoStartRest', on);
+      return true;
+    case 'sound':
+      settings.setFlag('soundEnabled', on);
+      return true;
+    case 'vibration':
+      settings.setFlag('hapticsEnabled', on);
+      return true;
+    case 'keep_awake':
+      settings.setFlag('keepAwakeEnabled', on);
+      return true;
+    case 'timer_notifications':
+      settings.setFlag('notifyOnTimerEnd', on);
+      // The row asks for the permission as it turns on; so does this.
+      if (on) {
+        void import('../lib/notify')
+          .then((m) => m.ensureNotificationPermission())
+          .catch(() => undefined);
+      }
+      return true;
+    case 'ladder_all':
+      // The flag and the library together, as the switch keeps them.
+      settings.setFlag('ladderAllExercises', on);
+      useLibrary.getState().setLadderOnAllExercises(on);
+      return true;
+    case 'weigh_in_reminder':
+      settings.setWeighInReminderEnabled(on);
+      /* As the switch does: the permission is asked as it turns on, and a fresh
+         grant arms the alerts now rather than at the next foreground. A refusal
+         leaves it on and silent, which the Settings row says in words. */
+      if (on) {
+        void import('../lib/notify')
+          .then((m) => m.ensureNotificationPermission())
+          .then(async (state) => {
+            if (state !== 'granted') return;
+            const sync = await import('../hooks/useWeighInReminder');
+            await sync.syncWeighInFromSettings(true);
+          })
+          .catch(() => undefined);
+      }
+      return true;
+    case 'weigh_in_days': {
+      if (!Array.isArray(change.value) || change.value.length === 0) return false;
+      const wanted = change.value as Weekday[];
+      // The chips' own toggle, one day at a time: the new days first, so the set
+      // never passes through empty (which the store reads as "switch it off").
+      const now = () => useSettings.getState().weighInReminderDays;
+      for (const day of wanted) if (!now().includes(day)) settings.toggleWeighInReminderDay(day);
+      for (const day of [...now()]) {
+        if (!wanted.includes(day)) settings.toggleWeighInReminderDay(day);
+      }
+      return true;
+    }
+    case 'weigh_in_time': {
+      const at = parseClockTime(change.value);
+      if (!at) return false;
+      settings.setWeighInReminderTime(at.hour, at.minute);
+      return true;
+    }
+    case 'timer_step':
+      settings.setNumber('adjustStepSeconds', Number(change.value));
+      return true;
+    case 'get_ready':
+      settings.setNumber('prepareSeconds', Number(change.value));
+      return true;
+    case 'beep_seconds':
+      settings.setNumber('beepSeconds', Number(change.value));
+      return true;
+    case 'units':
+      settings.setUnitSystem(change.value === 'imperial' ? 'imperial' : 'metric');
+      return true;
+    case 'language':
+      settings.setLanguage(change.value === 'ru' ? 'ru' : 'en');
+      return true;
+    case 'weekly_target':
+      if (!change.cluster) return false;
+      settings.setWeeklyTarget(
+        change.cluster,
+        change.value == null ? undefined : Number(change.value),
+      );
+      return true;
+    case 'rest_between_sets':
+      // The same writes the Settings rows make — `state/restSync.ts`.
+      setRestBetweenSets(Number(change.value));
+      return true;
+    case 'rest_between_exercises':
+      setRestBetweenExercises(Number(change.value));
+      return true;
+  }
+}
+
+function applyRoutine(
+  change: Extract<AiChange, { target: 'routine' }>,
+  ctx: ApplyContext,
+): boolean {
+  const library = useLibrary.getState();
+  if (change.field === 'create') {
+    const routine = library.createRoutine(change.name);
+    ctx.refs.set(change.id, routine.id);
+    ctx.routinesCreated.push(routine.id);
+    useAi.getState().markRoutineAi(routine.id);
     return true;
   }
-  if (change.target === 'workout_set') {
-    const history = useWorkoutHistory.getState();
-    const workout = history.workouts.find((w) => w.id === change.id);
-    if (!workout) return false;
-    if (!written.workouts.has(workout.id)) written.workouts.set(workout.id, workout);
-    return history.updateWorkoutSet(workout.id, change.setId, { kind: change.value });
+  const id = ctx.refs.get(change.id) ?? change.id;
+  const routine = library.routines.find((r) => r.id === id);
+  if (!routine) return false;
+  switch (change.field) {
+    case 'rename':
+      library.updateRoutine(id, { name: change.value ?? routine.name, items: routine.items });
+      return true;
+    case 'duplicate': {
+      const copy = library.duplicateRoutine(id);
+      if (!copy) return false;
+      if (change.value) {
+        useLibrary.getState().updateRoutine(copy.id, { name: change.value, items: copy.items });
+      }
+      return true;
+    }
+    case 'delete':
+      library.deleteRoutine(id);
+      return true;
   }
-  if (change.target === 'exercise') {
-    const library = useLibrary.getState();
-    const exercise = library.exercises.find((e) => e.id === change.id && !e.isArchived);
+}
+
+function applyRoutineItem(
+  change: Extract<AiChange, { target: 'routine_item' }>,
+  resolve: (id: string) => string,
+): boolean {
+  const routineId = resolve(change.id);
+  const exerciseId = resolve(change.exerciseId);
+  const library = useLibrary.getState();
+  const exercise = library.exercises.find((e) => e.id === exerciseId);
+  const target = library.routines.find((r) => r.id === routineId);
+  if (!exercise || !target) return false;
+  if (change.field === 'add') {
+    library.appendToRoutine(routineId, exerciseId);
+    if (change.value == null) return true;
+    // Placed where it was asked for: the row just appended is the last one.
+    const routine = useLibrary.getState().routines.find((r) => r.id === routineId);
+    const last = routine ? [...routine.items].sort((a, b) => b.order - a.order)[0] : undefined;
+    if (!routine || !last) return true;
+    useLibrary.getState().updateRoutine(routineId, {
+      name: routine.name,
+      items: moveItem(routine.items, last.id, change.value),
+    });
+    return true;
+  }
+  const items = patchRoutineItems(target.items, { ...change, exerciseId }, exercise.countUnit);
+  if (!items) return false;
+  // `updateRoutine`, which is what the routine editor's Save writes.
+  library.updateRoutine(routineId, { name: target.name, items });
+  return true;
+}
+
+function applyWorkout(
+  change: Extract<AiChange, { target: 'workout' }>,
+  keep: (id: ID) => CompletedWorkout | undefined,
+  resolve: (id: string) => string,
+): boolean {
+  const workout = keep(change.id);
+  if (!workout) return false;
+  const history = useWorkoutHistory.getState();
+  switch (change.field) {
+    case 'rename':
+      return history.editWorkout(workout.id, { title: String(change.value) });
+    case 'date': {
+      // Another day, the same time of day — what "Move to another day" does.
+      const day = parseDay(String(change.value));
+      if (!day) return false;
+      const was = new Date(workout.startedAt);
+      day.setHours(was.getHours(), was.getMinutes(), was.getSeconds(), was.getMilliseconds());
+      return history.editWorkout(workout.id, { startedAt: day });
+    }
+    case 'start_time': {
+      const [h, m] = String(change.value).split(':').map(Number);
+      const at = new Date(workout.startedAt);
+      at.setHours(h, m, 0, 0);
+      return history.editWorkout(workout.id, { startedAt: at });
+    }
+    case 'duration':
+      return history.editWorkout(workout.id, { durationMinutes: Number(change.value) });
+    case 'number':
+      history.setWorkoutNumber(workout.id, Number(change.value));
+      return true;
+    case 'delete':
+      history.deleteWorkout(workout.id);
+      return true;
+    case 'add_exercise': {
+      const id = resolve(change.exerciseId ?? '');
+      const exercise = useLibrary.getState().exercises.find((e) => e.id === id);
+      return exercise ? history.addWorkoutExercise(workout.id, exercise) : false;
+    }
+    case 'remove_exercise':
+      return history.deleteWorkoutExercise(workout.id, change.exerciseId ?? '');
+  }
+}
+
+function applyLive(
+  change: Extract<AiChange, { target: 'live' }>,
+  resolve: (id: string) => string,
+): boolean {
+  const live = useActiveWorkout.getState();
+  if (!live.session) return false;
+  if (change.field === 'add_exercise') {
+    const id = resolve(change.exerciseId);
+    const exercise = useLibrary.getState().exercises.find((e) => e.id === id);
     if (!exercise) return false;
-    // Through `updateExercise`, which also re-plans the routines on a `sets` change.
-    const next = applyExerciseChange(exercise, change);
-    library.updateExercise(exercise.id, next);
-    // And on the card of a workout in flight, as an edit made by hand lands there.
-    useActiveWorkout.getState().syncExercise(next.id, next);
+    live.addEntry(sessionEntryFor(exercise));
     return true;
   }
-  if (change.target === 'setting') {
-    const settings = useSettings.getState();
-    if (change.field === 'auto_rest') settings.setFlag('autoStartRest', change.value === true);
-    else if (change.field === 'weekly_goal') settings.setWeeklyWorkoutGoal(Number(change.value));
-    // The same writes the Settings rows make — `state/restSync.ts`.
-    else if (change.field === 'rest_between_sets') setRestBetweenSets(Number(change.value));
-    else setRestBetweenExercises(Number(change.value));
+  const entry = live.session.entries.find((e) => e.localId === change.entryId);
+  if (!entry) return false;
+  if (change.field === 'warmup') {
+    // `toggleWarmup` flips; re-checked NOW, so a warm-up the user added or
+    // logged by hand since the card was filed is not flipped the wrong way.
+    const state = warmupToggleState(entry.sets);
+    if (state == null || (state === 'add') !== (change.on === true)) return false;
+    live.toggleWarmup(entry.localId);
     return true;
   }
-  return false;
+  if (change.field === 'remove_exercise') live.removeEntry(entry.localId);
+  else if (change.field === 'add_set') live.addSet(entry.localId);
+  else live.moveEntry(entry.localId, change.value ?? 0);
+  return true;
 }
 
 export function discardChanges(section: AiSection, messageId: string): void {

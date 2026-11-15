@@ -3,11 +3,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import {
-  DEFAULT_CUSTOM_COLORS,
   NEUTRALS,
   ON_ACC_DARK,
   ON_ACC_LIGHT,
-  THEME_PRESETS,
+  THEME_COLORS,
   contrastRatio,
   deriveTheme,
   hexToRgb,
@@ -15,59 +14,16 @@ import {
   mixOklab,
   normalizeHex,
   rgba,
-  themeColors,
-  themeName,
-  usableCustomColors,
-  usableThemeId,
 } from './theme';
 
 /**
  * The theme, as arithmetic. The rule worth pinning is the one a wrong answer
  * would hide: `onAcc` decides whether a ▶ on the gradient can be SEEN, and it
- * must flip at the design's 0.45 luminance for every preset.
+ * must flip at the design's 0.45 luminance.
  */
-describe('the presets', () => {
-  it('are the eight the design names, Fintech Lime first', () => {
-    expect(THEME_PRESETS.map((p) => p.id)).toEqual([
-      'lime',
-      'emerald',
-      'electric',
-      'aqua',
-      'sunset',
-      'sapphire',
-      'aurora',
-      'ember',
-    ]);
-    expect(THEME_PRESETS[0].colors).toEqual(['#C6F432', '#3DDC84', '#00A389']);
-  });
-});
-
-describe('usableThemeId / usableCustomColors', () => {
-  it('lands an unknown id on the default', () => {
-    expect(usableThemeId('neon')).toBe('lime');
-    expect(usableThemeId('custom')).toBe('custom');
-  });
-
-  it('keeps good hex, normalises it, and fills a bad slot from the default', () => {
-    expect(usableCustomColors(['#abcdef', 'nope', 12])).toEqual([
-      '#ABCDEF',
-      DEFAULT_CUSTOM_COLORS[1],
-      DEFAULT_CUSTOM_COLORS[2],
-    ]);
-    expect(usableCustomColors(undefined)).toEqual(DEFAULT_CUSTOM_COLORS);
-  });
-});
-
-describe('themeColors / themeName', () => {
-  it('reads a preset, or Custom’s own three', () => {
-    expect(themeColors('ember', DEFAULT_CUSTOM_COLORS)).toEqual(['#F59E0B', '#F97316', '#EF4444']);
-    expect(themeColors('custom', ['#111111', '#222222', '#333333'])).toEqual([
-      '#111111',
-      '#222222',
-      '#333333',
-    ]);
-    expect(themeName('aqua')).toBe('Aqua Tech');
-    expect(themeName('custom')).toBe('Custom');
+describe('the theme', () => {
+  it('is Fintech Lime', () => {
+    expect(THEME_COLORS).toEqual(['#C6F432', '#3DDC84', '#00A389']);
   });
 });
 
@@ -93,20 +49,17 @@ describe('colour arithmetic', () => {
 
 describe('deriveTheme', () => {
   it('puts dark glyphs on a light c2 and white ones on a dark c2', () => {
-    expect(deriveTheme(THEME_PRESETS[0].colors).onAcc).toBe(ON_ACC_DARK); // lime
-    expect(deriveTheme(THEME_PRESETS[2].colors).onAcc).toBe(ON_ACC_LIGHT); // electric
-    expect(deriveTheme(THEME_PRESETS[1].colors).onAcc).toBe(ON_ACC_LIGHT); // emerald
+    expect(deriveTheme(THEME_COLORS).onAcc).toBe(ON_ACC_DARK);
+    expect(deriveTheme(['#1E72FF', '#9624FF', '#FF4FD8']).onAcc).toBe(ON_ACC_LIGHT);
   });
 
-  it('makes an accent lighter than c2 for every preset', () => {
-    for (const preset of THEME_PRESETS) {
-      const theme = deriveTheme(preset.colors);
-      expect(luminance(theme.acc)).toBeGreaterThan(luminance(theme.c2));
-    }
+  it('makes an accent lighter than c2', () => {
+    const theme = deriveTheme(THEME_COLORS);
+    expect(luminance(theme.acc)).toBeGreaterThan(luminance(theme.c2));
   });
 
   it('keeps the tints darker than c2, over the page', () => {
-    const theme = deriveTheme(THEME_PRESETS[0].colors);
+    const theme = deriveTheme(THEME_COLORS);
     expect(luminance(theme.dim)).toBeLessThan(luminance(theme.c2));
     expect(luminance(theme.wash)).toBeLessThan(luminance(theme.dim));
   });
@@ -145,13 +98,10 @@ describe('text contrast', () => {
     expect(luminance(NEUTRALS.inkMuted)).toBeGreaterThan(luminance(NEUTRALS.inkFaint));
   });
 
-  it('holds the accent text of every built-in theme to the same floor', () => {
-    const themes = [...THEME_PRESETS.map((p) => p.colors), DEFAULT_CUSTOM_COLORS];
-    for (const colors of themes) {
-      const { acc } = deriveTheme(colors);
-      for (const ground of Object.values(grounds)) {
-        expect(contrastRatio(acc, ground), `${acc} on ${ground}`).toBeGreaterThanOrEqual(4.5);
-      }
+  it('holds the accent text to the same floor', () => {
+    const { acc } = deriveTheme(THEME_COLORS);
+    for (const ground of Object.values(grounds)) {
+      expect(contrastRatio(acc, ground), `${acc} on ${ground}`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -165,6 +115,32 @@ describe('text contrast', () => {
       '--ink': NEUTRALS.ink,
       '--ink-muted': NEUTRALS.inkMuted,
       '--ink-faint': NEUTRALS.inkFaint,
+    };
+    for (const [name, hex] of Object.entries(vars)) {
+      const match = css.match(new RegExp(`${name}:\\s*(\\d+) (\\d+) (\\d+);`));
+      expect(match, name).not.toBeNull();
+      expect(match!.slice(1, 4).map(Number), name).toEqual(hexToRgb(hex));
+    }
+  });
+
+  /*
+   * The theme's channels exist only in global.css — nothing pours them in at
+   * runtime — so a className like `text-green-bright` is right exactly when
+   * these agree with the derivation the token getters use.
+   */
+  it('agrees with global.css, the only spelling of the theme for className', () => {
+    const css = readFileSync(join(__dirname, '..', '..', 'global.css'), 'utf8');
+    const theme = deriveTheme(THEME_COLORS);
+    const vars: Record<string, string> = {
+      '--green-wash': theme.wash,
+      '--green-dim': theme.dim,
+      '--green': theme.c2,
+      '--green-bright': theme.acc,
+      '--acc': theme.acc,
+      '--on-acc': theme.onAcc,
+      '--c1': theme.c1,
+      '--c2': theme.c2,
+      '--c3': theme.c3,
     };
     for (const [name, hex] of Object.entries(vars)) {
       const match = css.match(new RegExp(`${name}:\\s*(\\d+) (\\d+) (\\d+);`));

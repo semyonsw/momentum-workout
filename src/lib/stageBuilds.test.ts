@@ -51,12 +51,23 @@ describe('reconcileBuilds', () => {
 });
 
 describe('nextSpare', () => {
-  it('builds the other root, then stops', () => {
+  it('builds the nearest missing root first, then the next, then stops', () => {
     let stage = initialBuilds('Workout');
+    expect(nextSpare(stage, 'Workout')).toBe('Routines');
+    stage = addSpare(stage, 'Routines');
+    expect(nextSpare(stage, 'Workout')).toBe('History');
+    stage = addSpare(stage, 'History');
     expect(nextSpare(stage, 'Workout')).toBe('Settings');
     stage = addSpare(stage, 'Settings');
     expect(nextSpare(stage, 'Workout')).toBeNull();
-    expect(nextSpare(initialBuilds('Settings'), 'Settings')).toBe('Workout');
+    expect(nextSpare(initialBuilds('Settings'), 'Settings')).toBe('History');
+  });
+
+  it('builds only along the bar it is given', () => {
+    const two = ['Workout', 'Settings'] as const;
+    const stage = initialBuilds('Workout');
+    expect(nextSpare(stage, 'Workout', two)).toBe('Settings');
+    expect(nextSpare(addSpare(stage, 'Settings'), 'Workout', two)).toBeNull();
   });
 
   it('does not rebuild a root that is already mounted', () => {

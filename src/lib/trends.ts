@@ -16,7 +16,7 @@
  * A real session ramps and drops inside one exercise ("80 × 7, then 75 × 7 7 6").
  * Plotting sets would draw a sawtooth and invent a plateau out of a warm-up. One
  * number per session is the honest signal, and it is the same granularity the
- * overload engine judges — so a chart can never disagree with a nudge.
+ * history list reads — so a chart can never disagree with the list under it.
  *
  * ── WHAT COUNTS ────────────────────────────────────────────────────────────
  *
@@ -127,7 +127,7 @@ export function exerciseCountSeries(history: readonly SetHistory[], exerciseId: 
  * Oldest-first: the TOP working weight of each session.
  *
  * Top, not average and not last: it is the number you decide the next session
- * against, and it is what the overload engine judges. Sessions with no weight on
+ * against. Sessions with no weight on
  * them (bodyweight work) contribute nothing.
  */
 export function exerciseTopWeightSeries(

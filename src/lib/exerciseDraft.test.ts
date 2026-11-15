@@ -4,7 +4,7 @@ import {
   applyDraftToExercise,
   bumpDraftRest,
   bumpDraftSets,
-  bumpLadderMax,
+  findMaxNextWorkout,
   draftToExercise,
   emptyExerciseDraft,
   exerciseDraftChanged,
@@ -288,16 +288,47 @@ describe('the ladder round trip', () => {
     expect(saved.ladder).toEqual({ max: 16, earned: 2 });
   });
 
-  it('resets the earned reps when the max is retested by hand', () => {
-    const draft = bumpLadderMax(exerciseToDraft(withLadder), 1);
-    expect(draft.ladderMax).toBe(17);
-    // Two reps earned against 16 say nothing about 17.
+  it('a retest drops the earned reps and saves a ladder waiting for its max', () => {
+    const draft = findMaxNextWorkout(exerciseToDraft(withLadder));
+    expect(draft.ladderAwaitingMax).toBe(true);
+    // Two reps earned against 16 say nothing about whatever the test proves.
     expect(draft.ladderEarned).toBe(0);
+    expect(applyDraftToExercise(draft, withLadder).ladder).toEqual({
+      max: 16,
+      earned: 0,
+      awaitingMax: true,
+    });
   });
 
-  it('does not reset anything when the max cannot move', () => {
-    const pinned = { ...exerciseToDraft(withLadder), ladderMax: 100 };
-    expect(bumpLadderMax(pinned, 1)).toBe(pinned);
+  it('opens a ladder saved before the flag existed as one with a real max', () => {
+    expect(exerciseToDraft(withLadder).ladderAwaitingMax).toBe(false);
+  });
+
+  it('opens a waiting ladder as waiting, and keeps it waiting through an edit', () => {
+    const waiting: Exercise = { ...machine, ladder: { max: 12, earned: 0, awaitingMax: true } };
+    const draft = exerciseToDraft(waiting);
+    expect(draft.ladderOn).toBe(true);
+    expect(draft.ladderAwaitingMax).toBe(true);
+    expect(applyDraftToExercise({ ...draft, name: 'Chins' }, waiting).ladder?.awaitingMax).toBe(
+      true,
+    );
+  });
+
+  it('switching a fresh ladder on waits for the max instead of trusting a guess', () => {
+    const on = toggleLadder(emptyExerciseDraft('Pull-ups'), true);
+    expect(on.ladderAwaitingMax).toBe(true);
+    expect(draftToExercise(on, 'ex_x', 'u1').ladder?.awaitingMax).toBe(true);
+  });
+
+  it('switching a real ladder off and on gives its max back, not a test', () => {
+    const back = toggleLadder(toggleLadder(exerciseToDraft(withLadder), false), true);
+    expect(back.ladderAwaitingMax).toBe(false);
+    expect(back.ladderMax).toBe(16);
+  });
+
+  it('finds no max on a unit that cannot run a ladder', () => {
+    const draft = exerciseToDraft(plank);
+    expect(findMaxNextWorkout(draft)).toBe(draft);
   });
 
   it('switches on with a max seeded from the target reps on screen', () => {
@@ -389,12 +420,11 @@ describe('the max is the only rep number', () => {
   });
 
   it('saves the max as the count the first session starts at', () => {
-    const draft = bumpLadderMax(exerciseToDraft(laddered), 1);
-    const saved = applyDraftToExercise(draft, laddered);
+    const saved = applyDraftToExercise(exerciseToDraft(laddered), laddered);
 
-    expect(saved.ladder).toEqual({ max: 17, earned: 0 });
+    expect(saved.ladder).toEqual({ max: 16, earned: 0 });
     // Not 12. The first rung of the ladder IS the max.
-    expect(saved.defaultCount).toBe(17);
+    expect(saved.defaultCount).toBe(16);
   });
 
   it('derives the count from the max even when the draft disagrees', () => {

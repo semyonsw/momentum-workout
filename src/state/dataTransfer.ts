@@ -24,16 +24,17 @@
  *
  * ── ONE WAY OUT AND ONE WAY IN ─────────────────────────────────────────────
  *
- * An export carries the training, the debriefs, the training chat and the
- * settings, and `applyBackup` REPLACES exactly those with what the file says.
- * A combined 2.x file also carries daily tasks and money; those keys are left
- * unread (`lib/backup.ts`), and the Tasks and Expenses apps that were split out
- * at 3.0.0 restore them from the same file. That is what a restore is, and it
+ * An export carries the training, the training chat and the settings, and
+ * `applyBackup` REPLACES exactly those with what the file says. A combined 2.x
+ * file also carries daily tasks and money, and an older file this app's own
+ * post-workout debriefs; those keys are left unread (`lib/backup.ts`), and the
+ * Tasks and Expenses apps that were split out at 3.0.0 restore the first two
+ * from the same file. That is what a restore is, and it
  * is the only one there is.
  *
  * There used to be four more: a merge that added only the workouts this phone did
- * not have, a CSV reader for training that predated the app, and a per-section
- * export and import for each log the app used to hold. Eight rows, seven of which were
+ * not have, a CSV reader for training that predated the app, a CSV export, and a
+ * per-section export and import for each log the app used to hold. Eight rows, seven of which were
  * answering a question nobody was asking twice — and eight rows of export and
  * import are worse than two, because the one that matters (the whole phone, out
  * to a file you can read) stops being obvious among them. One file holds
@@ -46,10 +47,8 @@ import {
   type BackupCounts,
   type BackupPayload,
 } from '../lib/backup';
-import { workoutsToCsv } from '../lib/csv';
 import { t } from '../lib/i18n';
 import { chatsForBackup, useAi } from './aiStore';
-import { useDebriefs } from './debriefStore';
 import { useLibrary } from './libraryStore';
 import { sanitizeSettings, useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
@@ -67,7 +66,6 @@ export function currentSnapshot(): BackupPayload {
     sequence: library.sequence,
     workouts: useWorkoutHistory.getState().workouts,
     numbering: useWorkoutHistory.getState().numbering,
-    debriefs: useDebriefs.getState().debriefs,
     aiChats: chatsForBackup(useAi.getState()),
   };
 }
@@ -123,30 +121,14 @@ export function exportBackupText(now?: Date): string {
   return serializeBackup(currentSnapshot(), now);
 }
 
-/**
- * The training log as a spreadsheet (`lib/csv.ts`), straight out of the stores.
- *
- * It refuses on an unreadable log for the reason the backup does: an export
- * taken while the app looks wrong would be a header and nothing else, and "I
- * exported it, it was empty" is a belief worth not creating.
- */
-export function exportCsvText(): string {
-  const history = useWorkoutHistory.getState();
-  if (history.loadFailed) throw new UnreadableLogError();
-  return workoutsToCsv(history.workouts, {
-    numbering: history.numbering,
-    unitSystem: useSettings.getState().unitSystem,
-  });
-}
-
 /** What a restore actually put on the phone — validated rows, not claimed ones. */
 export interface AppliedCounts extends BackupCounts {
   settingsApplied: boolean;
 }
 
 /**
- * Write a parsed backup into the stores, replacing the training, the debriefs,
- * the training chat and the settings, and nothing else.
+ * Write a parsed backup into the stores, replacing the training, the training
+ * chat and the settings, and nothing else.
  *
  * Returns what survived each store's own validation. The counts a file states in its
  * envelope are what the exporting phone had; these are what this phone now has, and
@@ -180,9 +162,8 @@ export function applyBackup(payload: BackupPayload): AppliedCounts {
     /*
      * The file's settings, except what belongs to THIS PHONE: the backup folder
      * is a grant this phone holds (another phone's URI is a folder it has no
-     * permission for, and every auto-backup after the restore failed), the
-     * day's file and last-backup time describe this phone's own files, and
-     * Health Connect is a permission granted here or not at all.
+     * permission for, and every auto-backup after the restore failed), and the
+     * day's file and last-backup time describe this phone's own files.
      */
     const here = useSettings.getState();
     const local = {
@@ -190,7 +171,6 @@ export function applyBackup(payload: BackupPayload): AppliedCounts {
       autoBackupFolderUri: here.autoBackupFolderUri,
       autoBackupFile: here.autoBackupFile,
       lastBackupAt: here.lastBackupAt,
-      shareToHealthConnect: here.shareToHealthConnect,
     };
     useSettings.getState().importSettings({ ...fromFile, ...local });
   }
@@ -200,7 +180,6 @@ export function applyBackup(payload: BackupPayload): AppliedCounts {
     routines: payload.routines,
     sequence: payload.sequence,
   });
-  if (payload.debriefs != null) useDebriefs.getState().importDebriefs(payload.debriefs);
   let sets = 0;
   for (const workout of useWorkoutHistory.getState().workouts) sets += workout.sets.length;
   const applied: AppliedCounts = {

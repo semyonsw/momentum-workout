@@ -25,8 +25,8 @@
     --ink: 236 241 238; /* #ECF1EE — primary text. never pure white */
     --ink-muted: 138 150 143; /* #8A968F — secondary text */
     --ink-faint: 125 136 130; /* #7D8882 — micro-labels, ghosted values (5.5:1, U3) */
-    /* The theme. These are Fintech Lime's, the default — `App.tsx` overwrites
-       every one of them from `lib/theme.ts` before the first screen draws. */
+    /* The theme: `lib/theme.ts`'s Fintech Lime, derived there and spelled out
+       here as channels. `theme.test.ts` holds the two spellings together. */
     --green-wash: 10 25 17; /* c2 at 8% over the page */
     --green-dim: 23 72 45; /* c2 at 30% over the page */
     --green: 61 220 132; /* c2 — primary fills */

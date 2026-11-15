@@ -7,103 +7,34 @@
  *                ├── onAcc   ink or near-black, whichever reads on a c2 fill
  *                └── tint(a) c2 at alpha a — lit cards, chips, borders, glows
  *
+ * ── ONE THEME, FIXED ──────────────────────────────────────────────────────
+ *
+ * Fintech Lime, the colours the launcher icon is drawn in, and not a setting:
+ * a training log is opened to train, and one palette is one palette every
+ * screen has been checked against. The derivation below stays a rule rather
+ * than a table of hand-picked hexes, so changing the three stops is one line.
+ *
  * ── WHY THREE COLOURS AND NOT ONE ─────────────────────────────────────────
  *
- * Momentum is three logs in one app — training, daily tasks, money — and the
- * icon is three arcs of one ring. A gradient of three stops is what lets the
- * floating action, the rings and the lamps carry all three without inventing a
- * colour per section, which is the thing the one-hue rule was protecting against.
- * The one-hue rule survives: every tint in the app is still ONE of these three,
- * and never a fourth colour picked for a single component.
+ * A gradient of three stops is what lets the floating action, the rings and the
+ * lamps carry depth without inventing a colour per component. The one-hue rule
+ * survives: every tint in the app is still ONE of these three, and never a
+ * fourth colour picked for a single component.
  *
  * ── WHY OKLAB FOR THE ACCENT ──────────────────────────────────────────────
  *
- * The accent is c2 lightened for text on near-black. An sRGB mix toward white
- * washes a saturated violet into lilac-grey at the same ratio that barely moves
- * a lime; OKLab is perceptually even, so "80% of c2" is the same step of
- * lightness for every preset — which is what makes one contrast decision hold
- * for eight themes and whatever three colours somebody picks for Custom.
+ * The accent is c2 lightened for text on near-black. OKLab is perceptually
+ * even, so "80% of c2" is a predictable step of lightness rather than a wash
+ * toward grey.
  *
  * Pure and dependency-free, so the whole derivation is tested without a renderer.
  * `theme/tokens.ts` is where the result is poured into the tokens the screens read.
  */
 
-export type ThemeId =
-  'lime' | 'emerald' | 'electric' | 'aqua' | 'sunset' | 'sapphire' | 'aurora' | 'ember' | 'custom';
-
 export type ThemeColors = readonly [string, string, string];
 
-export interface ThemePreset {
-  id: Exclude<ThemeId, 'custom'>;
-  name: string;
-  /** The one-line description under the swatch. */
-  tag: string;
-  colors: ThemeColors;
-}
-
-/** The default is the first entry, and the icon is exported in it. */
-export const THEME_PRESETS: readonly ThemePreset[] = [
-  {
-    id: 'lime',
-    name: 'Fintech Lime',
-    tag: 'Default · money and growth',
-    colors: ['#C6F432', '#3DDC84', '#00A389'],
-  },
-  {
-    id: 'emerald',
-    name: 'Emerald',
-    tag: 'The original green, plus teal',
-    colors: ['#1E7A4C', '#3FA96C', '#2BC4A4'],
-  },
-  {
-    id: 'electric',
-    name: 'Electric Violet',
-    tag: 'Blue, violet, pink',
-    colors: ['#1E72FF', '#9624FF', '#FF4FD8'],
-  },
-  {
-    id: 'aqua',
-    name: 'Aqua Tech',
-    tag: 'The 2026 blue-green',
-    colors: ['#00C2A8', '#0EA5E9', '#6366F1'],
-  },
-  {
-    id: 'sunset',
-    name: 'Sunset Pulse',
-    tag: 'Workout energy',
-    colors: ['#FF7A18', '#FF3D68', '#A62BFF'],
-  },
-  {
-    id: 'sapphire',
-    name: 'Deep Sapphire',
-    tag: 'Calm and trust',
-    colors: ['#1D4ED8', '#3B82F6', '#22D3EE'],
-  },
-  {
-    id: 'aurora',
-    name: 'Aurora',
-    tag: 'Acid, cyan, violet',
-    colors: ['#7CFF6B', '#00E5FF', '#8B5CF6'],
-  },
-  {
-    id: 'ember',
-    name: 'Ember',
-    tag: 'Warm focus',
-    colors: ['#F59E0B', '#F97316', '#EF4444'],
-  },
-];
-
-export const DEFAULT_THEME_ID: ThemeId = 'lime';
-
-/** What Custom starts as before anybody touches a dot. Warm, and unlike any preset. */
-export const DEFAULT_CUSTOM_COLORS: ThemeColors = ['#FF5F6D', '#FFC371', '#47E891'];
-
-const THEME_IDS: readonly ThemeId[] = [...THEME_PRESETS.map((p) => p.id), 'custom'];
-
-/** A theme id this build knows, or the default — a blob from a later build is a thing. */
-export function usableThemeId(value: unknown): ThemeId {
-  return THEME_IDS.includes(value as ThemeId) ? (value as ThemeId) : DEFAULT_THEME_ID;
-}
+/** Fintech Lime: the app's three stops, left to right. `global.css` repeats them. */
+export const THEME_COLORS: ThemeColors = ['#C6F432', '#3DDC84', '#00A389'];
 
 const HEX = /^#?([0-9a-f]{6})$/i;
 
@@ -112,26 +43,6 @@ export function normalizeHex(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const match = HEX.exec(value.trim());
   return match ? `#${match[1].toUpperCase()}` : null;
-}
-
-/** Three usable hex colours, filling any bad slot from the Custom default. */
-export function usableCustomColors(value: unknown): ThemeColors {
-  const list = Array.isArray(value) ? value : [];
-  return [0, 1, 2].map(
-    (i) => normalizeHex(list[i]) ?? DEFAULT_CUSTOM_COLORS[i],
-  ) as unknown as ThemeColors;
-}
-
-/** The three stops a theme id stands for. */
-export function themeColors(themeId: ThemeId, custom: ThemeColors): ThemeColors {
-  if (themeId === 'custom') return usableCustomColors(custom);
-  return (THEME_PRESETS.find((p) => p.id === themeId) ?? THEME_PRESETS[0]).colors;
-}
-
-/** The display name; Custom is not a preset and has no entry to read it from. */
-export function themeName(themeId: ThemeId): string {
-  if (themeId === 'custom') return 'Custom';
-  return (THEME_PRESETS.find((p) => p.id === themeId) ?? THEME_PRESETS[0]).name;
 }
 
 /* ------------------------------------------------------------------ */
@@ -277,7 +188,7 @@ export interface DerivedTheme {
 }
 
 export function deriveTheme(colors: ThemeColors): DerivedTheme {
-  const [c1, c2, c3] = [0, 1, 2].map((i) => normalizeHex(colors[i]) ?? DEFAULT_CUSTOM_COLORS[i]);
+  const [c1, c2, c3] = [0, 1, 2].map((i) => normalizeHex(colors[i]) ?? THEME_COLORS[i]);
   return {
     c1,
     c2,

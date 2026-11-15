@@ -30,7 +30,7 @@
  *
  * ── COUNTING RULES (shared with `balance.ts`) ──────────────────────────────
  *
- *  1. Completed working sets only; warm-ups out, drop/failure/AMRAP in (T-12).
+ *  1. Completed working sets only; warm-ups out.
  *  2. An exercise deleted from the library since cannot be placed on a body; its
  *     sets land in `unfiled` rather than disappearing.
  *  3. THE WEEK IS THE ISO WEEK, Monday to Sunday, of the workout's LOCAL start

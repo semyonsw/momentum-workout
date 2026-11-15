@@ -30,8 +30,8 @@ export function growInDeadline(durationMs: number, scale: number): number {
 /*
  * ── LEAVING, AND BEING UNMOUNTED MID-LEAVE ──────────────────────────────────
  *
- * A removed row closes for 280 ms and only THEN leaves the store, in `onLeft`
- * from the animation's end. Collapse the card inside those 280 ms and the row
+ * A removed row closes (`LEAVE_MS`, 160) and only THEN leaves the store, in `onLeft`
+ * from the animation's end. Collapse the card inside that window and the row
  * unmounts, the animation ends `finished: false`, and `onLeft` never ran — the
  * set the user removed stayed in the store and was saved with the workout. So
  * an unmount while leaving delivers the removal too, and the latch below makes

@@ -80,6 +80,8 @@ export interface ChangesChatBlock {
   rows: ChangeRow[];
   why: string;
   status: ProposalStatus;
+  /** Items the model wrote that could not be applied — said under the card. */
+  dropped?: number;
 }
 
 /** A block as the chat stores it: a proposal is a reference, not a copy. */
@@ -501,13 +503,36 @@ function sanitizeProposal(raw: unknown): StoredProposal | null {
   };
 }
 
-const CHANGE_TARGETS = new Set(['exercise', 'setting']);
+/**
+ * Every target `applyChanges` knows. Until 4.0 this was only `exercise` and
+ * `setting`, which quietly dropped a weigh-in or a set correction on the next
+ * launch.
+ */
+const CHANGE_TARGETS = new Set([
+  'exercise',
+  'setting',
+  'bodyweight',
+  'workout_set',
+  'exercise_create',
+  'exercise_delete',
+  'routine',
+  'routine_item',
+  'sequence',
+  'workout',
+  'live',
+  'live_set',
+]);
 
 /**
  * A stored changes card out of anything. The changes were checked against the
  * stores when the answer arrived; what is checked here is only that each is
  * still the SHAPE `applyChanges` reads — anything else is dropped, and Apply
  * skips an id that has gone since.
+ *
+ * A card from an older build, or a backup, whose changes this build cannot
+ * read at all but whose rows it can, is kept READ-ONLY: its text is still the
+ * record of what was suggested, and it is marked decided so no Apply button is
+ * drawn for changes that would apply nothing.
  */
 function sanitizeChangesBlock(raw: Rec): ChangesChatBlock | null {
   const changes = (Array.isArray(raw.changes) ? raw.changes : []).filter(
@@ -519,13 +544,30 @@ function sanitizeChangesBlock(raw: Rec): ChangesChatBlock | null {
   );
   const rows = (Array.isArray(raw.rows) ? raw.rows : []).flatMap((r): ChangeRow[] =>
     isRec(r) && typeof r.label === 'string' && typeof r.to === 'string'
-      ? [{ subject: str(r.subject) ?? '', label: r.label, from: str(r.from) ?? '', to: r.to }]
+      ? [
+          {
+            subject: str(r.subject) ?? '',
+            label: r.label,
+            from: str(r.from) ?? '',
+            to: r.to,
+            ...(r.destructive === true ? { destructive: true } : {}),
+          },
+        ]
       : [],
   );
-  if (changes.length === 0 || rows.length === 0) return null;
-  const status: ProposalStatus =
+  if (rows.length === 0) return null;
+  let status: ProposalStatus =
     raw.status === 'accepted' || raw.status === 'discarded' ? raw.status : 'pending';
-  return { type: 'changes', changes, rows, why: str(raw.why) ?? '', status };
+  if (changes.length === 0 && status === 'pending') status = 'discarded';
+  const dropped = num(raw.dropped);
+  return {
+    type: 'changes',
+    changes,
+    rows,
+    why: str(raw.why) ?? '',
+    status,
+    ...(dropped != null && dropped > 0 ? { dropped: Math.round(dropped) } : {}),
+  };
 }
 
 function sanitizeMessage(

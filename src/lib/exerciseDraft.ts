@@ -36,7 +36,7 @@
 
 import type { CountUnit, Exercise, MuscleGroup, TimerMode } from '../types/models';
 import { DEFAULT_PREPARE_SECONDS } from './setTimer';
-import { clampMax, ladderOf, supportsLadder } from './repLadder';
+import { awaitingLadder, clampMax, isAwaitingMax, ladderOf, supportsLadder } from './repLadder';
 import { defaultTargetSets } from './draft';
 import { countsToMax } from './maxReps';
 import { TARGET_SETS_LIMITS } from './routinePlan';
@@ -98,37 +98,49 @@ export interface ExerciseDraft {
   restFollowsSettings: boolean;
 
   /**
-   * THE REP LADDER, as three fields rather than the model's optional object.
+   * THE REP LADDER, as four fields rather than the model's optional object.
    *
-   * A form cannot render an absence: the max stepper needs a number to show
-   * whether the ladder is on or off, and the toggle needs somewhere to remember
+   * A form cannot render an absence: the toggle needs somewhere to remember
    * the max it had when it was switched off — otherwise turning it off and back on
    * loses the number and there is no undo for that.
    *
    * `ladderEarned` is not editable and is not shown. It is carried through the
    * editor untouched so that renaming an exercise does not throw away the reps its
    * ladder has earned — the same reason `applyDraftToExercise` preserves `id` and
-   * `createdAt`. It resets to zero only when the MAX is changed by hand, because
+   * `createdAt`. It resets to zero only when the max is RETESTED, because
    * two reps earned against a max of 16 say nothing about a max of 18.
    */
   ladderOn: boolean;
   ladderMax: number;
   ladderEarned: number;
+  /**
+   * The ladder is WAITING for its max — `Find my max in the next workout`. While
+   * true, `ladderMax` is only the placeholder the saved ladder carries; the real
+   * one is what the next workout's first set proves. See `RepLadder.awaitingMax`.
+   */
+  ladderAwaitingMax: boolean;
 }
 
 /**
- * Nudge the ladder's max, resetting the progress earned against the old one.
+ * `Find my max in the next workout` — the only way a max is set by hand now.
  *
- * Here rather than in the screen for the usual reason: "what happens to the reps
- * you have earned when you retest your max" is a decision about the scheme, and a
- * screen is composition. The answer is that they go — a max you just typed is a
- * fresh test, and carrying two earned reps into it would hand out a rung nobody
- * climbed.
+ * It replaced a ± stepper because a typed max is a guess and the whole scheme is
+ * built off it: guess two high and every backoff is two high for weeks. A test is
+ * one all-out set, and the app is already there when it happens. Pressing this on
+ * a ladder that has a max is a RETEST: the earned reps go, for the reason they
+ * always went when the max changed — reps earned against 16 say nothing about
+ * whatever the test proves.
  */
-export function bumpLadderMax(draft: ExerciseDraft, delta: number): ExerciseDraft {
-  const next = clampMax(draft.ladderMax + delta);
-  if (next === draft.ladderMax) return draft;
-  return syncLadderTarget({ ...draft, ladderMax: next, ladderEarned: 0 });
+export function findMaxNextWorkout(draft: ExerciseDraft): ExerciseDraft {
+  if (!supportsLadder(draft.countUnit)) return draft;
+  return syncLadderTarget({
+    ...draft,
+    ladderOn: true,
+    ladderMax: clampMax(draft.ladderMax > 0 ? draft.ladderMax : draft.targetCount),
+    ladderEarned: 0,
+    ladderAwaitingMax: true,
+    countToMax: false,
+  });
 }
 
 /**
@@ -167,6 +179,12 @@ export function toggleLadder(draft: ExerciseDraft, on: boolean): ExerciseDraft {
     ...draft,
     ladderOn: true,
     ladderMax: clampMax(seeded),
+    /*
+     * A ladder switched on with no max of its own behind it WAITS for one — the
+     * next workout's first set finds it. One that had a real max (switched off and
+     * back on in the same edit) gets that max back: the toggle is an undo.
+     */
+    ladderAwaitingMax: draft.ladderMax > 0 ? draft.ladderAwaitingMax : true,
     // A ladder derives every rep of every set. `MAX` refuses to name one. Both on
     // is not a shape — see `lib/maxReps.ts` — so switching one on switches the
     // other off HERE, where the user can see it happen, rather than silently on
@@ -268,6 +286,7 @@ export function emptyExerciseDraft(
     ladderOn: false,
     ladderMax: 0,
     ladderEarned: 0,
+    ladderAwaitingMax: false,
   };
 
   // Through `toggleLadder` rather than by setting the two fields here, so a
@@ -361,6 +380,8 @@ export function exerciseToDraft(exercise: Exercise, restSeconds = 120): Exercise
     ladderOn: ladder != null,
     ladderMax: ladder?.max ?? 0,
     ladderEarned: ladder?.earned ?? 0,
+    // Absent on every ladder saved before the flag existed: those have a real max.
+    ladderAwaitingMax: isAwaitingMax(ladder),
     // Through the gate, so a row whose unit changed under it — or one carrying
     // both a ladder and a max from a hand-edited backup — opens as the shape the
     // session would actually run. See `lib/maxReps.ts`.
@@ -453,7 +474,9 @@ export function draftToExercise(
      */
     ladder:
       draft.ladderOn && supportsLadder(draft.countUnit)
-        ? { max: clampMax(draft.ladderMax), earned: Math.max(0, Math.round(draft.ladderEarned)) }
+        ? draft.ladderAwaitingMax
+          ? awaitingLadder({ max: draft.ladderMax, earned: 0 })
+          : { max: clampMax(draft.ladderMax), earned: Math.max(0, Math.round(draft.ladderEarned)) }
         : undefined,
     /*
      * Spread conditionally, because "follows the setting" is the ABSENCE of this

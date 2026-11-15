@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { DraftSet } from './draft';
-import { countOfSets, exerciseSubline, warmupPercents } from './exerciseCardLine';
+import { countOfSets, exerciseSubline } from './exerciseCardLine';
 import type { Exercise } from '../types/models';
 
 const bench = {
@@ -68,18 +68,5 @@ describe('countOfSets', () => {
   it('counts rounds as rounds', () => {
     expect(countOfSets(1, true, 'en')).toBe('1 round');
     expect(countOfSets(4, false, 'en')).toBe('4 sets');
-  });
-});
-
-describe('warmupPercents', () => {
-  it('rounds snapped plates back onto the scheme', () => {
-    expect(warmupPercents([{ weightKg: 32.5 }, { weightKg: 47.5 }, { weightKg: 62.5 }], 80)).toBe(
-      '40 · 60 · 80',
-    );
-  });
-
-  it('says nothing without rows or a working weight', () => {
-    expect(warmupPercents([], 80)).toBeNull();
-    expect(warmupPercents([{ weightKg: 20 }], null)).toBeNull();
   });
 });

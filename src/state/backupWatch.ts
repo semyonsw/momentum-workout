@@ -21,7 +21,6 @@ import {
   type WatchedStore,
 } from '../lib/backupWatch';
 import { useAi } from './aiStore';
-import { useDebriefs } from './debriefStore';
 import { useLibrary } from './libraryStore';
 import { useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
@@ -39,7 +38,6 @@ const WATCHABLE: Record<WatchedStore, { store: Watchable; slice: (state: object)
       store: useWorkoutHistory,
       slice: (s) => pickFields(s, BACKED_UP_FIELDS.workoutHistory),
     },
-    debriefs: { store: useDebriefs, slice: (s) => pickFields(s, BACKED_UP_FIELDS.debriefs) },
     ai: { store: useAi, slice: (s) => pickFields(s, BACKED_UP_FIELDS.ai) },
   };
 
@@ -54,9 +52,7 @@ const WATCHABLE: Record<WatchedStore, { store: Watchable; slice: (state: object)
  * defaults in place of the user's settings is not one to overwrite theirs with.
  */
 export function storesHydrated(): boolean {
-  return [useSettings, useLibrary, useAi, useDebriefs].every((store) =>
-    store.persist.hasHydrated(),
-  );
+  return [useSettings, useLibrary, useAi].every((store) => store.persist.hasHydrated());
 }
 
 /**

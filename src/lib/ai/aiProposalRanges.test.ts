@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeProposal,
   planApply,
-  regroup,
   rowStatus,
   setRowValue,
   valuesDiffer,
@@ -12,12 +11,11 @@ import {
   type ReviewProposal,
 } from './aiProposal';
 import { validateBlocks, type ProposedExercise, type RoutineProposal } from './aiSchema';
-import { isSupersettedWithAbove } from '../routinePlan';
 import type { Exercise, Routine, RoutineItem } from '../../types/models';
 
 /**
- * The three things a routine edit could not say before: a rep RANGE (8–10), a
- * SUPERSET bracket, and an ORDER. Each is held to the rule the rest of
+ * The two things a routine edit could not say before: a rep RANGE (8–10) and an
+ * ORDER. Each is held to the rule the rest of
  * `aiProposal` keeps — a row the model copied without meaning to change it
  * comes out exactly as it was, and only an edit that lists the whole routine is
  * believed about where things go.
@@ -50,7 +48,7 @@ const EXERCISES: Exercise[] = [
   exercise('ex_dips', 'Dips', null),
 ];
 
-/** Bench 3×8–10, then Row + Curl as a superset, then Dips. */
+/** Bench 3×8–10, Row, Curl, then Dips. */
 function routine(): Routine {
   const items: RoutineItem[] = [
     {
@@ -67,7 +65,6 @@ function routine(): Routine {
       order: 1,
       targetSets: 3,
       targetRepsMax: 10,
-      supersetGroup: 'g1',
     },
     {
       id: 'i_curl',
@@ -75,7 +72,6 @@ function routine(): Routine {
       order: 2,
       targetSets: 3,
       targetRepsMax: 12,
-      supersetGroup: 'g1',
     },
     {
       id: 'i_dips',
@@ -130,10 +126,6 @@ const apply = (r: ReviewProposal) => planApply(r, library(), { now: NOW, ownerId
 const appliedDay = (r: ReviewProposal) => apply(r).routines.find((x) => x.id === 'r_day')!;
 const itemOf = (rt: Routine, exerciseId: string) =>
   rt.items.find((i) => i.exerciseId === exerciseId)!;
-const bracketed = (rt: Routine) => {
-  const sorted = [...rt.items].sort((a, b) => a.order - b.order);
-  return sorted.map((item, i) => [item.exerciseId, isSupersettedWithAbove(sorted, i)]);
-};
 
 /** Every exercise of the routine, as it is. */
 const asIs = () => ['ex_bench', 'ex_row', 'ex_curl', 'ex_dips'].map((id) => p(id));
@@ -141,11 +133,9 @@ const asIs = () => ['ex_bench', 'ex_row', 'ex_curl', 'ex_dips'].map((id) => p(id
 /* ------------------------------------------------------------------ */
 
 describe('what the routine is now', () => {
-  it('a row reads a range and a bracket off its item', () => {
+  it('a row reads a range off its item', () => {
     const r = review(asIs());
     expect(rowOf(r, 'ex_bench').was).toEqual({ sets: 3, reps: 10, repsMin: 8, weightKg: 60 });
-    expect(rowOf(r, 'ex_row').was).not.toHaveProperty('superset');
-    expect(rowOf(r, 'ex_curl').was?.superset).toBe(true);
     // 15–15 is one number.
     expect(rowOf(r, 'ex_dips').was).not.toHaveProperty('repsMin');
   });
@@ -249,114 +239,11 @@ describe('a rep range', () => {
     expect(itemOf(appliedDay(eight), 'ex_bench')).not.toHaveProperty('targetRepsMin');
   });
 
-  it('valuesDiffer sees the bottom and the bracket', () => {
+  it('valuesDiffer sees the bottom', () => {
     const was = { sets: 3, reps: 10, weightKg: 0 };
     expect(valuesDiffer({ ...was }, was)).toBe(false);
     expect(valuesDiffer({ ...was, repsMin: 8 }, was)).toBe(true);
-    expect(valuesDiffer({ ...was, superset: true }, was)).toBe(true);
-    expect(valuesDiffer({ ...was, superset: false }, was)).toBe(false);
     expect(valuesDiffer({ ...was, repsMin: 8 }, { ...was, repsMin: 8 })).toBe(false);
-  });
-});
-
-describe('a superset', () => {
-  it('a row that says nothing keeps its bracket', () => {
-    const r = review([p('ex_curl', { reps: 15, change: 'changed' })]);
-    expect(rowOf(r, 'ex_curl').superset).toBe(true);
-    const day = appliedDay(r);
-    // No bracket moved: the group strings are exactly the editor's.
-    expect(itemOf(day, 'ex_row').supersetGroup).toBe('g1');
-    expect(itemOf(day, 'ex_curl').supersetGroup).toBe('g1');
-  });
-
-  it('a `same` row copied with superset:false keeps the bracket', () => {
-    const row = rowOf(review([p('ex_curl', { superset: false })]), 'ex_curl');
-    expect(row.superset).toBe(true);
-    expect(rowStatus(row)).toBe('same');
-  });
-
-  it('split: Curl leaves Row', () => {
-    const r = review([p('ex_curl', { superset: false, change: 'changed' })]);
-    expect(rowStatus(rowOf(r, 'ex_curl'))).toBe('changed');
-    const day = appliedDay(r);
-    expect(bracketed(day)).toEqual([
-      ['ex_bench', false],
-      ['ex_row', false],
-      ['ex_curl', false],
-      ['ex_dips', false],
-    ]);
-    expect(day.items.every((i) => i.supersetGroup === undefined)).toBe(true);
-  });
-
-  it('join: Dips joins Row + Curl as a run of three', () => {
-    const r = review([p('ex_dips', { superset: true, change: 'changed' })]);
-    expect(bracketed(appliedDay(r))).toEqual([
-      ['ex_bench', false],
-      ['ex_row', false],
-      ['ex_curl', true],
-      ['ex_dips', true],
-    ]);
-  });
-
-  it('join: Row joins Bench, and the run carries on through Curl', () => {
-    const r = review([p('ex_row', { superset: true, change: 'changed' })]);
-    const day = appliedDay(r);
-    expect(bracketed(day)).toEqual([
-      ['ex_bench', false],
-      ['ex_row', true],
-      ['ex_curl', true],
-      ['ex_dips', false],
-    ]);
-    expect(new Set(day.items.slice(0, 3).map((i) => i.supersetGroup)).size).toBe(1);
-  });
-
-  it('on a new routine, from the flags', () => {
-    const r = normalizeProposal(
-      {
-        kind: 'new',
-        name: 'Pair',
-        why: 'x',
-        exercises: [p('ex_row'), p('ex_curl', { superset: true }), p('ex_dips')],
-      },
-      ctx(),
-    )!;
-    const result = apply(r);
-    const pair = result.routines.find((x) => x.id === result.routineId)!;
-    expect(bracketed(pair)).toEqual([
-      ['ex_row', false],
-      ['ex_curl', true],
-      ['ex_dips', false],
-    ]);
-    expect(pair.items[2]).not.toHaveProperty('supersetGroup');
-  });
-
-  it('a new exercise added in a bracket', () => {
-    const r = review([
-      ...asIs().slice(0, 3),
-      { name: 'Face pull', sets: 3, reps: 15, weightKg: 0, change: 'new', superset: true },
-      p('ex_dips'),
-    ]);
-    const day = appliedDay(r);
-    const sorted = [...day.items].sort((a, b) => a.order - b.order);
-    expect(sorted).toHaveLength(5);
-    expect(sorted[3].exerciseId).toMatch(/^ex_ai/);
-    expect(sorted.map((_, i) => isSupersettedWithAbove(sorted, i))).toEqual([
-      false,
-      false,
-      true,
-      true,
-      false,
-    ]);
-  });
-
-  it('regroup leaves an untouched item the same object', () => {
-    const items = routine().items;
-    const out = regroup(items, [false, false, true, false]);
-    expect(out[0]).toBe(items[0]);
-    expect(out[3]).toBe(items[3]);
-    expect(out[1].supersetGroup).toBe(out[2].supersetGroup);
-    // A first item can never be "with the one above".
-    expect(regroup(items, [true, false, false, false])[0]).not.toHaveProperty('supersetGroup');
   });
 });
 
@@ -378,13 +265,6 @@ describe('the order', () => {
     const sorted = [...day.items].sort((a, b) => a.order - b.order);
     expect(sorted.map((i) => i.id)).toEqual(['i_row', 'i_curl', 'i_bench', 'i_dips']);
     expect(sorted.map((i) => i.order)).toEqual([0, 1, 2, 3]);
-    // The pair moved together, still a pair; Bench is not pulled into it.
-    expect(bracketed(day)).toEqual([
-      ['ex_row', false],
-      ['ex_curl', true],
-      ['ex_bench', false],
-      ['ex_dips', false],
-    ]);
     // Range and numbers untouched by the move.
     expect(itemOf(day, 'ex_bench')).toMatchObject({
       targetRepsMin: 8,
@@ -423,9 +303,6 @@ describe('the order', () => {
       'ex_dips',
     ]);
     expect(r.rows.some((row) => row.moved)).toBe(false);
-    const day = appliedDay(r);
-    // The existing pair keeps its very group string: no bracket moved.
-    expect(itemOf(day, 'ex_curl').supersetGroup).toBe('g1');
   });
 
   it('a partial list says nothing about the order', () => {
@@ -456,34 +333,6 @@ describe('the order', () => {
       'ex_row',
       'ex_curl',
       'ex_dips',
-    ]);
-  });
-});
-
-describe('a bracket under a new neighbour', () => {
-  it('Dips moved between Row and Curl does not pull Curl into a superset with Dips', () => {
-    const r = review([p('ex_bench'), p('ex_row'), p('ex_dips'), p('ex_curl')]);
-    expect(rowOf(r, 'ex_curl').superset).toBeUndefined();
-    expect(bracketed(appliedDay(r))).toEqual([
-      ['ex_bench', false],
-      ['ex_row', false],
-      ['ex_dips', false],
-      ['ex_curl', false],
-    ]);
-  });
-
-  it('keeps a bracket the model set on purpose under the new neighbour', () => {
-    const r = review([
-      p('ex_bench'),
-      p('ex_row'),
-      p('ex_dips', { superset: true, change: 'changed' }),
-      p('ex_curl'),
-    ]);
-    expect(bracketed(appliedDay(r))).toEqual([
-      ['ex_bench', false],
-      ['ex_row', false],
-      ['ex_dips', true],
-      ['ex_curl', false],
     ]);
   });
 });

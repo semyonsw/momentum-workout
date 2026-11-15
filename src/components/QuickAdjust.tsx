@@ -4,11 +4,6 @@
  *   ┌──────────────────────────────────────────────┐
  *   │ WEIGHT · KG              REPS                │
  *   │ (−2.5) [ 80 ] (+2.5)     (−1) [ 8 ] (+1)     │
- *   │ SET TYPE                                     │
- *   │ (Normal) (W Warm-up) (D Drop set)            │
- *   │ (F To failure) (A As many as possible)       │
- *   │ REPS LEFT (RIR)                              │
- *   │ ( 0 )( 1 )( 2 )( 3 )( 4+ )                   │
  *   │ (   Close   )  ( ✓ Log set )                 │
  *   └──────────────────────────────────────────────┘
  *
@@ -19,11 +14,6 @@
  *     for 6" is one correction, not two trips. Each is a 48 dp field between two
  *     46 dp steps; the step is the INCREMENT (`stepperStep` has why), and the field
  *     itself is the way to type an exact number — no separate `Type` button.
- *   • TYPE AND REPS LEFT BEFORE THE ✓, not after. Saying "this one is a warm-up"
- *     or "to failure" is a decision made before the set — and a warm-up said
- *     after the ✓ has already carried its weight down the card (`warmupOffer`).
- *     Reps left is 0 1 2 3 4+, whole reps (`RIR_QUICK`); the full half-step scale
- *     is still the set well's sheet. Tapping the lit grade again takes it back.
  *   • `Log set` IS THE WAY OUT THAT FINISHES THE JOB. The ✓ on the row does the
  *     same; this is the same act at the bottom of the thing you were just using.
  *     On a set already logged it reads `Done` and only closes. `Close` leaves
@@ -54,9 +44,7 @@ import { maxLabel, showsMaxLabel } from '../lib/maxReps';
 import { countUnitLabel, formatCount, formatWeight, unitLabel } from '../lib/units';
 import { typedPatch } from '../lib/typedFlush';
 import type { SetField } from './SetRow';
-import { describeRir, effortApplies } from '../lib/effort';
-import { SET_KINDS, kindBadge, kindChipLabel, setKindOf, type SetKind } from '../lib/setType';
-import { RIR_QUICK, rirQuickLabel, rirQuickSelected, stepperStep } from '../lib/setRowLayout';
+import { stepperStep } from '../lib/setRowLayout';
 import { useLanguage, useT } from '../hooks/useT';
 import { glass, palette, tint } from '../theme/tokens';
 import { GradientFill, Kicker } from './primitives';
@@ -72,10 +60,6 @@ interface QuickAdjustProps {
   onClose: () => void;
   /** Log the set (the row's ✓). Absent on a logged set is fine: it reads `Done`. */
   onLog: () => void;
-  /** Change the set's type — through the store's `markSet`, warm-up offer and all. */
-  onKind?: (kind: SetKind) => void;
-  /** Grade it, or take the grade back (`null`). */
-  onRir?: (rir: number | null) => void;
   /**
    * Where the editor puts its "commit what is typed" — the card calls it before
    * anything on the row closes the editor (`lib/typedFlush.ts` has why).
@@ -91,13 +75,10 @@ export function QuickAdjust({
   onChange,
   onClose,
   onLog,
-  onKind,
-  onRir,
   flushRef,
 }: QuickAdjustProps) {
   const t = useT();
   const lang = useLanguage();
-  const kind = setKindOf(set);
   const [typing, setTypingState] = useState<SetField | null>(null);
   const [buffer, setBufferState] = useState('');
   /*
@@ -176,7 +157,6 @@ export function QuickAdjust({
   const countStepSize = stepperStep('count', exercise, unitSystem);
   const countLabel =
     exercise.countUnit === 'reps' ? t('Reps') : countUnitLabel(exercise.countUnit, lang);
-  const rirSelected = rirQuickSelected(set.rir);
 
   const field48 = (target: SetField) => {
     const isWeight = target === 'weight';
@@ -259,101 +239,6 @@ export function QuickAdjust({
           {field48('count')}
         </Stepper>
       </View>
-
-      {onKind ? (
-        <View className="mt-md">
-          <Kicker>{t('Set type')}</Kicker>
-          <View className="mt-sm flex-row flex-wrap" style={{ gap: 6 }}>
-            {SET_KINDS.map((option) => {
-              const selected = option === kind;
-              const badge = kindBadge(option);
-              const label = kindChipLabel(option, lang);
-              return (
-                <Pressable
-                  key={option}
-                  onPress={() => {
-                    tap();
-                    if (!selected) onKind(option);
-                  }}
-                  hitSlop={{ top: 2, bottom: 2 }}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={label}
-                  style={({ pressed }) => [
-                    CHIP,
-                    selected
-                      ? { backgroundColor: tint(0.14), borderColor: tint(0.45) }
-                      : { backgroundColor: glass.sunken, borderColor: palette.hairline },
-                    pressed ? { opacity: 0.7 } : null,
-                  ]}
-                >
-                  {badge ? (
-                    <Text
-                      maxFontSizeMultiplier={1.2}
-                      style={{
-                        fontSize: 13,
-                        fontWeight: '800',
-                        color: selected ? palette.acc : palette.inkMuted,
-                      }}
-                    >
-                      {badge}
-                    </Text>
-                  ) : null}
-                  <Text
-                    maxFontSizeMultiplier={1.2}
-                    className={[
-                      'text-label',
-                      selected ? 'font-semibold text-acc' : 'font-medium text-ink-muted',
-                    ].join(' ')}
-                  >
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-
-      {onRir && effortApplies(exercise.countUnit) ? (
-        <View className="mt-md">
-          <Kicker>{t('Reps left (RIR)')}</Kicker>
-          <View className="mt-sm flex-row" style={{ gap: 6 }}>
-            {RIR_QUICK.map((value) => {
-              const selected = rirSelected === value;
-              return (
-                <Pressable
-                  key={value}
-                  onPress={() => {
-                    tap();
-                    onRir(selected ? null : value);
-                  }}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  accessibilityLabel={describeRir(value, lang)}
-                  style={({ pressed }) => [
-                    RIR_CHIP,
-                    selected
-                      ? { backgroundColor: tint(0.14), borderColor: tint(0.45) }
-                      : { backgroundColor: glass.sunken, borderColor: palette.hairline },
-                    pressed ? { opacity: 0.7 } : null,
-                  ]}
-                >
-                  <Text
-                    maxFontSizeMultiplier={1.2}
-                    className={[
-                      'text-label font-semibold tabular-nums',
-                      selected ? 'text-acc' : 'text-ink',
-                    ].join(' ')}
-                  >
-                    {rirQuickLabel(value)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
 
       {/* Close (ghost) and the one green thing here: Log set. */}
       <View className="mt-md flex-row" style={{ gap: 8 }}>
@@ -488,25 +373,6 @@ const FIELD = {
   alignItems: 'center' as const,
   justifyContent: 'center' as const,
   paddingHorizontal: 4,
-};
-
-const CHIP = {
-  height: 40,
-  paddingHorizontal: 12,
-  borderRadius: 9999,
-  borderWidth: 1,
-  flexDirection: 'row' as const,
-  alignItems: 'center' as const,
-  gap: 6,
-};
-
-const RIR_CHIP = {
-  flex: 1,
-  height: 44,
-  borderRadius: 12,
-  borderWidth: 1,
-  alignItems: 'center' as const,
-  justifyContent: 'center' as const,
 };
 
 const BUTTON = {

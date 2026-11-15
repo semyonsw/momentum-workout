@@ -18,7 +18,7 @@ import {
  * The bug this replaces: one scalar was the multiplier on every pull-up, dip and
  * assisted set ever logged, so `recomputeWorkout` repriced a session from June at
  * September's weight, and a lifter who gained 4 kg while holding `+20 × 8` looked
- * like a plateau to the overload engine.
+ * like a plateau.
  *
  * The rule that carries all of it is `bodyweightAt`: the most recent reading AT OR
  * BEFORE the date, because a weight taken after a session says nothing about it.

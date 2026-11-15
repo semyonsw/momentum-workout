@@ -29,11 +29,22 @@
  * calculation in the reorder, it has four edge cases, and none of them can be
  * reached from a test that has to render a screen. What stays here is the gesture.
  *
- * One honest limitation of doing it this way: the list does not scroll while a row
- * is in the air, so a single slide can only reach as far as the finger can. Moving
- * a row past the edge of the screen is two moves — drop, scroll, lift again — which
- * is what the mode makes natural, and is the reason `Drop` is always in the header
- * rather than only under the finger.
+ * ── PAST THE EDGE OF THE SCREEN ─────────────────────────────────────────────
+ *
+ * The user still cannot scroll by hand while a row is in the air (point 3), so a
+ * caller that passes `autoScroll` gets the list scrolled FOR it: holding the row in
+ * the band at the top or bottom of the viewport scrolls continuously, on a
+ * `requestAnimationFrame` loop that runs only while something is lifted. The
+ * arithmetic — the velocity for a finger position, the clamped next offset, and
+ * the one offset that keeps the row under the finger AND the drop index honest
+ * while the content moves beneath both — is `lib/reorder.ts`, tested. Without
+ * `autoScroll` (the routine editor) a slide still reaches only as far as the
+ * finger does, and `Drop` in the header is the way out.
+ *
+ * The same frame loop also follows the lifted row's own LAYOUT: the session
+ * collapses every card on lift, which moves the row the frame after, and the
+ * offset it is drawn at is corrected for that rather than leaving it a card's
+ * height away from the finger.
  *
  * ── WHY IT IS A HOOK AND NOT A SCREEN'S PRIVATE BUSINESS ────────────────────
  *
@@ -59,9 +70,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder } from 'react-native';
 
 import { commit, undo } from '../lib/feedback';
-import { dropIndex, liftIndex, liftedSlotHeight, rowShift, type CardLayout } from '../lib/reorder';
+import {
+  autoScrollVelocity,
+  dropIndex,
+  effectiveDragDy,
+  liftIndex,
+  liftedSlotHeight,
+  nextScrollOffset,
+  rowShift,
+  type CardLayout,
+  type ScrollViewport,
+} from '../lib/reorder';
 
-export type { CardLayout };
+export type { CardLayout, ScrollViewport };
+
+/**
+ * What the hook needs from the caller's ScrollView to scroll it during a drag.
+ * Every read is a function because every one of them changes mid-drag.
+ */
+export interface DragAutoScroll {
+  /** The viewport in window coordinates — the finger's `moveY` space. Measured at lift. */
+  measureViewport: (done: (viewport: ScrollViewport) => void) => void;
+  /** The current scroll offset. Must reflect a `scrollTo` immediately. */
+  getOffset: () => number;
+  getContentHeight: () => number;
+  /** Scroll, unanimated — the frame loop is the animation. */
+  scrollTo: (y: number) => void;
+}
 
 export interface DragReorder {
   /** The row in the air, or null. */
@@ -95,6 +130,7 @@ export function useDragReorder(
   ids: readonly string[],
   layouts: React.MutableRefObject<Record<string, CardLayout>>,
   move: (id: string, toIndex: number) => void,
+  autoScroll?: DragAutoScroll,
 ): DragReorder {
   const [lifted, setLifted] = useState<string | null>(null);
   const [targetIndex, setTargetIndex] = useState(0);
@@ -106,31 +142,27 @@ export function useDragReorder(
   const moveRef = useRef(move);
   moveRef.current = move;
 
+  const autoScrollRef = useRef(autoScroll);
+  autoScrollRef.current = autoScroll;
+
   const dragY = useRef(new Animated.Value(0)).current;
 
-  const lift = useCallback(
-    (id: string) => {
-      commit();
-      const index = liftIndex(idsRef.current, id);
-      liftedRef.current = id;
-      // The row starts where it already is, so its own index is the first target.
-      targetRef.current = index;
-      setTargetIndex(index);
-      setLifted(id);
-      dragY.setValue(0);
-    },
-    [dragY],
-  );
+  /*
+   * The drag's frame of reference, captured at the lift: where the finger is
+   * (null until it first moves), how far it has travelled, the scroll offset and
+   * the row's own layout `y` at the lift, and the viewport. See `effectiveDragDy`.
+   */
+  const gestureDyRef = useRef(0);
+  const fingerYRef = useRef<number | null>(null);
+  const liftOffsetRef = useRef(0);
+  const liftYRef = useRef<number | null>(null);
+  const viewportRef = useRef<ScrollViewport | null>(null);
+  const frameRef = useRef<number | null>(null);
 
-  const drop = useCallback(() => {
-    const id = liftedRef.current;
-    liftedRef.current = null;
-    dragY.setValue(0);
-    setLifted(null);
-    if (!id) return;
-    undo();
-    moveRef.current(id, targetRef.current);
-  }, [dragY]);
+  const stopFrames = useCallback(() => {
+    if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }, []);
 
   /**
    * Which gap the lifted row is over. The maths is `lib/reorder.ts`.
@@ -155,6 +187,96 @@ export function useDragReorder(
     [layouts],
   );
 
+  /** Re-draw the lifted row and re-aim the gap off the current three terms. */
+  const follow = useCallback(() => {
+    const id = liftedRef.current;
+    if (!id) return;
+    const scroll = autoScrollRef.current;
+    const dy = effectiveDragDy({
+      gestureDy: gestureDyRef.current,
+      scrollDelta: scroll ? scroll.getOffset() - liftOffsetRef.current : 0,
+      liftY: liftYRef.current,
+      currentY: layouts.current[id]?.y ?? null,
+    });
+    dragY.setValue(dy);
+    const next = targetFor(dy);
+    if (next !== targetRef.current) {
+      targetRef.current = next;
+      setTargetIndex(next);
+    }
+  }, [dragY, layouts, targetFor]);
+
+  /** The frame loop: auto-scroll when the finger is in an edge band, then follow. */
+  const startFrames = useCallback(() => {
+    stopFrames();
+    let last: number | null = null;
+    const tick = (now: number) => {
+      if (!liftedRef.current) {
+        frameRef.current = null;
+        return;
+      }
+      const dt = last == null ? 16 : now - last;
+      last = now;
+      const scroll = autoScrollRef.current;
+      const viewport = viewportRef.current;
+      const fingerY = fingerYRef.current;
+      if (scroll && viewport && fingerY != null) {
+        const velocity = autoScrollVelocity(fingerY, viewport);
+        if (velocity !== 0) {
+          const offset = scroll.getOffset();
+          const next = nextScrollOffset({
+            offset,
+            velocity,
+            dtMs: dt,
+            contentHeight: scroll.getContentHeight(),
+            viewportHeight: viewport.height,
+          });
+          if (next !== offset) scroll.scrollTo(next);
+        }
+      }
+      follow();
+      frameRef.current = requestAnimationFrame(tick);
+    };
+    frameRef.current = requestAnimationFrame(tick);
+  }, [follow, stopFrames]);
+
+  const lift = useCallback(
+    (id: string) => {
+      commit();
+      const index = liftIndex(idsRef.current, id);
+      liftedRef.current = id;
+      // The row starts where it already is, so its own index is the first target.
+      targetRef.current = index;
+      gestureDyRef.current = 0;
+      fingerYRef.current = null;
+      liftYRef.current = layouts.current[id]?.y ?? null;
+      const scroll = autoScrollRef.current;
+      liftOffsetRef.current = scroll ? scroll.getOffset() : 0;
+      viewportRef.current = null;
+      scroll?.measureViewport((viewport) => {
+        if (liftedRef.current === id) viewportRef.current = viewport;
+      });
+      setTargetIndex(index);
+      setLifted(id);
+      dragY.setValue(0);
+      startFrames();
+    },
+    [dragY, layouts, startFrames],
+  );
+
+  const drop = useCallback(() => {
+    const id = liftedRef.current;
+    liftedRef.current = null;
+    stopFrames();
+    dragY.setValue(0);
+    setLifted(null);
+    if (!id) return;
+    undo();
+    moveRef.current(id, targetRef.current);
+  }, [dragY, stopFrames]);
+
+  useEffect(() => stopFrames, [stopFrames]);
+
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -168,12 +290,9 @@ export function useDragReorder(
         onMoveShouldSetPanResponderCapture: () => liftedRef.current != null,
         onPanResponderMove: (_event, gesture) => {
           if (!liftedRef.current) return;
-          dragY.setValue(gesture.dy);
-          const next = targetFor(gesture.dy);
-          if (next !== targetRef.current) {
-            targetRef.current = next;
-            setTargetIndex(next);
-          }
+          gestureDyRef.current = gesture.dy;
+          fingerYRef.current = gesture.moveY;
+          follow();
         },
         onPanResponderRelease: () => drop(),
         // A drag cut short by the OS (a call, a notification shade) still has to put
@@ -182,17 +301,18 @@ export function useDragReorder(
         onPanResponderTerminate: () => drop(),
         onPanResponderTerminationRequest: () => false,
       }),
-    [dragY, drop, targetFor],
+    [drop, follow],
   );
 
   /* A row that left the list (removed, or the screen reset) is not liftable. */
   useEffect(() => {
     if (lifted && !ids.includes(lifted)) {
       liftedRef.current = null;
+      stopFrames();
       dragY.setValue(0);
       setLifted(null);
     }
-  }, [dragY, ids, lifted]);
+  }, [dragY, ids, lifted, stopFrames]);
 
   /**
    * THE GAP. `rowShift` says which way a row goes and `liftedSlotHeight` says how

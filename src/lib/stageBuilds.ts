@@ -20,7 +20,8 @@
  * and is dropped with the other idle work (`dropGone`) — where it costs a frame
  * nobody is watching.
  *
- * There are two roots (`SECTIONS`), so the spare is whichever one is not up.
+ * There are four roots (`SECTIONS`); the spares are built nearest-first, one per
+ * idle moment, until every root on the bar is mounted.
  */
 
 import { SECTIONS, type SectionTab, type ShellRoute } from './sectionNav';

@@ -175,14 +175,14 @@ describe('cluster sums match the sets-per-cluster screen', () => {
 });
 
 describe('warm-ups excluded', () => {
-  it('counts no warm-up and no unfinished set, but counts drop/failure/AMRAP', () => {
+  it('counts no warm-up and no unfinished set, and a set an older build typed as working', () => {
     const v = muscleVolume({
       workouts: [
         workout('w1', local(2026, 9, 30), [
           ...sets('bench', 2, { isWarmup: true }),
           ...sets('bench', 1, { isCompleted: false }),
-          row('bench', 7, { setType: 'drop' }),
-          row('bench', 8, { setType: 'failure' }),
+          row('bench', 7, { setType: 'drop' } as never),
+          row('bench', 8, { setType: 'failure' } as never),
           row('bench', 9),
         ]),
       ],

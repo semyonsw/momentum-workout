@@ -6,7 +6,7 @@ import { nudgeSet, nudgeSteps } from '../lib/setNudge';
 import { formatCount, formatWeight, lbToKg } from '../lib/units';
 import { upNextSet } from '../lib/upNext';
 import { workLines } from '../components/FocusNumbers';
-import { seedExercises, seedRoutines, seedUser } from '../data/seed';
+import { seedExercises, seedRoutines } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import type { DraftSet } from '../lib/draft';
 import type { Exercise, ID, UnitSystem } from '../types/models';
@@ -35,7 +35,6 @@ function start(unitSystem: UnitSystem = 'metric', index = 0) {
     routine: seedRoutines[index],
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem,
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,

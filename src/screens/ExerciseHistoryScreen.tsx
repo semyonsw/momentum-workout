@@ -19,8 +19,8 @@
  *   └──────────────────────────────────────────────┘
  *
  * The screen answers one question. Top working weight per session, the sessions
- * that produced it and how long it has been stuck are the same data the nudge
- * fires on, and they still lead nothing but themselves: no volume totals, no badge.
+ * that produced it and how long it has been stuck lead nothing but themselves: no
+ * volume totals, no badge.
  *
  * ── THE 1RM, REVISITED ─────────────────────────────────────────────────────
  *
@@ -44,16 +44,16 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { Kicker, ListCard, Separator } from '../components/primitives';
 import { TrendChart } from '../components/TrendChart';
-import { describeHistory, sessionRows, topWeightSeries } from '../lib/history';
+import { describeHistory, plateauDays, sessionRows, topWeightSeries } from '../lib/history';
 import {
   LADDER_SETS,
   describeLadder,
+  isAwaitingMax,
   ladderOf,
   ladderTargets,
   ladderTotal,
   sessionsToNextMax,
 } from '../lib/repLadder';
-import type { OverloadVerdict } from '../lib/progressiveOverload';
 import {
   describeBests,
   describeE1rmTrend,
@@ -76,8 +76,6 @@ import type { Exercise, ID, SetHistory } from '../types/models';
 interface ExerciseHistoryScreenProps {
   exercise: Exercise;
   history: SetHistory[];
-  /** Supplies the "same weight for N days" clause. */
-  verdict?: OverloadVerdict;
   onBack: () => void;
   /**
    * Open this exercise in the editor.
@@ -94,7 +92,6 @@ interface ExerciseHistoryScreenProps {
 export function ExerciseHistoryScreen({
   exercise,
   history,
-  verdict,
   onBack,
   onEdit,
   onOpenSession,
@@ -106,13 +103,7 @@ export function ExerciseHistoryScreen({
      unrelated settings write. */
   const rows = useMemo(() => sessionRows(history, exercise, lang), [exercise, history, lang]);
   const series = useMemo(() => topWeightSeries(rows), [rows]);
-  /*
-   * The staleness clause is a fact about the data, not a nag, so it appears as
-   * soon as the same weight has been hit twice — well before the engine is
-   * willing to nudge. On a lift that is still climbing there is no run to report
-   * and the clause drops out entirely.
-   */
-  const plateauDays = verdict && verdict.sessionsInRun >= 2 ? verdict.plateauDays : null;
+  const plateau = useMemo(() => plateauDays(rows), [rows]);
   const loadPrefix = exercise.loadMode === 'added_bodyweight' ? '+' : '';
   /*
    * The ladder, if this exercise runs one. Shown at five sets — the scheme's own
@@ -184,7 +175,7 @@ export function ExerciseHistoryScreen({
       >
         <Text className="mx-lg text-title font-medium text-ink">{exercise.name}</Text>
         <Text className="mx-lg mt-xs text-label tabular-nums text-ink-muted">
-          {describeHistory(rows, plateauDays, loadPrefix, lang)}
+          {describeHistory(rows, plateau, loadPrefix, lang)}
         </Text>
 
         {/*
@@ -209,7 +200,17 @@ export function ExerciseHistoryScreen({
           next max — in sessions rather than in weeks, because a ladder does not
           advance on a calendar. It moves when you meet it.
         */}
-        {ladder && ladderPlan ? (
+        {ladder && isAwaitingMax(ladder) ? (
+          /* Waiting for its max: the test is the whole plan until it happens. */
+          <>
+            <Kicker tone="green" className="mx-lg mt-xl">
+              {t('Waiting for your max')}
+            </Kicker>
+            <Text className="mx-lg mt-xs text-label text-ink-muted">
+              {t('Your max is found in the next workout: set 1 is all-out')}
+            </Text>
+          </>
+        ) : ladder && ladderPlan ? (
           <>
             <Kicker tone="green" className="mx-lg mt-xl">
               {t('Ladder · max {max}', { max: ladder.max })}

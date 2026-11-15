@@ -12,15 +12,15 @@
  *     "workouts":  [ ... ],
  *     "sequence":  { "isActive": false, "routineIds": [], "cursor": 0 },
  *     "numbering": { "workoutId": "d_session_x", "number": 91 },
- *     "debriefs":  [ ... ],
  *     "aiChats":   { "chats": { "Workout": [ ... ] }, "archive": { ... }, ... }
  *   }
  *
  * A FILE FROM MOMENTUM 2.x OR ANY 3.0.0 APP OPENS HERE. Until 3.0.0 this app was
  * Momentum, and its file carried three logs — the training, daily tasks and
  * money (`tasks`, `money` at the top level). The tasks and the money are other
- * apps now; this one reads the training, the debriefs, its own AI chats and the
- * settings out of any version-2 envelope, and leaves every other key unread. A
+ * apps now; this one reads the training, its own AI chats and the settings out
+ * of any version-2 envelope, and leaves every other key unread — including the
+ * `debriefs` an earlier Workout wrote, whose post-workout questions are gone. A
  * file with no training in it — a Tasks or Expenses backup — is refused in words
  * rather than "restored" as zero rows. What it writes is the same envelope with
  * the training and nothing else — a file a 3.0.0 Workout app reads as its own,
@@ -44,7 +44,7 @@
  *  2. EXPORT WRITES THE ROWS AS THEY ARE STORED. No reshaping, no summarising, no
  *     dropping of fields that "look derived". `CompletedWorkout` carries both its
  *     rendered summary lines and the raw `SetHistory` rows, and the second of those
- *     is what every prefill and every overload verdict reads — a backup that kept
+ *     is what every prefill and every record reads — a backup that kept
  *     only the pretty version would restore a history that looks right and teaches
  *     the app nothing.
  *
@@ -115,12 +115,6 @@ export interface BackupPayload {
    * fact in the app that cannot be recomputed from the sessions themselves.
    */
   numbering?: unknown;
-  /**
-   * What the user answered after each workout (`lib/debrief.ts`). Optional and
-   * absent-means-absent: a file from before debriefs existed leaves this phone's
-   * answers exactly where they are.
-   */
-  debriefs?: unknown;
   /**
    * The AI conversations: `{ chats, archive, proposals }`, with only the
    * `Workout` chat in each group (`workoutChats`). Optional and
@@ -250,8 +244,8 @@ function asArray(value: unknown): unknown[] {
  *   • no training in it: a Tasks or Expenses backup from 3.0.0. Said in words
  *     rather than "restored" as zero rows, which would read as success
  *
- * What comes back is the training, the debriefs, the training chat and the
- * settings, and so are its counts: the confirmation sheet states what this app
+ * What comes back is the training, the training chat and the settings, and so
+ * are its counts: the confirmation sheet states what this app
  * will restore, not what a combined 2.x file happens to hold for the other logs.
  *
  * A missing `format` on a file that does carry collections is accepted: a backup
@@ -318,8 +312,7 @@ export function parseBackup(text: string, lang: Language = 'en'): ParseResult {
     sequence: source.sequence ?? null,
     numbering: source.numbering ?? null,
     // `?? undefined` rather than `?? null`, because absent has to stay absent:
-    // `applyBackup` reads the difference to decide whether to touch these.
-    debriefs: source.debriefs ?? undefined,
+    // `applyBackup` reads the difference to decide whether to touch the chats.
     aiChats: source.aiChats == null ? undefined : workoutChats(source.aiChats),
   };
   const counts = countPayload(payload);

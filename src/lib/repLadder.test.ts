@@ -5,7 +5,13 @@ import {
   LADDER_MAX_LIMITS,
   LADDER_SETS,
   autoLadderFor,
+  awaitingLadder,
   describeLadder,
+  inFlightLadderTargets,
+  isAwaitingMax,
+  isMaxTestSet,
+  resolveTestedMax,
+  testedMax,
   describeLadderOutcomes,
   ladderAdvance,
   ladderAfterTopSet,
@@ -571,5 +577,104 @@ describe('auto ladders', () => {
     // `ladderAdvance` rebuilds the object, so one met session turns an auto ladder
     // into a fact the setting will not take away.
     expect(ladderAdvance({ max: 12, earned: 0, auto: true }).auto).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Finding the max in a workout                                        */
+/* ------------------------------------------------------------------ */
+
+describe('a ladder waiting for its max', () => {
+  const working = (count: number, isCompleted: boolean, localId = 'top') => ({
+    localId,
+    count,
+    isCompleted,
+    isWarmup: false,
+  });
+  const waiting: RepLadder = { max: 12, earned: 0, awaitingMax: true };
+
+  it('loads an old ladder with a max exactly as it was — no new field appears', () => {
+    expect(normalizeLadder({ max: 16, earned: 2 })).toEqual({ max: 16, earned: 2 });
+    expect(isAwaitingMax(normalizeLadder({ max: 16, earned: 2 }))).toBe(false);
+  });
+
+  it('keeps the waiting flag through a round-trip, repairing a missing placeholder', () => {
+    expect(normalizeLadder(waiting)).toEqual(waiting);
+    expect(normalizeLadder({ awaitingMax: true })).toEqual({
+      max: AUTO_LADDER_SEED_REPS,
+      earned: 0,
+      awaitingMax: true,
+    });
+    // Only a literal true counts; anything else is an ordinary ladder.
+    expect(normalizeLadder({ max: 16, earned: 0, awaitingMax: 'yes' })).toEqual({
+      max: 16,
+      earned: 0,
+    });
+  });
+
+  it('awaitingLadder keeps the old max as the placeholder and drops earned reps', () => {
+    expect(awaitingLadder({ max: 16, earned: 3 })).toEqual({
+      max: 16,
+      earned: 0,
+      awaitingMax: true,
+    });
+    expect(awaitingLadder(null).max).toBe(AUTO_LADDER_SEED_REPS);
+  });
+
+  it('proves a max only from a logged first WORKING set with reps in it', () => {
+    const warm = { localId: 'w', count: 30, isCompleted: true, isWarmup: true };
+    expect(testedMax(waiting, [warm, working(16, true)])).toBe(16);
+    expect(testedMax(waiting, [warm, working(16, false)])).toBeNull();
+    expect(testedMax(waiting, [working(0, true)])).toBeNull();
+    expect(testedMax({ max: 16, earned: 0 }, [working(18, true)])).toBeNull();
+  });
+
+  it('names the test set, and only on a waiting ladder', () => {
+    const sets = [
+      { localId: 'w', count: 5, isCompleted: false, isWarmup: true },
+      working(0, false),
+    ];
+    expect(isMaxTestSet({ ladder: waiting, sets }, 'top')).toBe(true);
+    expect(isMaxTestSet({ ladder: waiting, sets }, 'w')).toBe(false);
+    expect(isMaxTestSet({ ladder: { max: 16, earned: 0 }, sets }, 'top')).toBe(false);
+  });
+
+  it('prescribes nothing until the test is logged, then the ladder for what it proved', () => {
+    const rest = [
+      working(6, false, 'b'),
+      working(6, false, 'c'),
+      working(6, false, 'd'),
+      working(4, false, 'e'),
+    ];
+    expect(inFlightLadderTargets(waiting, [working(16, false), ...rest])).toBeNull();
+    expect(inFlightLadderTargets(waiting, [working(16, true), ...rest])).toEqual([16, 10, 8, 8, 6]);
+  });
+
+  it('leaves an ordinary ladder’s in-flight plan exactly as it was', () => {
+    const sets = [working(18, true), working(10, false, 'b'), working(8, false, 'c')];
+    expect(inFlightLadderTargets({ max: 16, earned: 0 }, sets)).toEqual(
+      ladderAfterTopSet({ max: 16, earned: 0 }, 18, 3),
+    );
+  });
+
+  it('resolveTestedMax writes a waiting ladder, follows a correction, and nothing else', () => {
+    expect(resolveTestedMax(waiting, 16)).toEqual({ max: 16, earned: 0 });
+    expect(resolveTestedMax({ max: 16, earned: 0 }, 17, 16)).toEqual({ max: 17, earned: 0 });
+    // A ladder that has moved on since the test is not the test's to rewrite.
+    expect(resolveTestedMax({ max: 16, earned: 1 }, 17, 16)).toBeNull();
+    expect(resolveTestedMax({ max: 16, earned: 0 }, 17)).toBeNull();
+    expect(resolveTestedMax(waiting, 0)).toBeNull();
+    expect(resolveTestedMax(null, 16)).toBeNull();
+  });
+
+  it('is judged at Finish against the max its own test proved', () => {
+    const exercise = { id: 'p', name: 'Pull-ups', countUnit: 'reps' as const, ladder: waiting };
+    const met = [16, 10, 8, 8, 6].map((count) => ({ count, isWarmup: false, isCompleted: true }));
+    const [outcome] = ladderOutcomes([{ exercise, sets: met }]);
+    expect(outcome.before).toEqual({ max: 16, earned: 0 });
+    expect(outcome.after).toEqual({ max: 16, earned: 1 });
+    // Untested — the first set never logged — there is nothing to judge.
+    const untested = met.map((s, i) => (i === 0 ? { ...s, isCompleted: false } : s));
+    expect(ladderOutcomes([{ exercise, sets: untested }])).toEqual([]);
   });
 });

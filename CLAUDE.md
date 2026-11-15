@@ -110,19 +110,13 @@ it as `ninja-1.10.2.exe.bak`. Reinstalling the SDK's cmake package undoes it.
 
 ## Native dependencies
 
-Two, and both are config-plugin-driven, so `npx expo prebuild -p android` is what
-applies them:
+One, and it is config-plugin-driven, so `npx expo prebuild -p android` is what
+applies it:
 
-- **`react-native-health-connect`** writes a finished workout to Health Connect
-  (`src/lib/healthConnect.ts`). It is `require`d lazily inside a `try`, so the app
-  runs identically in a build that does not contain it — which is what makes it
-  removable by deleting the dependency and the plugin entry. It needs
-  `android.permission.health.WRITE_EXERCISE` in `app.json`'s `permissions` (the
-  plugin adds the rationale intent-filters but NOT the permission itself) and it
-  forces `minSdkVersion` 26.
-- **`expo-build-properties`** exists only to set that `minSdkVersion`. Check
-  `android/gradle.properties` says `android.minSdkVersion=26` after a prebuild;
-  Health Connect will not compile below it.
+- **`expo-build-properties`** sets `minSdkVersion` 26 (and legacy JNI packaging).
+  Check `android/gradle.properties` says `android.minSdkVersion=26` after a
+  prebuild. It was raised for Health Connect, which is gone since 4.0; it stays
+  because lowering it buys nothing on a phone that already runs the app.
 
 `android/app/debug.keystore` is the key the phone's install is signed with
 (SHA-256 `FA:C6:17:45…`, `CN=Android Debug`) — and it is NOT a unique file. This

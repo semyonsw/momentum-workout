@@ -3,12 +3,12 @@
  *
  * Collapsed (not the current exercise):
  *   ┌────────────────────────────────────────────┐
- *   │ Wide pull-ups machine               0/4  ● │  ← ● = a nudge is waiting
+ *   │ Wide pull-ups machine               0/4    │
  *   │ 80 kg · 8 6 5 5                            │
  *   └────────────────────────────────────────────┘
  *
- * Expanded: ONE glass card (Momentum v3) holding the header, the overload line,
- * the set rows as pills 6 apart, and a footer of `+ Warm-up` and `Rest`.
+ * Expanded: ONE glass card (Momentum v3) holding the header, the `+ Warm-up`
+ * toggle, the set rows as pills 6 apart, and a `Rest` footer.
  *
  * At most one card is expanded at a time, and NONE is a legal answer — tapping the
  * open card's header shuts it. That is the whole navigation model of the logging
@@ -34,23 +34,6 @@
  *     the mark moves INSIDE, onto the one set row that should happen next. See
  *     `SetRow`'s `isUpNext`.
  *
- * The collapsed signal for a waiting overload suggestion is a single 6px dot.
- * Not a badge, not a chip, not a count: the suggestion is not urgent, it just
- * needs to be findable.
- *
- * ── SUPERSETS READ AS A BRACKET ─────────────────────────────────────────────
- *
- * A member of a superset carries a 2 dp `green-dim` rule down its left edge, and
- * the members of one group carry it continuously, so a pair reads as one block.
- * The same vocabulary the routine editor's drop target uses, for the same reason:
- * `green-dim` means "these belong together", never "something is wrong". No second
- * hue, no label, no badge — the behaviour speaks for itself the first time a ✓
- * moves the cursor sideways instead of starting a rest.
- *
- * A group of ONE renders no rule. `supersetPosition` decides that, not this
- * component: a bracket around a single exercise says nothing, and one is easy to
- * produce by removing a partner mid-session.
- *
  * ── THE PLAN IS BEHIND `Edit` ───────────────────────────────────────────────
  *
  * An open card used to carry every control that changes the PLAN under its sets,
@@ -64,15 +47,15 @@
  *     (`lib/exerciseCardLine.ts`), a `◎ Focus` chip on the card holding the
  *     session's next set — one of focus mode's only two doors, with the dock's —
  *     and the `Edit` pill.
- *   • OUTSIDE EDIT MODE the footer is two chips: `+ Warm-up` while nothing here is
- *     logged, and `⏱ Rest 1:30 ✎` — the chip runs a rest, the ✎ opens the editor
+ *   • OUTSIDE EDIT MODE the first row wears the `+ Warm-up` toggle (one set on
+ *     top, `lib/warmup.ts`), and the footer is `⏱ Rest 1:30 ✎` — the chip runs a rest, the ✎ opens the editor
  *     that holds this exercise's rest. Taking an exercise out is in edit mode now;
  *     the one-tap bin beside the name went with the redesign.
  *   • IN EDIT MODE the pill becomes an acc-soft `✓ Done`, the sub-line reads
  *     `Editing · tap ⋮⋮ to move a set` (`lib/setOrder.ts`), every set row grows its grip and its red
  *     `−` (`SetRow`, so you remove the set you mean, not the bottom one), and the
- *     footer becomes full-width `+ Add set`, `+ Warm-up  40 · 60 · 80`, `Rest,
- *     targets and cue ›`, a divider, and the red `Remove exercise`.
+ *     footer becomes full-width `+ Add set`, `Rest, targets and cue ›`, a
+ *     divider, and the red `Remove exercise`.
  *
  * Edit mode belongs to the SCREEN, not to the card (`editingExerciseId`): at most
  * one card is in it, and it ends only on `Done`. Shutting the card or logging a
@@ -121,16 +104,14 @@ import { useLanguage, useT } from '../hooks/useT';
 import { useMotionScale } from '../hooks/useMotionScale';
 import { GrowIn } from './motion';
 import { DangerButton } from './primitives';
-import { warmupToggleRows } from '../lib/warmupOffer';
 import { canMoveSet, movableRange } from '../lib/setOrder';
-import { OverloadNudge } from './OverloadNudge';
+import { isMaxTestSet } from '../lib/repLadder';
+import { warmupToggleState } from '../lib/warmup';
 import { Pressable } from './Pressable';
 import { QuickAdjust } from './QuickAdjust';
 import { RollingNumber } from './RollingNumber';
 import { FADE_ON, RunningText } from './RunningText';
 import { SetRow, type SetField } from './SetRow';
-import { SetTypeTip } from './SetTypeTip';
-import type { SetKind } from '../lib/setType';
 
 interface ExerciseCardProps {
   entry: DraftEntry;
@@ -146,19 +127,8 @@ interface ExerciseCardProps {
    */
   upNextSetId?: ID | null;
   unitSystem: UnitSystem;
-  /**
-   * Where this card sits in a superset run. Computed by the screen, which is the
-   * only place that can see the cards either side of this one.
-   */
-  superset?: 'none' | 'start' | 'continue';
   /** The set in this card whose clock is running, if any. */
   timingSetId?: ID | null;
-  /**
-   * The gym's plates, from Settings — for the `20 + 2×10` line under a barbell
-   * lift's weight cell. Passed straight through; only `SetRow` reads it, and only
-   * for an exercise that declares a bar weight.
-   */
-  availablePlatesKg?: readonly number[];
   /** This card is being dragged: it follows the finger and marks itself. */
   isLifted?: boolean;
   /** Another card is being dragged, so this one is not the subject right now. */
@@ -184,20 +154,12 @@ interface ExerciseCardProps {
   onLift?: () => void;
   onToggleSet: (setId: ID) => void;
   onPatchSet: (setId: ID, patch: Partial<DraftSet>) => void;
-  /**
-   * Open the set's annotations sheet (RIR). The screen hosts the sheet — a sheet
-   * is drawn over the whole screen, not inside a card. Absent = no chip taps.
-   */
-  onOpenSetMarks?: (setId: ID) => void;
-  /** Flip a row between warm-up and working — the rows' `W` checkbox. */
-  onToggleWarmup?: (setId: ID) => void;
-  /**
-   * Change a set's type or grade from the inline editor (`QuickAdjust`'s chips).
-   * Through the store's `markSet` rather than `onPatchSet`, so a warm-up said
-   * here answers the warm-up offer exactly as the sheet does. Absent = no chips.
-   */
-  onMarkSet?: (setId: ID, marks: { kind?: SetKind; rir?: number | null }) => void;
   onAddSet: () => void;
+  /**
+   * The first row's `Warm-up` toggle — insert one warm-up on top, or take the
+   * unlogged one back off (`lib/warmup.ts`). Absent = no toggle.
+   */
+  onToggleWarmup?: () => void;
   /**
    * Take one row out of the STORE. Called after the row's exit animation, never
    * before — and never for the last row, which goes through `onRemoveExercise`.
@@ -212,38 +174,6 @@ interface ExerciseCardProps {
   isEditing?: boolean;
   /** The ✎ and the `Done` pill. Absent = no edit mode on this card. */
   onToggleEditing?: () => void;
-  onAcceptOverload: () => void;
-  onDismissOverload: () => void;
-  /**
-   * Put generated warm-up rows on top of this exercise.
-   *
-   * Absent = no control, which is what an exercise with nothing to warm up for
-   * should get rather than a row that does nothing: unweighted work, a session
-   * already under way, or a working weight the plates cannot make a fraction of.
-   * The SCREEN decides that, because deciding it needs the gym's plates and
-   * `lib/warmup.ts`; the card only renders the offer and names what it will add.
-   */
-  onAddWarmup?: () => void;
-  /** "40 × 5 · 60 × 5 · 80 × 3" — what `onAddWarmup` is about to do. */
-  warmupSummary?: string | null;
-  /** "40 · 60 · 80" — the same rows as shares of the working weight (#3). */
-  warmupPercents?: string | null;
-  /**
-   * A best this exercise has broken IN THIS SESSION, already logged: "85 kg × 5".
-   *
-   * The screen computes it, because comparing a row against the standing bests
-   * needs the bodyweight of today and `lib/records.ts`, and a card is composition.
-   * Null — the normal case — renders nothing at all.
-   */
-  bestLine?: string | null;
-  /**
-   * "3 sessions at 80 kg without a rep. One session at 67.5 kg resets it."
-   *
-   * Computed by the screen — it needs the gym's plates and `lib/deload.ts` — and
-   * null on all but a genuinely stalled movement, which is most of them most of
-   * the time.
-   */
-  deloadMessage?: string | null;
   /** Start the clock for a set, or stop the one already running on it. */
   onPressTimer: (setId: ID) => void;
   /**
@@ -285,8 +215,6 @@ function ExerciseCardComponent({
   isExpanded,
   upNextSetId = null,
   unitSystem,
-  superset = 'none',
-  availablePlatesKg,
   timingSetId = null,
   isLifted = false,
   dimmed = false,
@@ -296,21 +224,12 @@ function ExerciseCardComponent({
   onLift,
   onToggleSet,
   onPatchSet,
-  onOpenSetMarks,
-  onToggleWarmup,
-  onMarkSet,
   onAddSet,
+  onToggleWarmup,
   onRemoveSet,
   isEditing = false,
   onMoveSet,
   onToggleEditing,
-  onAcceptOverload,
-  onDismissOverload,
-  onAddWarmup,
-  warmupSummary,
-  warmupPercents,
-  bestLine,
-  deloadMessage,
   onPressTimer,
   restSeconds = 0,
   onStartRest,
@@ -372,8 +291,8 @@ function ExerciseCardComponent({
     if (!isEditing) setLiftedSetId(null);
   }, [isEditing]);
   const setLabels = workingSetLabels(entry.sets);
-  const warmupToggles = warmupToggleRows(entry.sets);
-  const nudgeWaiting = entry.overload.shouldNudge && !entry.overloadAccepted;
+  /* Which way the first row's warm-up toggle goes, if it is drawn at all. */
+  const warmupToggle = onToggleWarmup && !isEditing ? warmupToggleState(entry.sets) : null;
   const isRounds = entry.exercise.countUnit === 'rounds';
   const isTimed = isTimedExercise(entry.exercise);
   const unit = isRounds ? t('round') : t('set');
@@ -398,23 +317,17 @@ function ExerciseCardComponent({
    * Each row's handlers, made once per set and reading the card's latest state
    * through `live` when pressed. `SetRow` is memoized, and four fresh closures
    * per row per render meant every row of the open card repainted on every ✓
-   * and every ± chip, plate line and all.
+   * and every ± chip.
    */
   const live = useRef({
     removeRow,
     onPressTimer,
     onToggleSet,
-    onOpenSetMarks,
-    onToggleWarmup,
-    onMarkSet,
   });
   live.current = {
     removeRow,
     onPressTimer,
     onToggleSet,
-    onOpenSetMarks,
-    onToggleWarmup,
-    onMarkSet,
   };
   const rowHandlers = useRef(new Map<ID, RowHandlers>()).current;
   const handlersFor = (setId: ID): RowHandlers => {
@@ -439,10 +352,6 @@ function ExerciseCardComponent({
           setFocus(null); // committing a set always closes the editor
           live.current.onToggleSet(setId);
         }),
-      onOpenMarks: () => live.current.onOpenSetMarks?.(setId),
-      onToggleWarmup: () => live.current.onToggleWarmup?.(setId),
-      onKind: (kind) => live.current.onMarkSet?.(setId, { kind }),
-      onRir: (rir) => live.current.onMarkSet?.(setId, { rir }),
     };
     rowHandlers.set(setId, handlers);
     return handlers;
@@ -476,9 +385,7 @@ function ExerciseCardComponent({
           name: entry.exercise.name,
           done: completed,
           total,
-        })}${glowing ? `, ${t('your next set is in here')}` : ''}${
-          nudgeWaiting ? `, ${t('suggestion waiting')}` : ''
-        }${superset === 'none' ? '' : `, ${t('part of a superset')}`}`}
+        })}${glowing ? `, ${t('your next set is in here')}` : ''}`}
         accessibilityHint={onLift ? t('Long press, then slide to reorder') : undefined}
         style={[
           /* Momentum v3: a flat `card`-tier pane, radius 20 — or the `lit` tier
@@ -490,12 +397,6 @@ function ExerciseCardComponent({
             backgroundColor: glowing || isLifted ? glassTier.lit.tint : glassTier.card.tint,
             borderColor: glowing || isLifted ? glassTier.lit.border : glassTier.card.border,
           },
-          /*
-           * The bracket, as a left border rather than an extra View: a collapsed
-           * card is one Pressable and threading a sibling through it would mean
-           * wrapping every card in a row just to draw 2 px.
-           */
-          superset === 'none' ? null : { borderLeftWidth: 2, borderLeftColor: palette.greenDim },
           dimmed ? { opacity: 0.4 } : null,
         ]}
         className="mx-lg mb-sm"
@@ -519,11 +420,6 @@ function ExerciseCardComponent({
               glowing ? 'font-semibold text-acc' : allDone ? 'text-ink-faint' : 'text-ink',
             ].join(' ')}
           />
-
-          {/* The waiting suggestion: one 6 px dot, never a badge. */}
-          {nudgeWaiting ? (
-            <View className="ml-md h-[6px] w-[6px] rounded-pill bg-green-bright" />
-          ) : null}
 
           {/* Progress as text, rolled when a set lands, and as a ring beside it:
               the text for reading, the ring for the shape of the list at a glance. */}
@@ -558,14 +454,13 @@ function ExerciseCardComponent({
   /* The rest chip needs something to do: run a rest (the cursor's card) or
      open the editor that holds it. */
   const showRest = restSeconds > 0 && (onStartRest != null || onEditExercise != null);
-  const showWarmup = onAddWarmup != null && warmupSummary != null;
 
   return (
     <View
       className="mx-lg mb-sm mt-xs"
       style={[{ borderRadius: EXPANDED_RADIUS }, dimmed ? { opacity: 0.4 } : null]}
     >
-      {/* Momentum v3: ONE card for the whole exercise — name, plan, nudge, rows
+      {/* Momentum v3: ONE card for the whole exercise — name, plan, rows
           and footer — on the flat `card` tier. It repeats down the list, so it
           is never blurred; the rest card above is the lit one. */}
       <View
@@ -578,7 +473,6 @@ function ExerciseCardComponent({
             backgroundColor: glassTier.card.tint,
             borderColor: isLifted ? glassTier.lit.border : glassTier.card.border,
           },
-          superset === 'none' ? null : { borderLeftWidth: 2, borderLeftColor: palette.greenDim },
         ]}
       >
         <SpecularEdge color="rgba(236,241,238,0.10)" radius={EXPANDED_RADIUS} />
@@ -643,18 +537,6 @@ function ExerciseCardComponent({
                 </Text>
               )}
 
-              {/*
-              A BEST, ONCE IT HAS HAPPENED — and only once it has. `acc` is the
-              app's one accent doing the job it does everywhere else — this is
-              new — but there is no medal, no banner and no sound. `lib/records.ts`
-              has the argument.
-            */}
-              {bestLine ? (
-                <Text className="mt-xs text-label tabular-nums text-acc">
-                  {t('New best')} · {bestLine}
-                </Text>
-              ) : null}
-
               {/* THE CUE. Only on the OPEN card, faint and single-line: reference
                 that must never compete with the numbers below it. */}
               {entry.exercise.cue ? (
@@ -701,36 +583,13 @@ function ExerciseCardComponent({
           ) : null}
         </View>
 
-        {/* The overload offer, in `acc` under the plan — see `OverloadNudge`. */}
-        <OverloadNudge
-          verdict={entry.overload}
-          unitSystem={unitSystem}
-          loadMode={entry.exercise.loadMode}
-          countUnit={entry.exercise.countUnit}
-          resolved={entry.overloadAccepted}
-          onAccept={onAcceptOverload}
-          onDismiss={onDismissOverload}
-        />
-
-        {/*
-          A STALL, stated and nothing else — no `Use` button beside it. Cutting a
-          session's weight is a decision about a training block, and an app that
-          took it on one tap would be rewriting a plan off three data points. So
-          this is a sentence in muted ink rather than the accent the overload
-          offer gets. It renders only when the nudge does not — the screen decides.
-        */}
-        {deloadMessage ? (
-          <View className="mt-sm flex-row items-start" style={{ gap: 6 }}>
-            <Icon name="trending-down" size={16} color={palette.inkMuted} />
-            <Text className="flex-1 text-label tabular-nums text-ink-muted">{deloadMessage}</Text>
-          </View>
-        ) : null}
-
-        {/* The set row's letters, explained once — on the open card, above its
-            rows, until "Got it" (`SetTypeTip`). */}
-        <SetTypeTip />
-
         <View className="mt-md">
+          {/* THE WARM-UP TOGGLE, sitting on the first row it changes: `+ Warm-up`
+              inserts one set on top, and the same chip — lit while that set is
+              there and unlogged — takes it back off. */}
+          {warmupToggle && onToggleWarmup ? (
+            <WarmupChip on={warmupToggle === 'remove'} onPress={onToggleWarmup} />
+          ) : null}
           {entry.sets.map((set, index) => (
             <GrowIn
               key={set.localId}
@@ -748,20 +607,25 @@ function ExerciseCardComponent({
               {/* 6 between rows, inside the GrowIn so a leaving row takes its
                   gap with it. */}
               <View style={index > 0 ? { marginTop: 6 } : undefined}>
+                {/* The max test says what it is, on the row, until it is done. */}
+                {!set.isCompleted && isMaxTestSet(entry, set.localId) ? (
+                  <Text className="mb-xs ml-xs text-label font-semibold text-acc">
+                    {t('Max reps — go all out')}
+                  </Text>
+                ) : null}
                 <SetRow
                   set={set}
                   workingNumber={setLabels[index]}
+                  maxTest={isMaxTestSet(entry, set.localId)}
                   exercise={entry.exercise}
                   unitSystem={unitSystem}
                   /* The mark for "do this one". Every card has a next row; only
                      one row in the session is THE next row, and lighting all of
                      them would mark nothing. `upNextSetId` is that row. */
                   isUpNext={set.localId === upNextSetId}
-                  position={index + 1}
                   focusedField={focus?.setId === set.localId ? focus.field : null}
                   isTimed={isTimed}
                   isTiming={timingSetId === set.localId}
-                  availablePlatesKg={availablePlatesKg}
                   /* Edit mode's `−`, on every row — see the file header. */
                   onRemove={isEditing ? handlersFor(set.localId).onRemove : undefined}
                   grip={
@@ -785,12 +649,6 @@ function ExerciseCardComponent({
                   onPressTimer={handlersFor(set.localId).onPressTimer}
                   onFocusField={handlersFor(set.localId).onFocusField}
                   onToggleComplete={handlersFor(set.localId).onToggleComplete}
-                  onOpenMarks={onOpenSetMarks ? handlersFor(set.localId).onOpenMarks : undefined}
-                  onToggleWarmup={
-                    onToggleWarmup && warmupToggles[index] && entry.exercise.requiresWeight
-                      ? handlersFor(set.localId).onToggleWarmup
-                      : undefined
-                  }
                 />
               </View>
 
@@ -807,8 +665,6 @@ function ExerciseCardComponent({
                     onClose={() => setFocus(null)}
                     /* `Log set` is the row's ✓: it closes the editor and logs. */
                     onLog={handlersFor(set.localId).onToggleComplete}
-                    onKind={onMarkSet ? handlersFor(set.localId).onKind : undefined}
-                    onRir={onMarkSet ? handlersFor(set.localId).onRir : undefined}
                     flushRef={flushEditor}
                   />
                 </GrowIn>
@@ -821,7 +677,7 @@ function ExerciseCardComponent({
           /*
            * EDIT MODE'S FOOTER (redesign #3): full-width secondary buttons, one
            * per plan edit, in the order they are reached for — another set, the
-           * warm-up ramp, the exercise's own numbers — then a divider and the one
+           * exercise's own numbers — then a divider and the one
            * red button. Full width and labelled, because the half-width cells
            * they replaced were read as a table rather than as buttons.
            */
@@ -834,21 +690,6 @@ function ExerciseCardComponent({
                   onAddSet();
                 }}
               />
-              {/* WARM-UP, with the share of the working weight each row is at —
-                  muted, the way a footnote is — so the button says what it is
-                  about to add. Only before anything is logged: the screen
-                  decides (`warmupPlans`). */}
-              {onAddWarmup && warmupSummary ? (
-                <FooterButton
-                  label={`+ ${t('Warm-up')}`}
-                  muted={warmupPercents ?? undefined}
-                  accessibilityLabel={t('Add warm-up sets: {what}', { what: warmupSummary })}
-                  onPress={() => {
-                    tap();
-                    onAddWarmup();
-                  }}
-                />
-              ) : null}
               {/* The plan's own numbers — rest, defaults, targets, the cue — in
                   the exercise editor, mid-workout. */}
               {onEditExercise ? (
@@ -882,36 +723,21 @@ function ExerciseCardComponent({
               ) : null}
             </View>
           </GrowIn>
-        ) : showWarmup || showRest ? (
+        ) : showRest ? (
           /*
-           * THE NORMAL FOOTER (redesign #3): two chips. `+ Warm-up` only while
-           * nothing here is logged — after the first set it is too late to warm
-           * up for it. `Rest 1:30` with a trailing ✎, so it reads as a number you
+           * THE NORMAL FOOTER (redesign #3): `Rest 1:30` with a trailing ✎, so it reads as a number you
            * can change: the chip runs a rest now (the answer to "auto-rest is
            * off, how do I rest at all"), the ✎ opens the editor that holds the
            * exercise's rest. `+ Add set` / `− Remove set` moved into edit mode
            * with every other plan edit; one tap on `Edit` away.
            */
           <View className="mt-md flex-row" style={{ gap: 8 }}>
-            {showWarmup ? (
-              <FooterChip
-                icon="plus"
-                label={t('Warm-up')}
-                accessibilityLabel={t('Add warm-up sets: {what}', { what: warmupSummary ?? '' })}
-                onPress={() => {
-                  tap();
-                  onAddWarmup?.();
-                }}
-              />
-            ) : null}
-            {showRest ? (
-              <RestChip
-                label={t('Rest {clock}', { clock: formatClock(restSeconds) })}
-                startLabel={t('Start a {clock} rest', { clock: formatClock(restSeconds) })}
-                onStart={onStartRest}
-                onEdit={onEditExercise}
-              />
-            ) : null}
+            <RestChip
+              label={t('Rest {clock}', { clock: formatClock(restSeconds) })}
+              startLabel={t('Start a {clock} rest', { clock: formatClock(restSeconds) })}
+              onStart={onStartRest}
+              onEdit={onEditExercise}
+            />
           </View>
         ) : null}
       </View>
@@ -927,10 +753,6 @@ interface RowHandlers {
   onPressTimer: () => void;
   onFocusField: (field: SetField) => void;
   onToggleComplete: () => void;
-  onOpenMarks: () => void;
-  onToggleWarmup: () => void;
-  onKind: (kind: SetKind) => void;
-  onRir: (rir: number | null) => void;
 }
 
 /** Hoisted: `RollingNumber` is memoized, and an inline object is a new prop. */
@@ -990,43 +812,6 @@ function HeaderPill({
         style={{ color, marginLeft: 6 }}
         className="text-label font-semibold"
       >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-/** `+ Warm-up` — a 44 dp glass chip in the normal footer. */
-function FooterChip({
-  icon,
-  label,
-  onPress,
-  accessibilityLabel,
-}: {
-  icon: 'plus';
-  label: string;
-  onPress: () => void;
-  accessibilityLabel: string;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => ({
-        height: 44,
-        borderRadius: 9999,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 14,
-        backgroundColor: pressed ? 'rgba(236,241,238,0.09)' : glass.raised,
-        borderWidth: 1,
-        borderColor: tint(0.3),
-      })}
-    >
-      <Icon name={icon} size={13} color={palette.acc} />
-      <Text numberOfLines={1} style={{ marginLeft: 6 }} className="text-label font-medium text-acc">
         {label}
       </Text>
     </Pressable>
@@ -1116,18 +901,58 @@ function RestChip({
 }
 
 /**
+ * `+ Warm-up` / `✓ Warm-up` — the first row's toggle. A pill rather than a
+ * switch, because its effect is a ROW appearing above it and the pill reads as
+ * the thing that row belongs to; lit (acc-soft, check) while the warm-up is on.
+ */
+function WarmupChip({ on, onPress }: { on: boolean; onPress: () => void }) {
+  const t = useT();
+  return (
+    <Pressable
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      hitSlop={{ top: 6, bottom: 6 }}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={on ? t('Remove the warm-up set') : t('Add a warm-up set on top')}
+      style={({ pressed }) => ({
+        alignSelf: 'flex-start',
+        height: 32,
+        marginBottom: 8,
+        paddingHorizontal: 12,
+        borderRadius: 9999,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: on ? tint(0.45) : glass.raisedEdge,
+        backgroundColor: on ? tint(0.14) : pressed ? 'rgba(236,241,238,0.09)' : glass.raised,
+      })}
+    >
+      {on ? <Icon name="check" size={14} color={palette.acc} /> : null}
+      <Text
+        maxFontSizeMultiplier={1.3}
+        numberOfLines={1}
+        style={{ color: on ? palette.acc : palette.inkMuted, marginLeft: on ? 6 : 0 }}
+        className="text-label font-semibold"
+      >
+        {on ? t('Warm-up') : `+ ${t('Warm-up')}`}
+      </Text>
+    </Pressable>
+  );
+}
+
+/**
  * One full-width secondary button of edit mode's footer: 48 high, glass, the
- * label centred. `muted` is a trailing part in faint ink — the warm-up's
- * `40 · 60 · 80`.
+ * label centred.
  */
 function FooterButton({
   label,
-  muted,
   onPress,
   accessibilityLabel,
 }: {
   label: string;
-  muted?: string;
   onPress: () => void;
   accessibilityLabel?: string;
 }) {
@@ -1154,7 +979,6 @@ function FooterButton({
         className="text-body font-medium text-ink"
       >
         {label}
-        {muted ? <Text className="tabular-nums text-ink-faint">{`  ${muted}`}</Text> : null}
       </Text>
     </Pressable>
   );

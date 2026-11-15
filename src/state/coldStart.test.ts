@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { __closeDb, countWorkoutRows, db, readAllWorkouts, writeWorkouts } from './historyDb';
 import { useWorkoutHistory } from './workoutHistoryStore';
 import { buildDraftSession, type DraftSession } from '../lib/draft';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import { __resetDatabases, __simulateProcessRestart } from '../../test/expoSqliteStub';
 import type { CompletedWorkout } from '../lib/completedWorkout';
@@ -40,7 +40,6 @@ function loggedDraft(startedAt: string, sets = 3): DraftSession {
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,

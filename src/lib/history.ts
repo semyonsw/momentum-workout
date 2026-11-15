@@ -5,16 +5,12 @@
  *   80 kg · 8 6 5 5              a clean session
  *   80 kg · 7 · 75 kg · 7 7 6    a top set, then a drop
  *   12 rounds · 3 min            nothing to weigh
- *   80 kg · 5 5 8+ · 60 kg · 10D  an AMRAP last set, then a drop set
  *
- * SET TYPES MARK THE REPS: `F` to failure, `+` AMRAP, `D` a drop set. A plain
- * working set is the bare number, so every line written before set types existed
- * reads exactly as it did. Time, distance and rounds carry no marks — they are
- * summarised as a length or a total, not set by set.
+ * Time, distance and rounds are summarised as a length or a total, not set by
+ * set.
  *
  * The split between `lead` and `drops` is the whole point: the LEAD is the top
- * working weight, which is the number the chart plots and the overload engine
- * judges. The drops stay on the same line — they happened, and hiding them would
+ * working weight, which is the number the chart plots and the records read. The drops stay on the same line — they happened, and hiding them would
  * make the session look lighter than it was — but they render `ink-faint` and
  * stay out of the chart, because a drop set is not a regression.
  */
@@ -22,8 +18,7 @@
 import { plural, t, term, type Language } from './i18n';
 import type { Exercise, ID, SetHistory } from '../types/models';
 import type { TrendPoint } from './trends';
-import { formatDuration } from './units';
-import { shorthandMark } from './setType';
+import { daysBetween, formatDuration } from './units';
 
 export interface SessionRow {
   sessionId: ID;
@@ -43,15 +38,13 @@ export type ShorthandSubject = Pick<Exercise, 'countUnit' | 'loadMode'>;
 interface WeightGroup {
   weightKg: number | null;
   counts: number[];
-  /** Each count's set-type mark (`F`, `+`, `D` or ''), aligned with `counts`. */
-  marks: string[];
 }
 
 /**
  * Newest-first session rows for one exercise.
  *
- * Warm-ups and incomplete sets are dropped here, exactly as the overload engine
- * drops them, so the list and the nudge are reading the same history.
+ * Warm-ups and incomplete sets are dropped here, exactly as the records drop
+ * them, so the list and the bests are reading the same history.
  */
 export function sessionRows(
   history: SetHistory[],
@@ -189,17 +182,36 @@ export function describeHistory(
   return parts.join(' · ');
 }
 
+/**
+ * How long the top working weight has stood still: the days since the oldest of
+ * the newest sessions that all share it, or null when there is no run to report.
+ *
+ * A run needs two sessions. The clause is a fact about the data, not a nag, so
+ * it appears as soon as the same weight has been hit twice; on a lift that is
+ * still climbing the newest session stands alone and the clause drops out.
+ * Unweighted work has no weight to stand still at.
+ */
+export function plateauDays(rows: SessionRow[], now: Date = new Date()): number | null {
+  const top = rows[0]?.topWeightKg;
+  if (top == null) return null;
+  let oldest = rows[0];
+  let run = 1;
+  for (const row of rows.slice(1)) {
+    if (row.topWeightKg == null || Math.abs(row.topWeightKg - top) >= 0.01) break;
+    oldest = row;
+    run += 1;
+  }
+  return run >= 2 ? daysBetween(oldest.performedAt, now) : null;
+}
+
 /* ------------------------------------------------------------------ */
 
 function groupByWeight(ordered: SetHistory[]): WeightGroup[] {
   const groups: WeightGroup[] = [];
   for (const set of ordered) {
     const last = groups[groups.length - 1];
-    const mark = shorthandMark(set);
-    if (last && last.weightKg === set.weightKg) {
-      last.counts.push(set.count);
-      last.marks.push(mark);
-    } else groups.push({ weightKg: set.weightKg, counts: [set.count], marks: [mark] });
+    if (last && last.weightKg === set.weightKg) last.counts.push(set.count);
+    else groups.push({ weightKg: set.weightKg, counts: [set.count] });
   }
   return groups;
 }
@@ -225,9 +237,7 @@ function formatGroup(
     return `${group.counts.reduce((sum, c) => sum + c, 0)} ${term('unit', 'm', lang)}`;
   }
 
-  // Reps carry their set type's mark — `8F`, `8+`, `10D` (`lib/setType.ts`); a plain
-  // working set is the bare number it always was.
-  const counts = group.counts.map((c, i) => `${c}${group.marks[i] ?? ''}`).join(' ');
+  const counts = group.counts.join(' ');
   if (group.weightKg == null) return counts;
   const prefix = exercise.loadMode === 'added_bodyweight' ? '+' : '';
   return `${prefix}${group.weightKg} ${term('unit', 'kg', lang)} · ${counts}`;

@@ -46,7 +46,6 @@ import {
   pickFolder,
   pickJsonFile,
   readTextFile,
-  saveCsvFile,
   writeDailyBackup,
   writeToFolder,
 } from './backupFile';
@@ -179,63 +178,6 @@ describe('deleteFile', () => {
   it('reports false rather than throwing', async () => {
     native.saf.deleteAsync.mockRejectedValue(new Error('gone'));
     await expect(deleteFile(FILE)).resolves.toBe(false);
-  });
-});
-
-describe('saveCsvFile', () => {
-  it('saves into the picked folder', async () => {
-    native.saf.createFileAsync.mockResolvedValue(`${TREE}/document/primary%3ADownload%2Fmoney.csv`);
-    await expect(saveCsvFile('money', 'a,b\n')).resolves.toEqual({
-      saved: true,
-      name: 'money.csv',
-      where: 'Download',
-      folderUri: TREE,
-      uri: `${TREE}/document/primary%3ADownload%2Fmoney.csv`,
-    });
-  });
-
-  it('is a cancel, not a failure, when the picker is dismissed', async () => {
-    native.saf.requestDirectoryPermissionsAsync.mockResolvedValue({ granted: false });
-    await expect(saveCsvFile('b', 'a')).resolves.toEqual({ saved: false, cancelled: true });
-    expect(native.saf.createFileAsync).not.toHaveBeenCalled();
-  });
-
-  it('asks SAF for a CSV so the file gets the right extension', async () => {
-    await saveCsvFile('money', 'a,b\n');
-    expect(native.saf.createFileAsync).toHaveBeenCalledWith(TREE, 'money', 'text/csv');
-  });
-
-  it('falls back to the app folder with no picker, and returns a path', async () => {
-    native.platform.OS = 'ios';
-    const result = await saveCsvFile('money', 'a,b\n');
-    expect(native.fs.writeAsStringAsync).toHaveBeenCalledWith(
-      'file:///data/user/0/app/files/money.csv',
-      'a,b\n',
-    );
-    expect(result).toEqual({
-      saved: true,
-      name: 'money.csv',
-      where: '/data/user/0/app/files/money.csv',
-    });
-  });
-
-  it('falls back when Android has no SAF module', async () => {
-    native.fs.StorageAccessFramework = undefined;
-    const result = await saveCsvFile('b', 'a');
-    expect(result).toMatchObject({ saved: true, name: 'b.csv' });
-  });
-
-  it('throws a translated sentence when there is no writable app folder either', async () => {
-    native.platform.OS = 'ios';
-    native.fs.documentDirectory = null;
-    await expect(saveCsvFile('b', 'a', 'ru')).rejects.toThrow(
-      'На этом устройстве нет папки для записи.',
-    );
-  });
-
-  it('propagates a real write error rather than reporting it as saved', async () => {
-    native.fs.writeAsStringAsync.mockRejectedValue(new Error('disk full'));
-    await expect(saveCsvFile('b', 'a')).rejects.toThrow('disk full');
   });
 });
 

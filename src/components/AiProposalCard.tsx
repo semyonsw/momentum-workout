@@ -47,16 +47,10 @@ export function formatReps(values: RowValues): string {
     : String(values.reps);
 }
 
-/**
- * `4 × 8–10 · 60 kg`, or `BW` for no weight, with ` · superset` when the row is
- * bracketed with the one above. The marker is optional because the `was` side of
- * a diff is drawn with it too only when the bracket is what changed — passing it
- * is the caller's decision, not this function's.
- */
-export function formatRow(values: RowValues, kg: string, bw: string, superset?: string): string {
+/** `4 × 8–10 · 60 kg`, or `BW` for no weight. */
+export function formatRow(values: RowValues, kg: string, bw: string): string {
   const load = values.weightKg > 0 ? `${values.weightKg} ${kg}` : bw;
-  const text = `${values.sets} × ${formatReps(values)} · ${load}`;
-  return superset && values.superset ? `${text} · ${superset}` : text;
+  return `${values.sets} × ${formatReps(values)} · ${load}`;
 }
 
 /**
@@ -84,7 +78,6 @@ export function AiProposalCard({
   const pending = status === 'pending';
   const kg = t('kg');
   const bw = t('BW');
-  const ss = t('superset');
 
   const meta = [
     isNew
@@ -187,7 +180,7 @@ export function AiProposalCard({
                       style={{ fontSize: 12.5, textDecorationLine: 'line-through', marginRight: 6 }}
                       className="tabular-nums text-ink-faint"
                     >
-                      {formatRow(row.was, kg, bw, ss)}
+                      {formatRow(row.was, kg, bw)}
                     </Text>
                   ) : null}
                   <Text
@@ -207,7 +200,7 @@ export function AiProposalCard({
                             : 'text-green-bright',
                     ].join(' ')}
                   >
-                    {formatRow(row, kg, bw, ss)}
+                    {formatRow(row, kg, bw)}
                   </Text>
                   {tagged ? (
                     <Text

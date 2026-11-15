@@ -23,7 +23,7 @@
  * as neglected, no colour means too little.
  *
  * THE TARGET LIVES ON THE CLUSTER. The weekly targets the user typed are per
- * cluster and were typed against the primary-only count (Workout settings →
+ * cluster and were typed against the primary-only count (Settings → Workout →
  * weekly targets, History → sets per cluster), so a tapped muscle says its own
  * number and then its cluster's `n / target` — the design's "Chest · 14 / 16"
  * would compare a muscle's half-counted sets with a cluster's whole ones.

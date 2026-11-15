@@ -160,9 +160,7 @@ function paneAlpha(intensity: number): number {
  *
  * The drawing is memoised on what it is drawn from — the window, the section's
  * lamps and the theme's three stops — because it sits under every section root,
- * and those re-render far more often than the lamps change. On the colours and
- * not on the props alone: the launch screen is outside the tree that remounts on
- * a new theme, and the theme arriving under the launch mark has to relight it.
+ * and those re-render far more often than the lamps change.
  */
 export function Lamps({ section }: { section: keyof typeof LAMPS | string }) {
   const specs = LAMPS[section] ?? LAMPS.Workout;
@@ -471,7 +469,7 @@ export function GlassBar({
  * the accessibility label. Pushed screens keep the worded pill, because `Save`
  * and `Test & connect` are not things a glyph says unambiguously.
  *
- * `hidden` slides it 180 dp down, off the screen's edge, over 320 ms (U27): a
+ * `hidden` slides it 180 dp down, off the screen's edge, in 200 ms (U27): a
  * section passes its scroll's `fabHidden` (`hooks/useBubbleOnScroll`,
  * `lib/fabScroll`) so the circle stops covering the right-hand column of the
  * rows being read. Slid, not faded or unmounted: it leaves the way it would be
@@ -510,11 +508,11 @@ export function FloatingAction({
   const motionScale = useMotionScale();
   const arrived = useArrived();
   /*
-   * THE MOTION PASS, three parts and none of them in the way:
-   *   • it ARRIVES — fade and a 10 dp rise, 200 ms after its section, so the
-   *     section is on screen before the thing you press in it;
-   *   • it SINKS to 0.94 under the thumb and settles back on the overshoot curve;
-   *   • `asleep` → awake is a 300 ms fade to full, not a switch, so the keypad's
+   * THE MOTION, three parts, all short since the calm pass:
+   *   • it ARRIVES — a 150 ms fade and 4 dp rise with its section, no delay and
+   *     (for the round one) no pop-in overshoot;
+   *   • it SINKS a little under the thumb (`usePressScale`) and comes straight back;
+   *   • `asleep` → awake is a 150 ms fade to full, not a switch, so the keypad's
    *     Save wakes on the first digit rather than appearing.
    */
   const arrive = useRef(new Animated.Value(motionScale === 0 ? 1 : 0)).current;
@@ -524,9 +522,8 @@ export function FloatingAction({
     if (!arrived) return;
     Animated.timing(arrive, {
       toValue: 1,
-      duration: (round ? 560 : 420) * motionScale,
-      delay: (round ? 280 : 200) * motionScale,
-      easing: curve(round ? motion.pop : motion.ease),
+      duration: 150 * motionScale,
+      easing: curve(motion.ease),
       useNativeDriver: true,
     }).start();
     // Arrival only: the section's, not the label's.
@@ -535,7 +532,7 @@ export function FloatingAction({
   useEffect(() => {
     Animated.timing(wake, {
       toValue: asleep ? 0.55 : 1,
-      duration: 300 * motionScale,
+      duration: 150 * motionScale,
       easing: curve(motion.ease),
       useNativeDriver: true,
     }).start();
@@ -544,7 +541,7 @@ export function FloatingAction({
   useEffect(() => {
     Animated.timing(aside, {
       toValue: hidden ? 1 : 0,
-      duration: FAB_HIDE_MS * motionScale,
+      duration: Math.min(FAB_HIDE_MS, 200) * motionScale,
       easing: curve(motion.ease),
       useNativeDriver: true,
     }).start();
@@ -555,11 +552,7 @@ export function FloatingAction({
   );
   const opacity = useMemo(() => Animated.multiply(arrive, wake), [arrive, wake]);
   const translateY = useMemo(
-    () => arrive.interpolate({ inputRange: [0, 1], outputRange: [round ? 18 : 10, 0] }),
-    [arrive, round],
-  );
-  const popScale = useMemo(
-    () => arrive.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }),
+    () => arrive.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }),
     [arrive],
   );
 
@@ -582,16 +575,11 @@ export function FloatingAction({
         // `Open Pull (Tension on Back)` at 16/600 is wider than a 360 dp phone.
         // The pill floats OVER the list, so it must not be allowed to span it:
         // past three quarters of the width it stops reading as a layer and
-        // starts reading as a bar that has come loose. The label RUNS inside
-        // that cap instead of being cut — see `RunningText`.
+        // starts reading as a bar that has come loose. The label truncates
+        // inside that cap — see `RunningText`.
         maxWidth: '76%',
         opacity,
-        transform: [
-          { translateY },
-          { translateY: asideY },
-          ...(round ? [{ scale: popScale }] : []),
-          ...press.style.transform,
-        ],
+        transform: [{ translateY }, { translateY: asideY }, ...press.style.transform],
       }}
     >
       <BubblePressable
@@ -837,7 +825,7 @@ export function FloatingPair({
          * nothing to be the careful alternative to — and the one thing left to do
          * should arrive the way the ✓ that made it the thing to do did.
          */
-        <Pop duration={400}>{primaryPill}</Pop>
+        <Pop>{primaryPill}</Pop>
       )}
     </View>
   );
@@ -898,14 +886,14 @@ export function Toast({
   useEffect(() => {
     Animated.timing(enter, {
       toValue: 1,
-      duration: 240 * motionScale,
+      duration: 150 * motionScale,
       easing: curve(motion.ease),
       useNativeDriver: true,
     }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enter]);
   const translateY = useMemo(
-    () => enter.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }),
+    () => enter.interpolate({ inputRange: [0, 1], outputRange: [4, 0] }),
     [enter],
   );
 

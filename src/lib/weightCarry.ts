@@ -23,7 +23,7 @@
  *     not retroactively become a set at 60 because the next one was lighter.
  *  2. A WARM-UP. The whole point of a warm-up row is that it is a fraction of the
  *     working weight, and flattening the ramp to the top set is the opposite of
- *     what `lib/warmup.ts` just built.
+ *     what it is for.
  *  3. A SET ABOVE THE ONE YOU LOGGED. Carrying runs DOWN the card only — the rows
  *     above are either done or deliberately skipped, and rewriting a row you have
  *     already walked past is the app editing your plan behind you.
@@ -64,17 +64,16 @@ export function carryWeightForward(sets: readonly DraftSet[], fromSetId: ID): Dr
   const index = sets.findIndex((s) => s.localId === fromSetId);
   if (index === -1) return sets as DraftSet[];
   // A warm-up's weight is the ramp, not the working weight: ticking the 40 kg
-  // warm-up used to rewrite every working set below it to 40. A DROP SET's is
-  // lighter on purpose (T-12) — it says nothing about what today's weight is.
-  if (sets[index].isWarmup || sets[index].setType === 'drop') return sets as DraftSet[];
+  // warm-up used to rewrite every working set below it to 40.
+  if (sets[index].isWarmup) return sets as DraftSet[];
 
   const weightKg = sets[index].weightKg;
   if (weightKg == null || !Number.isFinite(weightKg)) return sets as DraftSet[];
 
   let changed = false;
   const next = sets.map((set, i) => {
-    // A planned drop row keeps its lighter weight; a warm-up keeps its ramp.
-    if (i <= index || set.isCompleted || set.isWarmup || set.setType === 'drop') return set;
+    // A warm-up keeps its ramp.
+    if (i <= index || set.isCompleted || set.isWarmup) return set;
     if (set.weightKg === weightKg && !set.isPrefilled) return set;
     changed = true;
     return { ...set, weightKg, isPrefilled: false };

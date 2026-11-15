@@ -2,30 +2,17 @@ import { describe, expect, it } from 'vitest';
 
 import { finishOpensSheet, planOffer } from './finishSheet';
 import type { PlannedSetChange } from './routinePlan';
-import { milestoneDue } from './milestones';
 
-const quiet = { unlogged: 0, ladderMoved: false, records: 0, milestone: null };
+const quiet = { unlogged: 0, ladderMoved: false };
 
 describe('finishOpensSheet', () => {
   it('saves in one tap when there is nothing to say', () => {
     expect(finishOpensSheet(quiet)).toBe(false);
   });
 
-  it('opens for unlogged sets, a moved ladder or a record', () => {
+  it('opens for unlogged sets or a moved ladder', () => {
     expect(finishOpensSheet({ ...quiet, unlogged: 1 })).toBe(true);
     expect(finishOpensSheet({ ...quiet, ladderMoved: true })).toBe(true);
-    expect(finishOpensSheet({ ...quiet, records: 2 })).toBe(true);
-  });
-
-  it('opens for a due milestone even with every set logged and no record', () => {
-    const milestone = milestoneDue({ on: true, workoutNumber: 100, shown: 50 });
-    expect(milestone).toBe(100);
-    expect(finishOpensSheet({ ...quiet, milestone })).toBe(true);
-  });
-
-  it('stays one tap with the switch off, even at workout 100', () => {
-    const milestone = milestoneDue({ on: false, workoutNumber: 100, shown: undefined });
-    expect(finishOpensSheet({ ...quiet, milestone })).toBe(false);
   });
 });
 

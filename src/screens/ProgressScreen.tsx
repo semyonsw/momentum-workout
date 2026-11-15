@@ -68,9 +68,9 @@ interface ProgressScreenProps {
   exercisesById: Record<ID, Exercise>;
   /** The `Log | Graphs` switch, rendered under the header by whoever owns it. */
   toolbar?: ReactNode;
-  /** `‹` — this screen is pushed by the ⟲ on the workout section now. */
-  onBack?: () => void;
-  /** W9: the door under the graphs to the tape-measure log. */
+  /** The scroll's foot: clear of the nav pill, since this is a root (4.0). */
+  footInset?: number;
+  /** The door under the graphs to the bodyweight log. */
   onOpenBody?: () => void;
 }
 
@@ -79,7 +79,7 @@ export function ProgressScreen({
   historyByExerciseId,
   exercisesById,
   toolbar,
-  onBack,
+  footInset = 40,
   onOpenBody,
 }: ProgressScreenProps) {
   const t = useT();
@@ -188,7 +188,6 @@ export function ProgressScreen({
     <View className="flex-1 bg-bg">
       <ScreenHeader
         kicker={t('Training history')}
-        onBack={onBack}
         subtitle={exercise ? exercise.name : t('Every workout you have logged')}
         bordered={false}
       >
@@ -197,7 +196,7 @@ export function ProgressScreen({
 
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: footInset }}
         showsVerticalScrollIndicator={false}
       >
         {options.length > 0 ? (
@@ -235,8 +234,8 @@ export function ProgressScreen({
           <Empty hasWorkouts={workouts.length > 0} />
         )}
 
-        {/* W9: under the bodyweight line, the rest of the body — always offered,
-            because the first measurement is typed there, not here. */}
+        {/* Under the bodyweight line, the log behind it — always offered, because
+            the first weigh-in is typed there, not here. */}
         {onOpenBody ? (
           <View className="mx-lg mt-xl">
             <BodyDoor onPress={onOpenBody} />

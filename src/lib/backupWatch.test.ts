@@ -81,7 +81,7 @@ describe('the settings slice', () => {
 });
 
 describe('which stores are watched', () => {
-  it('the settings, the training, the debriefs and the assistant', () => {
-    expect(WATCHED_STORES).toEqual(['settings', 'library', 'workoutHistory', 'debriefs', 'ai']);
+  it('the settings, the training and the assistant', () => {
+    expect(WATCHED_STORES).toEqual(['settings', 'library', 'workoutHistory', 'ai']);
   });
 });

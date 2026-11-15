@@ -150,9 +150,6 @@ import { Icon } from '../components/Icon';
 import { pressedStyle, Reveal } from '../components/motion';
 import { NumberSheet } from '../components/NumberSheet';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { SettingsFootRow } from '../components/SettingsFootRow';
-import { WrappedHistoryFoot } from '../components/WrappedEntry';
-import type { WrappedPeriod } from '../lib/wrapped';
 import {
   DangerFootAction,
   FieldWell,
@@ -197,9 +194,6 @@ import {
   weightSteps,
 } from '../lib/units';
 import { historyTotals, type SetCorrection } from '../state/workoutHistoryStore';
-import { SetMarksSheet } from '../components/SetMarksSheet';
-import { describeRir, effortApplies, rirChipLabel } from '../lib/effort';
-import { kindBadge, kindName, setKindOf, setSheetTitle } from '../lib/setType';
 import { workingSetLabels } from '../lib/draft';
 import { useLanguage, usePlural, useT, type Translate } from '../hooks/useT';
 import { term, type Language } from '../lib/i18n';
@@ -323,12 +317,8 @@ export interface HistoryScreenProps {
   onSetNumber: (id: ID, number: number) => void;
   /** The `Log | Graphs` switch, rendered under the header by whoever owns it. */
   toolbar?: ReactNode;
-  /** `‹` — this screen is pushed by the ⟲ on the workout section now. */
-  onBack?: () => void;
-  /** `Settings ›` at the foot: the workout settings (U24). */
-  onOpenSettings?: () => void;
-  /** X1: open a Wrapped. Absent = no Wrapped row at the foot. */
-  onOpenWrapped?: (period: WrappedPeriod) => void;
+  /** The scroll's foot: clear of the nav pill, since this is a root (4.0). */
+  footInset?: number;
   /** W3: the muscle map, from the foot of the sets-per-cluster card. */
   onOpenMuscles?: () => void;
 }
@@ -351,9 +341,7 @@ export function HistoryScreen({
   numbers,
   onSetNumber,
   toolbar,
-  onBack,
-  onOpenSettings,
-  onOpenWrapped,
+  footInset = 40,
   onOpenMuscles,
 }: HistoryScreenProps) {
   const t = useT();
@@ -365,11 +353,6 @@ export function HistoryScreen({
   const [numbering, setNumbering] = useState<CompletedWorkout | null>(null);
   /** The workout whose "Move to another day" sheet is open. */
   const [moving, setMoving] = useState<CompletedWorkout | null>(null);
-  /** The logged set whose annotations sheet is open. */
-  const [marking, setMarking] = useState<{ workoutId: ID; setId: ID; title: string } | null>(null);
-  const markingRow = marking
-    ? workouts.find((w) => w.id === marking.workoutId)?.sets.find((r) => r.id === marking.setId)
-    : undefined;
   const scrollRef = useRef<ScrollView>(null);
   /**
    * Where each workout row sits in the SCROLL CONTENT, captured on layout.
@@ -540,7 +523,6 @@ export function HistoryScreen({
         setNumbering(workout);
       },
       askMove: (workout) => setMoving(workout),
-      askMarks: (workoutId, setId, title) => setMarking({ workoutId, setId, title }),
     }),
     [],
   );
@@ -601,7 +583,6 @@ export function HistoryScreen({
       <View className="flex-1" style={dimmed ? { opacity: 0.28 } : undefined}>
         <ScreenHeader
           kicker={t('Training history')}
-          onBack={onBack}
           subtitle={
             totals.workouts > 0
               ? `${t('{count} {workouts}', {
@@ -625,22 +606,13 @@ export function HistoryScreen({
         </ScreenHeader>
 
         {workouts.length === 0 ? (
-          <>
-            <Empty loadFailed={loadFailed} />
-            {onOpenWrapped ? <WrappedHistoryFoot onOpen={onOpenWrapped} /> : null}
-            {/* X2: patterns across the three logs, under the look back. */}
-            {onOpenSettings ? (
-              <View style={{ paddingBottom: 40 }}>
-                <SettingsFootRow sectionLabel={t('Workout settings')} onPress={onOpenSettings} />
-              </View>
-            ) : null}
-          </>
+          <Empty loadFailed={loadFailed} />
         ) : (
           <KeyboardAwareScrollView
             ref={scrollRef}
             style={{ flex: 1 }}
             keyboardShouldPersistTaps="never"
-            contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
+            contentContainerStyle={{ paddingTop: 8, paddingBottom: footInset }}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!dimmed}
             scrollEventThrottle={100}
@@ -778,14 +750,6 @@ export function HistoryScreen({
                 </View>
               </View>
             ))}
-
-            {/* X1: last month's Wrapped, at any time (and the year's, in its window). */}
-            {onOpenWrapped ? <WrappedHistoryFoot onOpen={onOpenWrapped} /> : null}
-            {/* X2: patterns across the three logs, under the look back. */}
-            {/* U24: the section's settings, where you notice one is wrong. */}
-            {onOpenSettings ? (
-              <SettingsFootRow sectionLabel={t('Workout settings')} onPress={onOpenSettings} />
-            ) : null}
           </KeyboardAwareScrollView>
         )}
       </View>
@@ -822,7 +786,7 @@ export function HistoryScreen({
           tone="danger"
           title={t('Delete “{title}”?', { title: deleting.title })}
           body={t(
-            '{date} · {count} sets. This is the record of a workout you did — deleting it also removes those sets from what the overload suggestions read.',
+            '{date} · {count} sets. This is the record of a workout you did — deleting it also removes those sets from what the prefills and the records read.',
             {
               date: formatShortDate(deleting.startedAt, lang),
               count: deleting.setCount,
@@ -838,33 +802,6 @@ export function HistoryScreen({
             setOpenId(null);
           }}
           onCancel={() => setDeleting(null)}
-        />
-      ) : null}
-
-      {marking && markingRow ? (
-        <SetMarksSheet
-          // The live session's title, so one sheet reads the same in both places:
-          // `Set 2 · Set type & reps left`, `Set W · …` for a warm-up.
-          title={setSheetTitle(
-            setKindOf(markingRow),
-            workingNumberOf(
-              workouts.find((w) => w.id === marking.workoutId)?.sets ?? [],
-              markingRow,
-            ),
-            lang,
-          )}
-          kind={setKindOf(markingRow)}
-          onKind={(kind) => {
-            dismissUndo();
-            onEditSet(marking.workoutId, marking.setId, { kind });
-          }}
-          rir={markingRow.rir}
-          showEffort={effortApplies(markingRow.countUnit)}
-          onRir={(rir) => {
-            dismissUndo();
-            onEditSet(marking.workoutId, marking.setId, { rir });
-          }}
-          onDismiss={() => setMarking(null)}
         />
       ) : null}
 
@@ -897,8 +834,6 @@ interface RowActions {
   askNumber: (workout: CompletedWorkout) => void;
   /** Open "Move to another day" for this workout. */
   askMove: (workout: CompletedWorkout) => void;
-  /** Open a logged set's annotations sheet (RIR). */
-  askMarks: (workoutId: ID, setId: ID, title: string) => void;
 }
 
 /**
@@ -957,7 +892,6 @@ const HistoryRow = memo(function HistoryRow({
       onDelete={() => actions.askDelete(workout)}
       onEditNumber={() => actions.askNumber(workout)}
       onMoveDay={() => actions.askMove(workout)}
-      onOpenMarks={(setId, title) => actions.askMarks(id, setId, title)}
     />
   );
 });
@@ -978,7 +912,6 @@ function WorkoutRow({
   onAddSet,
   onRemoveExercise,
   onAddExercise,
-  onOpenMarks,
 }: {
   workout: CompletedWorkout;
   /** Its ordinal, or undefined / below 1 when the pinning leaves it without one. */
@@ -1006,8 +939,6 @@ function WorkoutRow({
   onRemoveExercise: (exerciseId: ID) => boolean;
   /** Open the library picker for this workout. Absent = no way to navigate there. */
   onAddExercise?: () => void;
-  /** Open one logged set's annotations sheet, under the title given. */
-  onOpenMarks: (setId: ID, title: string) => void;
 }) {
   const t = useT();
   const lang = useLanguage();
@@ -1335,10 +1266,6 @@ function WorkoutRow({
                             if (onDeleteSet(row.id)) setEditing(null);
                           }}
                           onDone={() => setEditing(null)}
-                          onOpenMarks={() => {
-                            const n = labels[index];
-                            onOpenMarks(row.id, n == null ? t('Warm-up') : t('Set {n}', { n }));
-                          }}
                           canRemove={workout.sets.length > 1}
                         />
                       ))}
@@ -1827,10 +1754,9 @@ function ClusterRow({
  * snaps nothing — `QuickAdjust`'s rule about not rounding to a grid the app has
  * never seen applies at least as strongly to a number that is already a record.
  *
- * TYPE AND EFFORT (T-11, T-12) are corrected here too, through the same sheet the
- * session uses (`SetMarksSheet`): the set's number or letter opens it, so do the
- * `Set type` and `Reps in reserve` rows in the correction panel, and so does a
- * graded set's `RIR` chip. The left column numbers WORKING sets now (W, 1, 2),
+ * A WARM-UP is corrected here too — the `Warm-up` switch in the correction
+ * panel, so a mis-logged warm-up stops counting towards volume, records and
+ * progress. The left column numbers WORKING sets (W, 1, 2),
  * as the session does — it used to count warm-ups, so a set read `2` here that
  * had been `Set 1` on the day.
  *
@@ -1849,7 +1775,6 @@ function LoggedSetRow({
   onChange,
   onRemove,
   onDone,
-  onOpenMarks,
 }: {
   row: SetHistory;
   /** The working-set number (warm-ups not counted), or null for a warm-up. */
@@ -1861,14 +1786,10 @@ function LoggedSetRow({
   onChange: (patch: SetCorrection) => void;
   onRemove: () => void;
   onDone: () => void;
-  /** The `RIR` door in the correction panel, and the chip's tap. */
-  onOpenMarks: () => void;
 }) {
   const t = useT();
   const lang = useLanguage();
   const weighted = row.weightKg != null;
-  const graded = row.rir != null && effortApplies(row.countUnit);
-  const kind = setKindOf(row);
   const steps = weightSteps(unitSystem);
   const countDelta = countStep(row.countUnit);
 
@@ -1887,34 +1808,16 @@ function LoggedSetRow({
   return (
     <View>
       <View className="flex-row items-center px-lg py-xs">
-        {/* The number, or the set type's letter in its place (W D F A) — tapping it
-            opens the type and RIR sheet, as on the session's row. */}
-        <Pressable
-          onPress={() => {
-            tap();
-            onOpenMarks();
-          }}
-          hitSlop={{ top: 10, bottom: 10, left: 8, right: 0 }}
-          accessibilityRole="button"
-          accessibilityLabel={
-            number == null
-              ? kindName(kind, lang)
-              : kind === 'working'
-                ? t('Set {n}', { n: number })
-                : t('Set {n}, {kind}', { n: number, kind: kindName(kind, lang) })
-          }
-          accessibilityHint={t('Opens the set type and reps in reserve')}
+        {/* The working-set number, or W for a warm-up. */}
+        <View
+          accessible
+          accessibilityLabel={number == null ? t('Warm-up') : t('Set {n}', { n: number })}
           className="w-[24px]"
         >
-          <Text
-            className={[
-              'text-micro font-semibold uppercase tabular-nums',
-              kind === 'working' || kind === 'warmup' ? 'text-ink-faint' : 'text-green-bright',
-            ].join(' ')}
-          >
-            {kindBadge(kind) ?? number}
+          <Text className="text-micro font-semibold uppercase tabular-nums text-ink-faint">
+            {number ?? 'W'}
           </Text>
-        </Pressable>
+        </View>
 
         {/* The values are WELLS (redesign #15): a number in a well is one you
             can tap, here as on the session's set row. The open one is lit. */}
@@ -1956,24 +1859,6 @@ function LoggedSetRow({
           </Text>
         </ValueWell>
 
-        {graded ? (
-          <Pressable
-            onPress={onOpenMarks}
-            hitSlop={{ top: 9, bottom: 9, left: 4, right: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel={describeRir(row.rir ?? 0, lang)}
-            style={pressedStyle}
-            className="ml-sm h-[26px] justify-center rounded-pill border border-hairline px-sm"
-          >
-            <Text
-              maxFontSizeMultiplier={1.3}
-              className="text-[12.5px] font-semibold tabular-nums text-ink-muted"
-            >
-              {rirChipLabel(row.rir ?? 0)}
-            </Text>
-          </Pressable>
-        ) : null}
-
         <View className="flex-1" />
         <Icon
           name={editing ? 'chevron-down' : 'chevron-right'}
@@ -2006,63 +1891,33 @@ function LoggedSetRow({
             ))}
           </View>
 
-          {/* The set's kind, as in the session's editor: the door to the sheet. */}
+          {/* Warm-up or working: a warm-up counts toward nothing. */}
           <View className="mt-sm flex-row items-center justify-between">
             <Text maxFontSizeMultiplier={1.3} className="text-label text-ink-muted">
-              {t('Set type')}
+              {t('Warm-up')}
             </Text>
             <Pressable
               onPress={() => {
                 tap();
-                onOpenMarks();
+                onChange({ isWarmup: !row.isWarmup });
               }}
               hitSlop={4}
-              accessibilityRole="button"
-              accessibilityLabel={`${t('Set type')}: ${kindName(kind, lang)}`}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: row.isWarmup }}
+              accessibilityLabel={t('Warm-up')}
               style={pressedStyle}
               className="h-hit min-w-[72px] items-center justify-center rounded-pill border border-hairline bg-surface-alt px-md"
             >
               <Text
                 className={[
                   'text-label font-semibold',
-                  kind === 'working' ? 'text-ink' : 'text-green-bright',
+                  row.isWarmup ? 'text-green-bright' : 'text-ink',
                 ].join(' ')}
               >
-                {kindName(kind, lang)}
+                {row.isWarmup ? t('Yes') : t('No')}
               </Text>
             </Pressable>
           </View>
-
-          {/* Effort, as in the session's editor: the door to the scale. */}
-          {effortApplies(row.countUnit) ? (
-            <View className="mt-sm flex-row items-center justify-between">
-              <Text maxFontSizeMultiplier={1.3} className="text-label text-ink-muted">
-                {t('Reps in reserve')}
-              </Text>
-              <Pressable
-                onPress={() => {
-                  tap();
-                  onOpenMarks();
-                }}
-                hitSlop={4}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  row.rir != null ? describeRir(row.rir, lang) : t('Add reps in reserve')
-                }
-                style={pressedStyle}
-                className="h-hit min-w-[72px] items-center justify-center rounded-pill border border-hairline bg-surface-alt px-md"
-              >
-                <Text
-                  className={[
-                    'text-label font-semibold tabular-nums',
-                    row.rir != null ? 'text-ink' : 'text-green-bright',
-                  ].join(' ')}
-                >
-                  {row.rir != null ? rirChipLabel(row.rir) : '+ RIR'}
-                </Text>
-              </Pressable>
-            </View>
-          ) : null}
 
           <View className="mt-sm flex-row items-center justify-between">
             {/* Only where it is not the last row of the workout. See the note above. */}
@@ -2258,16 +2113,3 @@ function describeTotal(exercise: CompletedExercise, t: Translate, lang: Language
  * silently loses its grouping on one build and not another is not worth the
  * dependency for one regex.
  */
-
-/** A logged set's place among its exercise's WORKING sets, 1-based; null for a warm-up. */
-function workingNumberOf(
-  sets: readonly { exerciseId: ID; setIndex: number; isWarmup: boolean; id: ID }[],
-  row: { exerciseId: ID; isWarmup: boolean; id: ID },
-): number | null {
-  if (row.isWarmup) return null;
-  const working = sets
-    .filter((s) => s.exerciseId === row.exerciseId && !s.isWarmup)
-    .sort((a, b) => a.setIndex - b.setIndex);
-  const at = working.findIndex((s) => s.id === row.id);
-  return at === -1 ? null : at + 1;
-}

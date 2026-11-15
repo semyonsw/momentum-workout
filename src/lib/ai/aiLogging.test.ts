@@ -84,6 +84,7 @@ describe("correcting a saved set's kind", () => {
           { ...base, id: 'w_mon', number: 0 },
           { ...base, id: 'w_tue', number: 1 },
           { ...base, id: 'w_mon', number: 1, text: 'superset' },
+          { ...base, id: 'w_mon', number: 1, text: 'drop' },
           { ...base, id: 'w_mon', exerciseId: 'ex_squat', number: 1 },
         ],
         ctx,
@@ -127,7 +128,7 @@ describe('the card rows for logged things', () => {
         id: 'w_mon',
         exerciseId: 'ex_bench',
         setId: 's_1',
-        from: 'drop',
+        from: 'working',
         value: 'warmup',
         day: '2026-10-27',
         position: 1,
@@ -135,7 +136,7 @@ describe('the card rows for logged things', () => {
     ];
     expect(describeChanges(changes, now, 'en')).toEqual([
       { subject: 'Body weight', label: 'Today', from: '82 kg', to: '81.5 kg' },
-      { subject: 'Bench press · 27 Oct', label: 'Set 1', from: 'Drop set', to: 'Warm-up' },
+      { subject: 'Bench press · 27 Oct', label: 'Set 1', from: 'Working set', to: 'Warm-up' },
     ]);
   });
 });

@@ -289,12 +289,12 @@ GitHub will host for free. Same download, same "open it and tap install".
    work.
    On Samsung, also set **Battery → Unrestricted** for the app and make sure it is
    not in **Sleeping apps** — a restricted app's alarms are dropped.
-5. Check the beep once, in **Settings → Countdown → Test the beep**. It plays the
+5. Check the beep once, in **Settings → Timers & sound → Test the beep**. It plays the
    real 3 · 2 · 1 · go. If it's silent, the phone's media volume is down — the
    cue plays on the media stream so it can be heard over music, which also means
    it obeys the media slider rather than the ringer.
 
-Minimum Android 8.0 (API 26), set by Health Connect; the S24 ships far newer.
+Minimum Android 8.0 (API 26); the S24 ships far newer.
 
 ## Rebuild after a code change
 

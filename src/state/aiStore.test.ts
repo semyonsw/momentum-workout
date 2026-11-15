@@ -332,8 +332,8 @@ describe('a settings-changes card', () => {
         ...changesBlock,
         changes: [
           ...changesBlock.changes,
-          { target: 'routine', field: 'x' },
-          { target: 'task' },
+          { target: 'routine' },
+          { target: 'task', field: 'archive' },
           'x',
         ],
         rows: [...changesBlock.rows, { label: 3, to: 'x' }, { label: 'L', to: 'T' }],
@@ -348,13 +348,52 @@ describe('a settings-changes card', () => {
       why: '',
       status: 'pending',
     });
-    // Nothing applicable, or nothing to show: the card goes, the message stays.
-    for (const broken of [
-      { ...changesBlock, changes: [] },
-      { ...changesBlock, rows: 'x' },
-    ]) {
-      const message = blob(broken);
-      expect(message.role === 'model' && message.blocks).toEqual([{ type: 'text', text: 'Hi' }]);
-    }
+    // Nothing to show: the card goes, the message stays.
+    const message = blob({ ...changesBlock, rows: 'x' });
+    expect(message.role === 'model' && message.blocks).toEqual([{ type: 'text', text: 'Hi' }]);
+    // Rows but no change this build can apply — an older build's card, or one
+    // from a backup: kept READ-ONLY, decided, so no Apply is drawn for nothing.
+    const old = blockOf(
+      blob({ ...changesBlock, changes: [{ target: 'task', field: 'archive' }], status: 'pending' }),
+    );
+    expect(old).toMatchObject({ type: 'changes', changes: [], status: 'discarded' });
+    expect(old?.rows).toEqual(changesBlock.rows);
+  });
+
+  it('imports an old backup chat whose cards no longer parse, without throwing', () => {
+    const imported = sanitizeAi({
+      chats: {
+        Workout: [
+          { id: 'u', role: 'user', text: 'old', at: 'x' },
+          {
+            id: 'm',
+            role: 'model',
+            raw: '',
+            at: 'x',
+            blocks: [
+              { type: 'debrief', questions: ['How was it?'] },
+              { type: 'proposal', proposalId: 'gone' },
+              { type: 'changes', changes: 'not a list', rows: [{ label: 'Goal', to: '4' }] },
+              { type: 'changes', changes: [{ target: 'goal', field: 'weekly' }], rows: 7 },
+              null,
+            ],
+          },
+        ],
+      },
+      archive: { Workout: [{ id: 'a', messages: [{ id: 'z', role: 'model', blocks: [42] }] }] },
+      proposals: { p1: { proposal: { kind: 'superset' } }, p2: 'x' },
+    });
+    const model = imported.chats.Workout[1];
+    expect(model.role === 'model' && model.blocks).toEqual([
+      {
+        type: 'changes',
+        changes: [],
+        rows: [{ subject: '', label: 'Goal', from: '', to: '4' }],
+        why: '',
+        status: 'discarded',
+      },
+    ]);
+    expect(imported.archive.Workout).toEqual([]);
+    expect(imported.proposals).toEqual({});
   });
 });

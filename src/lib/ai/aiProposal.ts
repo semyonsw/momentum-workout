@@ -56,7 +56,6 @@
 import { defaultTargetCount, defaultTargetSets } from '../draft';
 import { countsToMax } from '../maxReps';
 import { ladderOf } from '../repLadder';
-import { isSupersettedWithAbove } from '../routinePlan';
 import { CLAMP, clampInt, clampWeight, type RoutineProposal } from './aiSchema';
 import type { Exercise, ID, MuscleGroup, Routine, RoutineItem } from '../../types/models';
 
@@ -67,8 +66,6 @@ export interface RowValues {
   weightKg: number;
   /** The bottom of a rep range (`8` of `8–10`). Absent = one number. */
   repsMin?: number;
-  /** Supersetted with the row above it. Absent = not. */
-  superset?: boolean;
 }
 
 export interface ProposalRow extends RowValues {
@@ -199,12 +196,7 @@ function baseWeight(exercise: Exercise, lastWeights: Record<ID, number>): number
   return lastWeights[exercise.id] ?? exercise.defaultWeightKg ?? null;
 }
 
-function itemValues(
-  item: RoutineItem,
-  exercise: Exercise,
-  base: number | null,
-  superset = false,
-): RowValues {
+function itemValues(item: RoutineItem, exercise: Exercise, base: number | null): RowValues {
   const values: RowValues = {
     sets: item.targetSets,
     reps: item.targetRepsMax ?? item.targetRepsMin ?? defaultTargetCount(exercise),
@@ -212,7 +204,6 @@ function itemValues(
   };
   const { targetRepsMin: min, targetRepsMax: max } = item;
   if (min != null && max != null && min < max) values.repsMin = min;
-  if (superset) values.superset = true;
   return values;
 }
 
@@ -230,11 +221,10 @@ function lockedValues(
   current: RowValues | null,
 ): RowValues {
   /*
-   * THE TWO OPTIONAL FIELDS DEFAULT TO WHAT IS THERE. A model copying a row it is
+   * THE RANGE DEFAULTS TO WHAT IS THERE. A model copying a row it is
    * not changing writes `"reps": 10` and nothing else far more often than it
    * copies the 8 of `8–10` — and reading that as "drop the range" crossed out a
-   * change nobody asked for. So an untouched top keeps its bottom, and a missing
-   * superset flag keeps the bracket; `false` is how the model removes one.
+   * change nobody asked for. So an untouched top keeps its bottom.
    */
   const locked = exercise != null && repsLockedFor(exercise);
   const reps = locked ? (current?.reps ?? defaultTargetCount(exercise)) : proposed.reps;
@@ -244,14 +234,12 @@ function lockedValues(
         proposed.repsMin ?? (current && reps === current.reps ? current.repsMin : undefined),
         reps,
       );
-  const superset = proposed.superset ?? current?.superset ?? false;
   const values: RowValues = {
     sets: proposed.sets,
     reps,
     weightKg: exercise && !exercise.requiresWeight ? 0 : proposed.weightKg,
   };
   if (repsMin != null) values.repsMin = repsMin;
-  if (superset) values.superset = true;
   return values;
 }
 
@@ -292,7 +280,7 @@ export function normalizeProposal(
   ): ProposalRow => {
     /*
      * A row the model calls `same`, with the top it already has, keeps its range
-     * and its bracket whatever else was written beside them: copying `12` back
+     * whatever else was written beside them: copying `12` back
      * as `"10-12"` is the sloppy copy this file exists to absorb, and taking it
      * as a new range drew a change nobody asked for. To change a range the model
      * says `changed`; the label is only believed in this one, harmless direction.
@@ -304,7 +292,6 @@ export function normalizeProposal(
         reps: proposed.reps,
         weightKg: proposed.weightKg,
         ...(proposed.repsMin != null && !copied ? { repsMin: proposed.repsMin } : {}),
-        ...(proposed.superset != null && !copied ? { superset: proposed.superset } : {}),
       },
       exercise,
       current,
@@ -364,15 +351,10 @@ export function normalizeProposal(
   const rows: ProposalRow[] = [];
   const rowOfEntry = new Map<number, ProposalRow>();
   const sorted = [...routine.items].sort((a, b) => a.order - b.order);
-  for (const [position, item] of sorted.entries()) {
+  for (const item of sorted) {
     const exercise = byId[item.exerciseId];
     if (!exercise) continue;
-    const was = itemValues(
-      item,
-      exercise,
-      baseWeight(exercise, lastWeights),
-      isSupersettedWithAbove(sorted, position),
-    );
+    const was = itemValues(item, exercise, baseWeight(exercise, lastWeights));
     const index = entries.findIndex((e, i) => !used.has(i) && e.exercise?.id === exercise.id);
     if (index === -1) {
       // Not mentioned: dropped from a whole list (above), otherwise kept as it is.
@@ -457,26 +439,11 @@ function reorderToModel(
   // Moved = its place among the routine's own rows is not what it was.
   const existingBefore = rows.filter((row) => row.itemId);
   const existingAfter = out.filter((row) => row.itemId);
-  /*
-   * A BRACKET MEANS "WITH THE ONE ABOVE", so it does not survive a new neighbour
-   * above. Dips moved between Row and Curl would otherwise pull Curl out of its
-   * superset with Row and into one with Dips — a pairing nobody asked for. A row
-   * whose row above changed keeps its flag only if the model set it on purpose
-   * (it differs from what the row had); an inherited one is dropped.
-   */
-  const live = (list: readonly ProposalRow[]) => list.filter((row) => !row.removed);
-  const aboveBefore = new Map(live(rows).map((row, i, all) => [row, all[i - 1]]));
-  const aboveAfter = new Map(live(out).map((row, i, all) => [row, all[i - 1]]));
   return out.map((row) => {
     if (!row.itemId || row.removed) return row;
-    let next = row;
-    if (existingAfter.indexOf(row) !== existingBefore.indexOf(row)) next = { ...next, moved: true };
-    const inherited = Boolean(row.superset) === Boolean(row.was?.superset);
-    if (row.superset && inherited && aboveBefore.get(row) !== aboveAfter.get(row)) {
-      next = { ...next };
-      delete next.superset;
-    }
-    return next;
+    return existingAfter.indexOf(row) !== existingBefore.indexOf(row)
+      ? { ...row, moved: true }
+      : row;
   });
 }
 
@@ -490,14 +457,13 @@ export function rowStatus(row: ProposalRow): RowStatus {
   return row.moved || valuesDiffer(row, row.was) ? 'changed' : 'same';
 }
 
-/** Any of a row's numbers, its range or its bracket, against what it was. */
+/** Any of a row's numbers or its range, against what it was. */
 export function valuesDiffer(row: RowValues, was: RowValues): boolean {
   return (
     row.sets !== was.sets ||
     row.reps !== was.reps ||
     row.weightKg !== was.weightKg ||
-    (row.repsMin ?? null) !== (was.repsMin ?? null) ||
-    Boolean(row.superset) !== Boolean(was.superset)
+    (row.repsMin ?? null) !== (was.repsMin ?? null)
   );
 }
 
@@ -624,36 +590,6 @@ export interface ApplyResult extends Library {
   routineName: string;
 }
 
-/**
- * Superset groups rebuilt from one flag per item — "with the one above". A run
- * shares the group of its first item; an item on its own carries none. Group
- * strings are only ever compared (`lib/routinePlan.ts`), so rebuilding them is
- * invisible except where a bracket actually changed.
- */
-export function regroup(
-  items: readonly RoutineItem[],
-  withAbove: readonly boolean[],
-): RoutineItem[] {
-  const groups: (string | undefined)[] = [];
-  items.forEach((_item, i) => {
-    if (i > 0 && withAbove[i]) {
-      const group = groups[i - 1] ?? `sg_${items[i - 1].id}`;
-      groups[i - 1] = group;
-      groups[i] = group;
-    } else {
-      groups[i] = undefined;
-    }
-  });
-  return items.map((item, i) => {
-    const group = groups[i];
-    if (group === item.supersetGroup) return item;
-    const next = { ...item };
-    if (group) next.supersetGroup = group;
-    else delete next.supersetGroup;
-    return next;
-  });
-}
-
 /** An id nothing in `taken` claims. */
 function freshId(prefix: string, stamp: string, taken: Set<string>): string {
   let n = 0;
@@ -759,10 +695,7 @@ export function planApply(
       id: freshId('r_ai', stamp, takenRoutine),
       ownerId: opts.ownerId,
       name,
-      items: regroup(
-        items,
-        resolved.map((row) => row.superset === true),
-      ),
+      items,
       createdAt: iso,
       updatedAt: iso,
     };
@@ -827,38 +760,6 @@ export function planApply(
     items.splice(at, 0, item);
   });
   items = items.map((item, order) => (item.order === order ? item : { ...item, order }));
-  /*
-   * THE BRACKETS, only when a row asks for a different one — otherwise every
-   * group string stays exactly as the editor left it. Each item's "with the one
-   * above" comes from its row, or, for an item no row mentions, from where it
-   * stood before.
-   */
-  const rowOfItem = new Map(resolved.filter((r) => r.itemId).map((r) => [r.itemId as ID, r]));
-  const bracketsMoved = resolved.some((row) =>
-    row.was ? Boolean(row.superset) !== Boolean(row.was.superset) || row.moved : row.superset,
-  );
-  if (bracketsMoved) {
-    const before = [...target.items].sort((a, b) => a.order - b.order);
-    const added = new Map(
-      items.filter((item) => !itemsById.has(item.id)).map((item) => [item.id, item]),
-    );
-    const rowOfNew = new Map<ID, ProposalRow>();
-    resolved
-      .filter((row) => !row.itemId)
-      .forEach((row, i) => {
-        const item = [...added.values()][i];
-        if (item) rowOfNew.set(item.id, row);
-      });
-    items = regroup(
-      items,
-      items.map((item) => {
-        const row = rowOfItem.get(item.id) ?? rowOfNew.get(item.id);
-        if (row) return row.superset === true;
-        const at = before.findIndex((x) => x.id === item.id);
-        return at > 0 && isSupersettedWithAbove(before, at);
-      }),
-    );
-  }
   const name = proposal.name.trim() || target.name;
   const routine: Routine = { ...target, name, items, updatedAt: iso };
   return {

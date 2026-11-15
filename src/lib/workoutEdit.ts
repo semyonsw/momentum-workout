@@ -14,7 +14,7 @@
  * `HistoryScreen` already argued half of this: "A TYPO IS NOT A WORKOUT". A 40 kg
  * typed where 4 was meant used to cost the whole session, because delete-and-re-enter
  * was the only route — and that also took those rows out of what the prefills and
- * the overload verdicts read. One field of one row became correctable for exactly
+ * the records read. One field of one row became correctable for exactly
  * that reason.
  *
  * The other half is everything a session gets wrong that is NOT one number: a set
@@ -42,8 +42,8 @@
  * ── SET INDICES ARE POSITIONS, SO THEY ARE REBUILT ─────────────────────────
  *
  * `SetHistory.setIndex` is the row's position in the session, warm-ups included —
- * it is what orders the rows on disk (`ORDER BY session_id, set_index`) and what the
- * CSV prints in its `set` column. Appending a row for the first exercise of a
+ * it is what orders the rows on disk (`ORDER BY session_id, set_index`) and what a
+ * backup carries. Appending a row for the first exercise of a
  * six-exercise session cannot just take "one past the highest index", or that row
  * sorts after the last exercise's. `reindexSets` renumbers the whole session from
  * the exercise order the record already has, so an index stays a position.
@@ -147,7 +147,7 @@ export function renameWorkout(
  * start so history sorts without a join (see `models.ts`), which means it is not
  * independent of the workout's date — it IS the workout's date, denormalised onto
  * every row. A retime that changed the header and left the rows behind would put a
- * session on Tuesday whose sets the overload engine, the trends and the exercise
+ * session on Tuesday whose sets the prefills, the trends and the exercise
  * history all still read as Wednesday's.
  *
  * The duration is preserved rather than recomputed: dragging a session onto the

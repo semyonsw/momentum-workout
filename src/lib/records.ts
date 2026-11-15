@@ -56,14 +56,13 @@
  *  - Epley (`load × (1 + reps / 30)`), on the EFFECTIVE load, rep work only — and a
  *    single is its own weight, not 3% more than what was actually lifted.
  *  - ONE POINT PER SESSION: that session's best set, the granularity every chart
- *    and the overload engine use (`lib/trends.ts`).
+ *    uses (`lib/trends.ts`).
  *  - Every screen that shows it says "estimate" beside it. Still never on a set row.
  *
  * `prTimeline` is the bests told as a history: each time a session moved one of
  * them. It rejects the obvious per-set version — a session that climbs 95, 100,
- * 105 is one record, not three — and it gives the first session no entry, the
- * same rule the Finish sheet keeps (IMPLEMENTATION_DECISIONS, T-09): a record
- * needs a previous best to beat, otherwise everybody's first day is a wall of
+ * 105 is one record, not three — and it gives the first session no entry: a
+ * record needs a previous best to beat, otherwise everybody's first day is a wall of
  * "records". Heaviest is not kept for `loadMode: 'none'`, where the only load is
  * the scale's reading and a "record" would mean the lifter got heavier.
  */
@@ -113,7 +112,7 @@ function counts(row: SetHistory): boolean {
 /**
  * The standing bests for one exercise.
  *
- * Warm-ups and unlogged rows are excluded — the same rule the overload engine and
+ * Warm-ups and unlogged rows are excluded — the same rule the history list and
  * every chart applies, so a best can never come from a set that did not count.
  *
  * TIES GO TO THE OLDER SET. A record is "when did this last move", and re-doing
@@ -160,57 +159,6 @@ export function exerciseBests(
   }
 
   return { heaviest, mostCount, bestSetLoad };
-}
-
-/** Which axes a set beat. Empty = an ordinary good set. */
-export interface BeatenRecords {
-  heaviest: boolean;
-  mostCount: boolean;
-  bestSetLoad: boolean;
-}
-
-const NOTHING_BEATEN: BeatenRecords = {
-  heaviest: false,
-  mostCount: false,
-  bestSetLoad: false,
-};
-
-/** Did any axis move? */
-export function beatSomething(beaten: BeatenRecords): boolean {
-  return beaten.heaviest || beaten.mostCount || beaten.bestSetLoad;
-}
-
-/**
- * Does this set beat the standing bests?
- *
- * STRICTLY. Equalling your best is not beating it, and a card that says "new best"
- * for a set you have done four times is a card nobody believes the fifth time.
- *
- * The set is described loosely (a weight, a count, a load mode) rather than as a
- * `SetHistory`, because the live session's rows are `DraftSet`s that have no id, no
- * `performedAt` and no exercise id yet — and the whole value of this function is
- * being able to ask the question mid-workout.
- */
-export function recordsBeatenBy(
-  set: { weightKg: number | null; count: number; isWarmup?: boolean },
-  bests: ExerciseBests,
-  exercise: Pick<Exercise, 'countUnit' | 'loadMode'>,
-  bodyweightKg: number | null,
-): BeatenRecords {
-  if (set.isWarmup) return NOTHING_BEATEN;
-  if (!Number.isFinite(set.count) || set.count <= 0) return NOTHING_BEATEN;
-
-  const load = effectiveLoadKg(set.weightKg, exercise.loadMode, bodyweightKg);
-  const usable = load != null && Number.isFinite(load) && load > 0 ? load : null;
-
-  return {
-    heaviest: usable != null && (bests.heaviest == null || usable > bests.heaviest.value),
-    mostCount: bests.mostCount == null || set.count > bests.mostCount.value,
-    bestSetLoad:
-      exercise.countUnit === 'reps' &&
-      usable != null &&
-      (bests.bestSetLoad == null || usable * set.count > bests.bestSetLoad.value),
-  };
 }
 
 /**
@@ -380,8 +328,8 @@ const KIND_ORDER: readonly RecordKind[] = ['e1rm', 'heaviest', 'mostCount'];
  * Each session is reduced to its own best on each axis and compared, STRICTLY, with
  * the best of every session before it. Equalling a best is not a record. The first
  * session sets the bar and has no entry. Kept separate from `exerciseBests` (which
- * answers "what stands now") so `recordsBrokenIn` can ask the same question of one
- * session without building the whole history twice.
+ * answers "what stands now"), because a timeline and a standing best are two
+ * different questions of the same rows.
  */
 export function prTimeline(
   history: readonly SetHistory[],
@@ -413,62 +361,13 @@ export function prTimeline(
   return entries.reverse();
 }
 
-/** One session that set a record on one exercise — what E1/E2 count (Wave 3). */
-export interface RecordMoment {
-  exerciseId: ID;
-  sessionId: ID;
-  at: string;
-}
-
-/**
- * Every (session, exercise) that broke a record, oldest first, by the FINISH
- * SHEET'S rules (`recordsBrokenIn`), not the timeline's: a record needs a bar on
- * its axis, so an exercise's first session and an axis it never had are not
- * records, and pure bodyweight work has no e1RM. One moment per exercise per
- * session, however many axes moved — the sheet's one row.
- *
- * The badges and XP count these, so "your first record" is the session whose
- * Finish sheet first said so.
- */
-export function recordMoments(
-  history: readonly SetHistory[],
-  bodyweightAtDate: BodyweightLookup = () => null,
-): RecordMoment[] {
-  const byExercise = new Map<ID, SetHistory[]>();
-  for (const row of history) {
-    const bucket = byExercise.get(row.exerciseId);
-    if (bucket) bucket.push(row);
-    else byExercise.set(row.exerciseId, [row]);
-  }
-  const moments: RecordMoment[] = [];
-  for (const [exerciseId, rows] of byExercise) {
-    const standing: Standing = {};
-    for (const session of sessionsOf(rows, exerciseId)) {
-      const tops = sessionTops(session, bodyweightAtDate);
-      const moved = KIND_ORDER.some((kind) => {
-        const top = tops[kind];
-        const bar = standing[kind];
-        if (!top || bar == null || !(top.value > bar)) return false;
-        return !(kind === 'e1rm' && top.row.loadMode === 'none');
-      });
-      if (moved) {
-        moments.push({ exerciseId, sessionId: session[0].sessionId, at: session[0].performedAt });
-      }
-      raise(standing, tops);
-    }
-  }
-  return moments.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-}
-
 /** One session's best on each axis, and the set that holds it. */
 type SessionTops = Partial<Record<RecordKind, { value: number; row: SetHistory }>>;
 /** The best on each axis across a run of sessions. */
 type Standing = Partial<Record<RecordKind, number>>;
 
 /**
- * One session reduced to its best on each axis — earliest set on a tie. The one
- * reading `prTimeline` and `recordsBrokenIn` share, so the Finish sheet and the
- * exercise screen cannot disagree about what a session set.
+ * One session reduced to its best on each axis — earliest set on a tie.
  */
 function sessionTops(rows: readonly SetHistory[], bodyweightAtDate: BodyweightLookup): SessionTops {
   const tops: SessionTops = {};
@@ -505,151 +404,6 @@ function setOf(row: SetHistory) {
     count: row.count,
     countUnit: row.countUnit,
     loadMode: row.loadMode,
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Records this session — the Finish sheet (T-09)                      */
-/* ------------------------------------------------------------------ */
-
-/** One exercise's record on the Finish sheet: the best kind it set, and the bar. */
-export interface SessionRecord {
-  exerciseId: ID;
-  kind: RecordKind;
-  /** Same units as `TimelineEntry.value`. */
-  value: number;
-  /** The standing best it beat, same units. Always there: no bar, no record. */
-  previous: number;
-  /** When the set that did it happened, and in which session. */
-  at: string;
-  sessionId: ID;
-  weightKg: number | null;
-  count: number;
-  countUnit: CountUnit;
-  loadMode: LoadMode;
-}
-
-/** How many rows the Finish sheet shows: a block, not a list. */
-const SESSION_RECORDS_SHOWN = 3;
-
-/**
- * Which exercises in the session being finished beat their previous best.
- *
- * `session` is the live workout's completed rows (`draftToSetHistory`), before
- * it is saved; any of them already in `history` are left out of the bar.
- *
- * THE RULES, all the timeline's (see the file header) plus three of its own:
- *
- *  - A RECORD NEEDS A BAR, per axis. An exercise's first-ever session shows
- *    nothing (IMPLEMENTATION_DECISIONS, T-09), and neither does an axis the
- *    history never had — the first loaded set after months of unweighed work is
- *    a first reading, not a record. Rejected: the timeline's looser "any later
- *    session that adds an axis", which would greet a lifter who just typed their
- *    bodyweight with a record on every dip.
- *  - ONE ROW PER EXERCISE, naming the best kind it set: the e1RM, else the
- *    heaviest, else the most reps (or the longest hold). The estimate leads
- *    because it is the one that moves when either of the facts does, and three
- *    rows for one bench set would be the wall of medals the README rules out.
- *  - NO e1RM FOR PURE BODYWEIGHT WORK (`loadMode: 'none'`). Its "load" is the
- *    scale's reading, so the estimate moves when the lifter gets heavier — the
- *    reason the timeline keeps no heaviest for it. The reps are the honest fact.
- *
- * ORDERED most significant first: by kind in that same order, then by the
- * relative jump over the old best, then by the session's own order. At most
- * `limit` rows.
- */
-export function recordsBrokenIn(
-  session: readonly SetHistory[],
-  history: readonly SetHistory[],
-  bodyweightAtDate: BodyweightLookup = () => null,
-  limit: number = SESSION_RECORDS_SHOWN,
-): SessionRecord[] {
-  const live = new Set(session.map((row) => row.sessionId));
-  const before = history.filter((row) => !live.has(row.sessionId));
-
-  const exerciseIds: ID[] = [];
-  for (const row of session) {
-    if (!exerciseIds.includes(row.exerciseId)) exerciseIds.push(row.exerciseId);
-  }
-
-  const found: { record: SessionRecord; gain: number; order: number }[] = [];
-  exerciseIds.forEach((exerciseId, order) => {
-    const earlier = sessionsOf(before, exerciseId);
-    if (earlier.length === 0) return;
-    const standing: Standing = {};
-    for (const rows of earlier) raise(standing, sessionTops(rows, bodyweightAtDate));
-
-    // Every live row of this exercise is read as ONE session — which is what lets
-    // a Wrapped month ask the same question of all of its sessions at once.
-    const rows = session
-      .filter((row) => row.exerciseId === exerciseId && counts(row))
-      .sort(
-        (a, b) => Date.parse(a.performedAt) - Date.parse(b.performedAt) || a.setIndex - b.setIndex,
-      );
-    if (rows.length === 0) return;
-    const tops = sessionTops(rows, bodyweightAtDate);
-
-    for (const kind of KIND_ORDER) {
-      const top = tops[kind];
-      const bar = standing[kind];
-      if (!top || bar == null || !(top.value > bar)) continue;
-      if (kind === 'e1rm' && top.row.loadMode === 'none') continue;
-      found.push({
-        record: {
-          exerciseId,
-          kind,
-          value: top.value,
-          previous: bar,
-          at: top.row.performedAt,
-          ...setOf(top.row),
-        },
-        gain: bar > 0 ? (top.value - bar) / bar : Infinity,
-        order,
-      });
-      return;
-    }
-  });
-
-  return found
-    .sort(
-      (a, b) =>
-        KIND_ORDER.indexOf(a.record.kind) - KIND_ORDER.indexOf(b.record.kind) ||
-        b.gain - a.gain ||
-        a.order - b.order,
-    )
-    .slice(0, Math.max(0, limit))
-    .map((entry) => entry.record);
-}
-
-/**
- * "Bench press · 82.5 × 5" and "new best e1RM, 96.3 kg" — the Finish sheet row,
- * in two halves because the second is lit. The e1RM says e1RM, which is how the
- * row admits it is an estimate (the exercise screen spells out the formula).
- */
-export function describeSessionRecord(
-  record: SessionRecord,
-  name: string,
-  unitSystem: UnitSystem,
-  lang: Language = 'en',
-): { lead: string; record: string } {
-  const lead = `${name} · ${recordSet(record, unitSystem)}`;
-  const value = recordValue(record, unitSystem, lang);
-  if (record.kind === 'e1rm') return { lead, record: t('new best e1RM, {value}', lang, { value }) };
-  if (record.kind === 'heaviest')
-    return { lead, record: t('heaviest yet, {value}', lang, { value }) };
-  const phrase =
-    record.countUnit === 'seconds'
-      ? 'longest yet, {value}'
-      : record.countUnit === 'meters'
-        ? 'furthest yet, {value}'
-        : record.countUnit === 'rounds'
-          ? 'most rounds yet, {value}'
-          : 'most reps yet, {value}';
-  return {
-    lead,
-    record: t(phrase, lang, {
-      value: record.countUnit === 'reps' ? String(record.value) : value,
-    }),
   };
 }
 

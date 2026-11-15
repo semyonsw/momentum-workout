@@ -29,52 +29,28 @@
 
 import { Easing, type BoxShadowValue, type TextStyle } from 'react-native';
 
-import {
-  DEFAULT_THEME_ID,
-  DEFAULT_CUSTOM_COLORS,
-  NEUTRALS,
-  deriveTheme,
-  rgba,
-  themeColors,
-  type DerivedTheme,
-  type ThemeColors,
-} from '../lib/theme';
+import { NEUTRALS, THEME_COLORS, deriveTheme, rgba, type DerivedTheme } from '../lib/theme';
 
 /* ══════════════════════════════════════════════════════════════════════════
-   THE THEME — the one green became three colours the user picks.
+   THE THEME — three colours, derived once (`lib/theme.ts`).
 
-   Everything below that used to be a green literal is now a GETTER over the
-   live theme, so the four hundred places that read `palette.greenBright`,
-   `glassTier.lit` or `halo.single` paint in the chosen colours without a
-   single call site learning that a theme exists.
-
-   Why getters over a module-level theme rather than a React context: a context
-   would mean threading a hook through every component that paints, including
-   the forty memoised rows and the style objects built inside `useMemo`s. The
-   app is dark-only and changes theme only from Settings, so the shell REMOUNTS
-   the tree when the theme changes (`App.tsx`), every render re-reads these, and
-   there is exactly one place that has to know the colours can move.
+   What reads it are getters and functions (`palette.greenBright`, `tint()`,
+   `glassTier.lit`) rather than plain literals because that is the shape four
+   hundred call sites already have, and it costs nothing: the palette is fixed,
+   so every read returns the same value.
    ══════════════════════════════════════════════════════════════════════════ */
 
-let current: DerivedTheme = deriveTheme(themeColors(DEFAULT_THEME_ID, DEFAULT_CUSTOM_COLORS));
-
-/**
- * Pour three colours into the tokens. Called by the root before it renders, and
- * again — followed by a remount — whenever the setting changes.
- */
-export function applyTheme(colors: ThemeColors): DerivedTheme {
-  current = deriveTheme(colors);
-  return current;
-}
+/** The derived palette. `global.css` spells the same values as channels for className. */
+const theme: DerivedTheme = deriveTheme(THEME_COLORS);
 
 /** c2 at an alpha — the lit fills, borders, chips and glows. */
 export function tint(alpha: number): string {
-  return rgba(current.c2, alpha);
+  return rgba(theme.c2, alpha);
 }
 
 /** Any of the three stops at an alpha — for the lamps and the tile corners. */
 export function stopTint(stop: 1 | 2 | 3, alpha: number): string {
-  return rgba(stop === 1 ? current.c1 : stop === 3 ? current.c3 : current.c2, alpha);
+  return rgba(stop === 1 ? theme.c1 : stop === 3 ? theme.c3 : theme.c2, alpha);
 }
 
 /**
@@ -88,7 +64,7 @@ export function gradientFill(): {
   end: { x: number; y: number };
 } {
   return {
-    colors: [current.c1, current.c2, current.c3],
+    colors: [theme.c1, theme.c2, theme.c3],
     locations: [0, 0.55, 1],
     start: { x: 0, y: 0 },
     end: { x: 1, y: 1 },
@@ -103,7 +79,7 @@ export function gradientBar(): {
   end: { x: number; y: number };
 } {
   return {
-    colors: [current.c1, current.c2, current.c3],
+    colors: [theme.c1, theme.c2, theme.c3],
     locations: [0, 0.5, 1],
     start: { x: 0, y: 0.5 },
     end: { x: 1, y: 0.5 },
@@ -133,36 +109,36 @@ export const palette = {
   ink: NEUTRALS.ink, // primary text. never pure white
   inkMuted: NEUTRALS.inkMuted, // secondary text, and any text you can act on
   inkFaint: NEUTRALS.inkFaint, // micro-labels, ghosted prefilled values — never an action
-  /** Tinted card background — overload nudge only. */
+  /** Tinted wash — the timer pill's done state and focus mode's flash. */
   get greenWash(): string {
-    return current.wash;
+    return theme.wash;
   },
   /** Progress tracks, timeline connectors, drop-target rules. */
   get greenDim(): string {
-    return current.dim;
+    return theme.dim;
   },
   /** Primary fills — c2. Text on it is `onAcc`, never `ink`. */
   get green(): string {
-    return current.c2;
+    return theme.c2;
   },
   /** Accent text/icons on black — `acc`. */
   get greenBright(): string {
-    return current.acc;
+    return theme.acc;
   },
   get acc(): string {
-    return current.acc;
+    return theme.acc;
   },
   get onAcc(): string {
-    return current.onAcc;
+    return theme.onAcc;
   },
   get c1(): string {
-    return current.c1;
+    return theme.c1;
   },
   get c2(): string {
-    return current.c2;
+    return theme.c2;
   },
   get c3(): string {
-    return current.c3;
+    return theme.c3;
   },
   /** Scrim behind a bottom sheet. */
   scrim: 'rgba(6,8,7,0.55)',
@@ -200,7 +176,7 @@ export const glass = {
    * tint is lighter than the fill and reads as a highlight, not a button.
    */
   inset: 'rgba(0,0,0,0.16)',
-  /** A step not yet reached in a story's dash bar (Wrapped). */
+  /** A faint fill — the selected, untrained muscle on the muscle map. */
   dash: 'rgba(236,241,238,0.22)',
   /** The page, fully transparent — where a lit wash fades out to. */
   clear: 'rgba(6,8,7,0)',
@@ -662,8 +638,8 @@ export const dangerTint = {
 
 /**
  * The e1RM chart's area: one even 12% wash of the line's own hue, from the design
- * (Wave 1 · item 1). An opacity rather than a colour, so it follows the theme's
- * accent like the line does.
+ * (Wave 1 · item 1). An opacity rather than a colour, so it is always the
+ * line's own accent.
  */
 export const chartWash = { flat: 0.12 } as const;
 

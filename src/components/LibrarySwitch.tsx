@@ -1,15 +1,13 @@
 /**
- * LibrarySwitch — `Routines | Exercises`, under the header of the one
- * `Routines & exercises` destination (U23).
+ * LibrarySwitch — `Routines | Exercises`, under the header of the Routines tab.
  *
- * The workout corner had two glyphs for these, ≡ and 📖, and they looked alike.
- * It has one door now, and this switch is how that door holds two screens. Each
- * half stays the screen it was — the routine list and the exercise tree — and the
- * switch REPLACES one with the other on the stack, so back from either lands on
- * the workout section rather than on the other half. Rejected: one long screen
- * with both lists (the tree opens downward and would push the routines a screen
- * away), and a tab bar inside a pushed screen (a second navigation level for two
- * options).
+ * The workout corner once had two glyphs for these, ≡ and 📖, that looked alike;
+ * U23 made them one door, and 4.0 made that door a tab on the bar. This switch
+ * is how the tab holds two screens: each half stays the screen it was — the
+ * routine list and the exercise tree — and the shell remembers which one is up
+ * (`navigation/AppShell.tsx`). Rejected: one long screen with both lists (the
+ * tree opens downward and would push the routines a screen away), and a fifth
+ * tab for the library (what can I train is one question).
  */
 
 import { View } from 'react-native';

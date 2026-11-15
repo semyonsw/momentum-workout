@@ -33,12 +33,11 @@ const OWNER = 'u1';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-/** The shipped library, with the push routine given a superset and a transition. */
+/** The shipped library, with the push routine given a transition. */
 function library(): Library {
   const routines = clone(seedRoutines);
   const push = routines.find((r) => r.id === 'r_push')!;
-  push.items[0] = { ...push.items[0], supersetGroup: 'ss1', transitionRestSeconds: 120 };
-  push.items[1] = { ...push.items[1], supersetGroup: 'ss1' };
+  push.items[0] = { ...push.items[0], transitionRestSeconds: 120 };
   return { exercises: clone(seedExercises), routines };
 }
 
@@ -207,13 +206,12 @@ describe('applying an edit', () => {
     expect(push.items.map((i) => i.order)).toEqual([0, 1, 2]);
   });
 
-  it('keeps every untouched field of a changed item — the superset, the transition', () => {
+  it('keeps every untouched field of a changed item — the transition', () => {
     const { targetRepsMin: _range, ...original } = before.routines.find((r) => r.id === 'r_push')!
       .items[0];
     expect(push.items[0]).toEqual({ ...original, targetSets: 5, targetRepsMax: 10 });
     // A range collapses to the one number it was changed to.
     expect(push.items[0].targetRepsMin).toBeUndefined();
-    expect(push.items[0].supersetGroup).toBe('ss1');
     expect(push.items[0].transitionRestSeconds).toBe(120);
   });
 

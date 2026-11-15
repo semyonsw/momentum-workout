@@ -22,7 +22,7 @@
  * promise renderable.
  *
  * The raw `SetHistory` rows ride along too, because they are what the prefill and
- * the overload engine read. The summary line beside them is derived from those
+ * the records read. The summary line beside them is derived from those
  * same rows through the shared shorthand (`summarizeSessionSets`), so a workout in
  * the history list and the same workout on the exercise-history screen can never
  * word themselves differently.
@@ -105,7 +105,7 @@ export interface CompletedWorkout {
    */
   unnumbered?: boolean;
   exercises: CompletedExercise[];
-  /** The rows the overload engine and next session's prefills read. */
+  /** The rows the records and next session's prefills read. */
   sets: SetHistory[];
 }
 
@@ -124,8 +124,7 @@ export interface CompletedWorkout {
  * that is the record of what happened and because `isWarmup` is what every
  * consumer downstream filters on. Everything DERIVED counts working sets only —
  * `setCount`, the shorthand `summary`, `totalCount`, `topWeightKg` and the volume.
- * That is not a new rule; it is the rule `progressiveOverload` and `sessionRows`
- * have always followed, applied at the one place that was still summing raw rows.
+ * That is not a new rule; it is the rule `sessionRows` has always followed, applied at the one place that was still summing raw rows.
  * A heavy warm-up single used to become the session's top weight in the history
  * line, which is the same bug that drove a wrong nudge.
  */
@@ -318,7 +317,7 @@ function rowsVolume(
 
 /**
  * Every logged set, keyed by exercise — the shape `buildDraftSession` and the
- * overload engine want.
+ * exercise history want.
  *
  * This is the ONE read every consumer of history goes through: the prefills, the
  * nudges, the exercise chart. `extra` used to carry the shipped fixture sessions
@@ -347,9 +346,9 @@ export function historyByExerciseId(
  * `next`, with every exercise whose rows did not change handed back as the
  * array it had in `prev`.
  *
- * `historyByExerciseId` builds fresh arrays on every call, and the shell's
- * overload cache keys on the array's identity — so saving one workout, or one ±
- * on a set in History, re-ran the engine over EVERY exercise's whole history.
+ * `historyByExerciseId` builds fresh arrays on every call, and everything memoized
+ * on one exercise's history keys on the array's identity — so saving one workout,
+ * or one ± on a set in History, recomputed EVERY exercise's whole history.
  * A workout nobody touched keeps its row objects (the store replaces only what
  * it edits), so "same length, same rows by reference" is exactly "unchanged",
  * and the exercises that really moved are the only ones recomputed.

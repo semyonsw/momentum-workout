@@ -52,13 +52,9 @@ describe('the app guide', () => {
     expect(prompt.endsWith(appGuide())).toBe(true);
   });
 
-  it('describes the warm-up toggle, the question the 2.8 fix was for', () => {
-    expect(appGuide()).toMatch(/W warm-up toggle/);
-  });
-
-  it('has no Home landing, and two nav items', () => {
+  it('has no Home landing, and four nav items', () => {
     expect(appGuide()).not.toMatch(/\bHome\b/);
-    expect(appGuide()).toContain('Two items: "Workout"');
+    expect(appGuide()).toContain('Four items: "Workout"');
   });
 
   it('lists what the assistant can change, and nothing it cannot', () => {

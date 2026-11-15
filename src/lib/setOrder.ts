@@ -8,7 +8,7 @@
  *
  * Only UNLOGGED rows, and only among the unlogged rows BELOW the last logged
  * one. A logged set is history: the order it happened in is a fact, and the rest
- * timer, the ladder's top set and the warm-up offer all read that order. A plan
+ * timer and the ladder's top set both read that order. A plan
  * row can go anywhere in the part of the card that has not happened yet.
  *
  * REJECTED: a finger drag inside the card. The card already owns two gestures

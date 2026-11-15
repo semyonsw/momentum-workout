@@ -10,10 +10,9 @@
  *
  * ── WHY IT IS NOT THEMED ──────────────────────────────────────────────────
  *
- * Everything else lit in the app is c1/c2/c3, so any accent colour would be lost
- * among eight themes' worth of buttons. Fixed colours (`ai` in `theme/tokens.ts`)
- * that no preset uses are what make the door to the assistant findable on every
- * theme — the Settings footnote says so to the user in as many words.
+ * Everything else lit in the app is c1/c2/c3, so one more accent in the same
+ * family would be lost among the buttons. Fixed colours (`ai` in `theme/tokens.ts`)
+ * that the theme never uses are what make the door to the assistant findable.
  *
  * ── HOW THE CONIC RING IS DRAWN ───────────────────────────────────────────
  *
@@ -23,8 +22,8 @@
  * fraction of a pixel wide at the rim and the steps cannot be seen. The prototype
  * animates the gradient's START ANGLE; rotating the whole pie is the same picture,
  * and a rotation runs on the native driver where an SVG attribute cannot. The pie
- * is built once at module load — the colours are fixed, so there is nothing a
- * theme change could make stale.
+ * is built once at module load — the colours are fixed, so there is nothing to
+ * make it stale.
  *
  * ── IT IS STILL ────────────────────────────────────────────────────────────
  *

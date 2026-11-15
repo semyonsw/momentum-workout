@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  beatSomething,
-  describeBests,
-  exerciseBests,
-  formatBestLoad,
-  recordsBeatenBy,
-  type ExerciseBests,
-} from './records';
+import { describeBests, exerciseBests, formatBestLoad } from './records';
 import type { Exercise, SetHistory } from '../types/models';
 
 /**
@@ -179,54 +172,6 @@ describe('bodyweight work', () => {
     expect(bests.bestSetLoad).toBeNull();
     // The rep axis carries the exercise on its own.
     expect(bests.mostCount?.value).toBe(8);
-  });
-});
-
-describe('whether a set beats the record', () => {
-  const bests: ExerciseBests = {
-    heaviest: { value: 100, weightKg: 100, count: 3, at: '2026-06-01T10:00:00.000Z' },
-    mostCount: { value: 15, weightKg: 60, count: 15, at: '2026-06-01T10:00:00.000Z' },
-    bestSetLoad: { value: 900, weightKg: 60, count: 15, at: '2026-06-01T10:00:00.000Z' },
-  };
-
-  it('needs to be STRICTLY better', () => {
-    // A card that says "new best" for a set you have done four times is a card
-    // nobody believes the fifth time.
-    expect(beatSomething(recordsBeatenBy({ weightKg: 100, count: 3 }, bests, pulldown, null))).toBe(
-      false,
-    );
-    expect(recordsBeatenBy({ weightKg: 102.5, count: 3 }, bests, pulldown, null).heaviest).toBe(
-      true,
-    );
-    expect(recordsBeatenBy({ weightKg: 60, count: 16 }, bests, pulldown, null).mostCount).toBe(
-      true,
-    );
-  });
-
-  it('reports the set-load axis on its own', () => {
-    // 80 × 12 = 960: not the heaviest and not the most reps, but the best set.
-    const beaten = recordsBeatenBy({ weightKg: 80, count: 12 }, bests, pulldown, null);
-    expect(beaten.heaviest).toBe(false);
-    expect(beaten.mostCount).toBe(false);
-    expect(beaten.bestSetLoad).toBe(true);
-  });
-
-  it('never counts a warm-up or an empty set', () => {
-    expect(
-      beatSomething(
-        recordsBeatenBy({ weightKg: 500, count: 50, isWarmup: true }, bests, pulldown, null),
-      ),
-    ).toBe(false);
-    expect(beatSomething(recordsBeatenBy({ weightKg: 500, count: 0 }, bests, pulldown, null))).toBe(
-      false,
-    );
-  });
-
-  it('beats an empty record on the first set ever logged', () => {
-    const none: ExerciseBests = { heaviest: null, mostCount: null, bestSetLoad: null };
-    expect(beatSomething(recordsBeatenBy({ weightKg: 40, count: 5 }, none, pulldown, null))).toBe(
-      true,
-    );
   });
 });
 

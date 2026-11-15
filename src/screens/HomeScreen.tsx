@@ -2,77 +2,51 @@
  * HomeScreen — what do I train today.
  *
  *   ┌──────────────────────────────────────────────┐
- *   │ WORKOUT                   ✦    ≡   📖    ⟲   │  ← glass bar, content under
- *   │ ( SEQUENCE  3/4 · then Push              › ) │  ← folded; › opens it
+ *   │ WORKOUT                      ( ✦ AI coach )  │  ← glass bar, content under
+ *   │ ( SEQUENCE  3/4 · then Push              › ) │  ← only while it is on
  *   │ ╭──────────────────────────────────────────╮ │
- *   │ │ TODAY · PULL                  ( 1 nudge )│ │  ← the hero, `lit` glass
+ *   │ │ UP NEXT · PULL                           │ │  ← the hero, `lit` glass
  *   │ │ Pull + swimming                          │ │
- *   │ │ back, biceps · 8 exercises · 25 sets     │ │
- *   │ │ ────────────────────────                 │ │
- *   │ │ EXERCISES   SETS        WORKOUT          │ │
- *   │ │ 8           25          #92              │ │
+ *   │ │ 8 exercises · 25 sets                    │ │
+ *   │ │ EXERCISES   SETS   WORKOUT   LAST        │ │
+ *   │ │ ╭──────────────────────────────────────╮ │ │
+ *   │ │ │               ▶ Start                │ │ │  ← THE button
+ *   │ │ ╰──────────────────────────────────────╯ │ │
  *   │ ╰──────────────────────────────────────────╯ │
  *   │ OTHER ROUTINES                               │
- *   │ ╭ Push            Push · chest · 2 ex   ▶ ╮  │
- *   │ ╭ Boxing (cardio) Cardio · 2 ex          ▶ ╮  │
- *   │ RECENT                                       │
- *   │ │ #91  Pull + swimming     8 Aug · 74 min │  │
- *   │                                      ( ▶ )   │  ← the floating slot, icon only
+ *   │ ╭ Push    Push · chest · 2 ex   ( ▶ Start ) ╮│
+ *   │ RECENT · PROGRESS · AI                       │
  *   └──────────────────────────────────────────────┘
  *
  * THE USER PICKS THE WORKOUT. Every routine is on this screen and every one of
- * them is one tap from opening, because "the queue says pull but the pull-up bar
- * is taken" is a normal Tuesday. A tracker that can only start the workout it
- * planned for you is a tracker you stop using the first time you do something
- * else.
+ * them is one tap from starting, because "the queue says pull but the pull-up
+ * bar is taken" is a normal Tuesday. The hero only suggests — the sequence's
+ * turn, or the routine after the one trained last (`lib/workoutHome
+ * .suggestedRoutine` says why that and not another rule).
  *
- * The sequence — push → pull → push, in whatever order you actually train — is
- * OPTIONAL and off until it is built (see `TrainingSequence`). While it is off,
- * nothing about it appears here: the screen is the routine list and the recent
- * log, and no routine is privileged. While it is on it adds exactly one thing: a
- * hero naming the routine whose turn it is. It still only suggests.
+ * ── ONE BIG START (4.0) ───────────────────────────────────────────────────
  *
- * `Open`, not `Start`: opening a routine shows its exercises without timing or
- * dating anything. The workout starts on the `Start` inside it — see
- * `ActiveWorkoutScreen`.
+ * The owner's ask was that the button be found without looking for it. So the
+ * hero carries ONE wide `▶ Start` at the commit gradient, and every other
+ * routine a `▶ Start` pill of its own. Both START the workout — open it and
+ * begin the clock (`navigation/sessionRoute.startsAfterOpen`) — because a
+ * button that says Start and lands on a second Start lied once. Opening WITHOUT
+ * starting is still there for someone who wants to look first: the hero card
+ * and each row's body open the routine as before, unstarted, and leaving it
+ * leaves no trace.
  *
- * ── THE BUTTON LEFT THE CARD ──────────────────────────────────────────────
+ * What went: the floating ▶ in the corner (it was a second copy of the hero's
+ * button, and two primaries for one action is one too many), and the
+ * `Routines` and ⟲ glyphs in the top bar — the routines and the history are
+ * tabs now (`lib/sectionNav.ts`). The capsule that follows you once the hero
+ * scrolls away stays: it is the hero, carried along, with the same ▶.
  *
- * `Open Pull + swimming` was a 56-high green slab inside the hero. Two things
- * were wrong with it and both are placement rules now: a full-width bar inside
- * the scroll flow competes with the container it is in, and it SCROLLS AWAY —
- * the one action the screen exists for stops existing the moment you look at the
- * routine list under it. It is the floating action at `right: 16, bottom: 102`
- * now, the same slot the other sections put their own commit action in, and it
- * is on screen at every scroll position. Since v3 it is a 64 dp ▶ with no word
- * on it: the routine's name is already the hero's headline right above, and
- * `Open Pull + swimming` spoken as its accessibility label still says it.
+ * While a workout is running there is no hero: the in-progress card is the
+ * one thing to press, and a `Start` for another routine would only lead back
+ * to the running one (a live session is never clobbered).
  *
- * "1 nudge waiting" is the only forward-looking number on the screen, and it is
- * a count of facts, not a nag: it tells you a weight has gone stale before you
- * are standing under the bar deciding what to load.
- *
- * ── 2.9: FINDABILITY (redesign #8 #9 #11 #18) ─────────────────────────────
- *
- *   • THE HERO IS A BUTTON NOW, and says so. The whole `Today · Push` card opens
- *     the routine, and it carries a labelled `▶ Open Push` — the floating ▶ was
- *     the only way in, and a card that looks like the answer and does nothing
- *     when pressed is the thing people press. The ▶ stays in the slot as well.
- *   • THE ▶ HAS WORDS AT THE TOP. `▶ Open Push` as an extended pill while the list
- *     is at rest, folding to the round ▶ as soon as it moves
- *     (`lib/workoutHome.nextFabExtended`): there is room for the words before
- *     there are rows under them to cover.
- *   • THE CORNER IS CAPTIONED: `AI coach`, `Routines`, `History`.
- *   • PROGRESS IS ONE TAP, not four. A `Progress` card whose header opens Graphs
- *     directly, with a sparkline of recent volume, and `Muscle map` and `Body`
- *     under it — all three used to live behind ⟲ → Graphs → a row.
- *   • THE LAST SESSION'S EXERCISES ARE LINKS, each to that exercise's own
- *     history: "what did I bench last time" is the question this screen is asked
- *     most, and the answer used to be ⟲ → the workout → a row → the library.
- *   • THE WEEKLY GOAL IS ALWAYS HERE (`components/WeeklyGoal.tsx`), no longer
- *     behind the achievements switch.
- *   • NOTHING TO OPEN offers the three ways forward: `Create a routine`,
- *     `Set up a training order`, `Start an empty workout`.
+ * NOTHING TO OPEN offers the three ways forward: `Create a routine`, `Set up a
+ * training order`, `Start an empty workout`.
  *
  * ── THE MOTION PASS ───────────────────────────────────────────────────────
  *
@@ -94,28 +68,19 @@
  *     `components/FloatingBubble.tsx` is the shell all three sections share.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Animated, Easing, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Circle, Defs, Path, RadialGradient, Stop } from 'react-native-svg';
 
 import { AiEntryCard } from '../components/AiEntryCard';
-import { DebriefCard } from '../components/DebriefSheet';
 import { Icon } from '../components/Icon';
 import { SectionTopBar } from '../components/SectionTopBar';
 import { SparkBurst, SPARK_MS } from '../components/SparkBurst';
-import { WeeklyGoalCard, WeeklyGoalSheet } from '../components/WeeklyGoal';
 import { BubblePressable } from '../components/bubbles';
 import { FloatingBubble, useHeroRecede } from '../components/FloatingBubble';
-import {
-  FloatingAction,
-  GlassSurface,
-  Lamps,
-  SpecularEdge,
-  useBarInsets,
-} from '../components/glass';
+import { GlassSurface, Lamps, SpecularEdge, useBarInsets } from '../components/glass';
 import { GrowIn, Reveal, Stagger, pressedStyle, usePressScale } from '../components/motion';
 import { Kicker, PrimaryButton, TextButton } from '../components/primitives';
 import { Sparkline } from '../components/Sparkline';
@@ -125,9 +90,9 @@ import { FADE_ON, RunningText } from '../components/RunningText';
 import { useBubbleOnScroll } from '../hooks/useBubbleOnScroll';
 import { useArrived } from '../hooks/useArrived';
 import { useMotionScale } from '../hooks/useMotionScale';
-import { useLanguage, usePlural, useT } from '../hooks/useT';
+import { useLanguage, useT } from '../hooks/useT';
 import { formatElapsed, formatShortDate, formatVolumeKg } from '../lib/units';
-import { lastSession, nextFabExtended, progressSpark } from '../lib/workoutHome';
+import { progressSpark, suggestedRoutine } from '../lib/workoutHome';
 import { isResting, useActiveWorkout, useSessionProgress } from '../state/activeWorkoutStore';
 import { useWorkoutHistory } from '../state/workoutHistoryStore';
 import {
@@ -168,10 +133,7 @@ export interface RoutineChoice {
   isAi?: boolean;
 }
 
-export interface NextUpPlan extends RoutineChoice {
-  /** Exercises with a stale weight the overload engine wants to report. */
-  nudgeCount: number;
-}
+export type NextUpPlan = RoutineChoice;
 
 /** The sequence as this screen needs it. Absent whenever it is off or empty. */
 export interface SequenceView {
@@ -217,38 +179,26 @@ interface HomeScreenProps {
    * "workout 92" means one thing everywhere. See `workoutNumbers`.
    */
   numbers: Record<ID, number>;
+  /** Open the routine WITHOUT starting it — the card body, a row's body. */
   onOpen: (routineId: ID) => void;
+  /** Open the routine and start it — every `▶ Start` on this screen. */
+  onStart: (routineId: ID) => void;
   /** Back to the logging screen of the workout in progress. */
   onResume: () => void;
   /** Tapping a step in the opened sequence goes to the screen that edits it. */
   onOpenSequence: () => void;
   onOpenSession: (sessionId: string) => void;
-  /** The ⟲ in the corner: the log, the graphs and the calendar. */
-  onOpenHistory: () => void;
-  /**
-   * The screens the training log is set up from — the routines and the exercise
-   * library, one destination since U23 (`Routines & exercises`, opening on the
-   * routines; its own switch has the exercises).
-   *
-   * They had a tab of their own, then a lobby screen called `More`, then two rows
-   * at the FOOT of this screen, then two glyphs in the corner that looked alike.
-   * One glyph now, between the assistant and the ⟲: see
-   * `components/SectionTopBar.tsx`.
-   */
-  onOpenRoutines: () => void;
   /**
    * Make an empty routine and open its editor — the empty screen's way forward
    * (U12), the same create the Routines list's `Add routine` does.
    */
   onNewRoutine: () => void;
-  /** The Progress card's header: training history, opened on its Graphs view. */
+  /** The Progress card's header: the History tab, on its Graphs view. */
   onOpenGraphs: () => void;
   /** The Progress card's `Muscle map` chip. */
   onOpenMuscles: () => void;
-  /** The Progress card's `Body` chip — the tape-measure log. */
+  /** The Progress card's `Body` chip — the bodyweight log. */
   onOpenBody: () => void;
-  /** An exercise name on the last-session card: that exercise's history. */
-  onOpenExerciseHistory: (exerciseId: ID) => void;
   /**
    * `Start an empty workout`, from the empty state (#18): a session with no
    * routine behind it, filled from the picker. See `lib/workoutHome.ts`.
@@ -274,16 +224,14 @@ export function HomeScreen({
   recent,
   numbers,
   onOpen,
+  onStart,
   onResume,
   onOpenSequence,
   onOpenSession,
-  onOpenHistory,
-  onOpenRoutines,
   onNewRoutine,
   onOpenGraphs,
   onOpenMuscles,
   onOpenBody,
-  onOpenExerciseHistory,
   onStartEmpty,
   aiReady,
   onOpenAi,
@@ -291,18 +239,25 @@ export function HomeScreen({
   onCelebrated,
 }: HomeScreenProps) {
   const t = useT();
-  const plural = usePlural();
   const progress = useSessionProgress();
   const inProgress = useMemo<WorkoutInProgress | null>(
     () => (running ? { ...running, done: progress.done, total: progress.total } : null),
     [progress.done, progress.total, running],
   );
   const bars = useBarInsets();
-  const next = sequence?.next ?? null;
   /*
-   * An empty routine has nothing to open — a ▶ that lands on an editor is a
-   * button that lies. Empty ones live in the `Routines` tab, which is where they
-   * get filled in. The hero routine already has the floating slot.
+   * THE HERO: the sequence's turn, or the routine after the one trained last.
+   * None while a workout runs — the in-progress card is the thing to press.
+   */
+  const suggested = useMemo(
+    () => suggestedRoutine(choices, sequence?.next ?? null),
+    [choices, sequence?.next],
+  );
+  const next = inProgress ? null : suggested;
+  /*
+   * An empty routine has nothing to start — a ▶ that lands on an editor is a
+   * button that lies. Empty ones live in the Routines tab, which is where they
+   * get filled in.
    */
   const others = useMemo(
     () =>
@@ -319,14 +274,8 @@ export function HomeScreen({
   const ordinals = Object.values(numbers);
   const nextNumber = ordinals.length > 0 ? Math.max(...ordinals) + 1 : 1;
 
-  /*
-   * THE FLOATING SLOT IS NEVER EMPTY, and what fills it is the one thing this
-   * screen is for. A live session outranks everything — it is the workout you
-   * are actually in — then the routine whose turn it is, then simply the first
-   * one that has exercises in it. A phone with no usable routine at all gets
-   * `+ New routine` there (U12), beside an empty card that says so in words.
-   */
-  const openable = next ?? others[0] ?? null;
+  /* What the capsule carries once the hero has scrolled away. */
+  const openable = next;
 
   /* The log has been read — until then, the skeleton. See the file header. */
   const ready = useWorkoutHistory((s) => s.ready);
@@ -337,34 +286,8 @@ export function HomeScreen({
    * as the card's last row leaves, and the 50 of hysteresis keeps a thumb
    * resting near the line from making it flicker.
    */
-  const {
-    visible: bubbleUp,
-    fabHidden,
-    onScroll,
-    scrollRef,
-    scrollToTop,
-  } = useBubbleOnScroll(300, 250);
+  const { visible: bubbleUp, onScroll, scrollRef, scrollToTop } = useBubbleOnScroll(300, 250);
   const heroRecede = useHeroRecede(bubbleUp);
-
-  /*
-   * THE ▶'S WORDS (#8): extended at rest, round once the list moves. Rides the
-   * same `onScroll` as the bubble, and sets state only when the answer flips.
-   */
-  const [fabExtended, setFabExtended] = useState(true);
-  const fabExtendedRef = useRef(true);
-  const handleScroll = useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      onScroll(event);
-      const next = nextFabExtended(fabExtendedRef.current, event.nativeEvent.contentOffset.y);
-      if (next === fabExtendedRef.current) return;
-      fabExtendedRef.current = next;
-      setFabExtended(next);
-    },
-    [onScroll],
-  );
-
-  /* The weekly goal's sheet (W8), opened from its ring. */
-  const [goalOpen, setGoalOpen] = useState(false);
 
   /*
    * THE CELEBRATION, once, on the mount a save came back to. The id is held for
@@ -419,34 +342,27 @@ export function HomeScreen({
               <Hero
                 plan={next}
                 number={nextNumber}
-                plural={plural}
                 onOpen={() => onOpen(next.routineId)}
+                onStart={() => onStart(next.routineId)}
               />
             </Animated.View>
           ) : null}
 
-          {/* Always shown since 2.9 (#13) — see `lib/weeklyGoal.ts`. */}
-          <WeeklyGoalCard onPress={() => setGoalOpen(true)} />
-
-          <ProgressCard
-            onOpenGraphs={onOpenGraphs}
-            onOpenMuscles={onOpenMuscles}
-            onOpenBody={onOpenBody}
-          />
-
-          <DebriefCard />
-
-          <AiEntryCard section="Workout" ready={aiReady} onOpen={onOpenAi} />
-
           {others.length > 0 ? (
             <>
               <Kicker className="mx-lg mb-kicker-gap mt-kicker">
-                {next ? t('Other routines') : t('Start a workout')}
+                {next ? t('Other routines') : inProgress ? t('Routines') : t('Start a workout')}
               </Kicker>
               <View className="mx-lg" style={{ gap: 8 }}>
                 {others.map((choice, index) => (
                   <Stagger key={choice.routineId} delay={120 + index * 70}>
-                    <ChoiceRow choice={choice} onPress={() => onOpen(choice.routineId)} />
+                    <ChoiceRow
+                      choice={choice}
+                      onPress={() => onOpen(choice.routineId)}
+                      /* Mid-workout a row leads back to the running one, so it
+                         offers no `Start` of its own. */
+                      onStart={inProgress ? null : () => onStart(choice.routineId)}
+                    />
                   </Stagger>
                 ))}
               </View>
@@ -461,8 +377,6 @@ export function HomeScreen({
               onStartEmpty={inProgress ? null : onStartEmpty}
             />
           ) : null}
-
-          <LastSessionCard onOpenExercise={onOpenExerciseHistory} />
 
           {recent.length > 0 ? (
             <>
@@ -491,6 +405,14 @@ export function HomeScreen({
               </GlassSurface>
             </>
           ) : null}
+
+          <ProgressCard
+            onOpenGraphs={onOpenGraphs}
+            onOpenMuscles={onOpenMuscles}
+            onOpenBody={onOpenBody}
+          />
+
+          <AiEntryCard section="Workout" ready={aiReady} onOpen={onOpenAi} />
         </>
       ),
     [
@@ -506,15 +428,14 @@ export function HomeScreen({
       onOpen,
       onOpenAi,
       onOpenBody,
-      onOpenExerciseHistory,
       onOpenGraphs,
       onOpenMuscles,
       onOpenSequence,
       onOpenSession,
       onResume,
+      onStart,
       onStartEmpty,
       others,
-      plural,
       ready,
       recent,
       sequence,
@@ -527,9 +448,8 @@ export function HomeScreen({
       <StatusBar style="light" />
       <Lamps section="Workout" />
 
-      {/* Three destinations, one size, left to right: the assistant, routines
-          & exercises, the past. See `components/SectionTopBar.tsx` on why they are up here
-          and why a commit action never is. */}
+      {/* The corner is the assistant, in words (4.0) — the routines and the
+          history are tabs. See `components/SectionTopBar.tsx`. */}
       <SectionTopBar
         title={t('Workout')}
         actions={[
@@ -541,26 +461,12 @@ export function HomeScreen({
             lit: aiReady,
             onPress: () => onOpenAi(),
           },
-          /* ONE door for both (U23): the routines and the exercise library
-             were two glyphs that looked alike. It opens on the routines, and
-             the screen's own switch has the exercises — see
-             `lib/discoverability.ts` (`WORKOUT_CORNER`). */
-          {
-            key: 'library',
-            icon: 'library',
-            label: t('Routines & exercises'),
-            caption: t('Routines'),
-            onPress: onOpenRoutines,
-          },
         ]}
-        onOpenHistory={onOpenHistory}
-        historyLabel={t('Training history')}
-        historyCaption={t('History')}
       />
 
       <ScrollView
         ref={scrollRef}
-        onScroll={handleScroll}
+        onScroll={onScroll}
         scrollEventThrottle={16}
         className="flex-1"
         contentContainerStyle={{ paddingTop: bars.top, paddingBottom: bars.bottom }}
@@ -580,42 +486,9 @@ export function HomeScreen({
           plan={openable}
           number={nextNumber}
           onTop={scrollToTop}
-          onPlay={inProgress ? onResume : () => openable && onOpen(openable.routineId)}
+          onPlay={inProgress ? onResume : () => openable && onStart(openable.routineId)}
         />
       ) : null}
-
-      {/* THE ONE COMMIT ACTION, in the slot every section shares. */}
-      {/* Extended with its words at rest, round once the list moves (#8). */}
-      {inProgress ? (
-        <FloatingAction
-          round={!fabExtended}
-          hidden={fabHidden}
-          label={t('Resume {name}', { name: inProgress.title })}
-          icon="play"
-          onPress={onResume}
-        />
-      ) : openable ? (
-        <FloatingAction
-          round={!fabExtended}
-          hidden={fabHidden}
-          label={t('Open {name}', { name: openable.name })}
-          icon="play"
-          onPress={() => onOpen(openable.routineId)}
-        />
-      ) : ready ? (
-        /* Nothing to open, so the slot offers the step before opening (U12):
-           `+` where every other section's `+` is. Waits for the log, like the
-           empty card it goes with. */
-        <FloatingAction
-          round
-          hidden={fabHidden}
-          label={t('New routine')}
-          icon="plus"
-          onPress={onNewRoutine}
-        />
-      ) : null}
-
-      {goalOpen ? <WeeklyGoalSheet onDismiss={() => setGoalOpen(false)} /> : null}
     </View>
   );
 }
@@ -942,7 +815,7 @@ function WorkoutBubble({
     : `${t('Workout {number}', { number })}, ${name}, ${t('{exercises} exercises · {sets} sets', {
         exercises: plan?.exerciseCount ?? 0,
         sets: plan?.setCount ?? 0,
-      })}. ${t('Open')}.`;
+      })}. ${t('Start')}.`;
 
   return (
     <FloatingBubble
@@ -1030,7 +903,7 @@ function WorkoutBubble({
 
       <PlayButton
         onPress={onPlay}
-        label={inProgress ? t('Back to the workout') : t('Open {name}', { name })}
+        label={inProgress ? t('Back to the workout') : t('Start {name}', { name })}
       />
     </FloatingBubble>
   );
@@ -1133,25 +1006,28 @@ function SolidPlay({ size, color }: { size: number; color: string }) {
  * because it is the only one of the three about the workout you are ABOUT to do
  * rather than about the routine as written.
  *
- * The whole card opens the routine (#8), and so does its labelled `▶ Open Push`
- * at the foot — the card for the thumb that lands anywhere on it, the button for
- * the eye looking for what to press.
+ * Its foot is THE button on the screen (4.0): a full-width `▶ Start`, 56 dp, at
+ * the commit gradient — it opens the routine and starts it. The card around it
+ * still opens the routine WITHOUT starting, for a look first; the button is
+ * its own pressable inside the card's, so a tap on it is one start, not an
+ * open and a start.
  */
 function Hero({
   plan,
   number,
-  plural,
   onOpen,
+  onStart,
 }: {
   plan: NextUpPlan;
   number: number;
-  plural: ReturnType<typeof usePlural>;
   onOpen: () => void;
+  onStart: () => void;
 }) {
   const t = useT();
   const lang = useLanguage();
   const press = usePressScale(0.98);
   const openLabel = t('Open {name}', { name: plan.name });
+  const kicker = plan.focus ? `${t('Up next')} · ${plan.focus}` : t('Up next');
   return (
     <Animated.View
       style={{ marginHorizontal: 16, marginTop: 16, transform: press.style.transform }}
@@ -1161,7 +1037,7 @@ function Hero({
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
         accessibilityRole="button"
-        accessibilityLabel={`${plan.focus ? `${t('Today')} · ${plan.focus}` : t('Today')}. ${openLabel}`}
+        accessibilityLabel={`${kicker}. ${openLabel}`}
       >
         <GlassSurface tier="lit" radius={radius.hero} shadow="e2">
           {/* The corner lamp: the theme's THIRD colour, so the hero carries the
@@ -1183,38 +1059,13 @@ function Hero({
           <View className="p-[20px]">
             <View className="flex-row items-center" style={{ gap: 8 }}>
               <RunningText
-                text={plan.focus ? `${t('Today')} · ${plan.focus}` : t('Today')}
+                text={kicker}
                 fadeColor={FADE_ON.lit}
                 containerStyle={{ flex: 1 }}
                 maxFontSizeMultiplier={1.3}
                 style={{ letterSpacing: 1.1 }}
                 className="text-micro font-semibold uppercase text-acc"
               />
-              {plan.nudgeCount > 0 ? (
-                <View
-                  style={{
-                    height: 26,
-                    paddingHorizontal: 10,
-                    justifyContent: 'center',
-                    borderRadius: radius.pill,
-                    backgroundColor: tint(0.2),
-                    borderWidth: 1,
-                    borderColor: tint(0.34),
-                  }}
-                >
-                  <Text
-                    maxFontSizeMultiplier={1.3}
-                    style={{ fontSize: 12.5, letterSpacing: 0.9 }}
-                    className="font-semibold uppercase tabular-nums text-acc"
-                  >
-                    {`${plan.nudgeCount} ${plural(plan.nudgeCount, {
-                      one: t('nudge'),
-                      few: 'подсказки',
-                      many: t('nudges'),
-                    })}`}
-                  </Text>
-                </View>
-              ) : null}
             </View>
 
             <Text
@@ -1254,7 +1105,11 @@ function Hero({
             </View>
 
             <View className="mt-lg">
-              <OpenButton label={openLabel} onPress={onOpen} />
+              <StartButton
+                label={t('Start')}
+                spoken={t('Start {name}', { name: plan.name })}
+                onPress={onStart}
+              />
             </View>
           </View>
         </GlassSurface>
@@ -1264,22 +1119,31 @@ function Hero({
 }
 
 /**
- * `▶ Open Push` — the hero's labelled primary: the commit gradient, a filled ▶
- * and the words, 48 dp. Its own pressable inside the card's, so a tap on it is
- * one open, not two. The name RUNS rather than wrapping or clipping.
+ * `▶ Start` — the hero's primary and the screen's: the commit gradient, a filled
+ * ▶ and one word, 56 dp and the card's full width. The routine's name is the
+ * headline right above it, so the button does not repeat it; the screen reader
+ * hears it in `spoken`.
  */
-function OpenButton({ label, onPress }: { label: string; onPress: () => void }) {
+function StartButton({
+  label,
+  spoken,
+  onPress,
+}: {
+  label: string;
+  spoken: string;
+  onPress: () => void;
+}) {
   return (
     <BubblePressable
       onPress={onPress}
       radius="pill"
       bubbleColor={palette.onAcc}
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={spoken}
       style={(state) => [
         pressedStyle(state),
         {
-          height: 48,
+          height: 56,
           borderRadius: radius.pill,
           overflow: 'hidden',
           flexDirection: 'row',
@@ -1294,15 +1158,15 @@ function OpenButton({ label, onPress }: { label: string; onPress: () => void }) 
         {...gradientFill()}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
-      <SolidPlay size={16} color={palette.onAcc} />
-      <RunningText
-        text={label}
-        fadeColor={FADE_ON.gradient}
-        containerStyle={{ flexShrink: 1 }}
+      <SolidPlay size={18} color={palette.onAcc} />
+      <Text
+        numberOfLines={1}
         maxFontSizeMultiplier={1.3}
-        style={{ color: palette.onAcc, fontSize: 16 }}
+        style={{ color: palette.onAcc, fontSize: 18 }}
         className="font-semibold"
-      />
+      >
+        {label}
+      </Text>
     </BubblePressable>
   );
 }
@@ -1485,13 +1349,23 @@ function SequenceChip({
 }
 
 /**
- * One openable routine, as its own `card` pane with 8 of air under it.
+ * One startable routine, as its own `card` pane with 8 of air under it.
  *
- * The whole row opens it — no chevron, because a chevron promises a screen and
- * this promises a workout. The ▶ is the same green glyph the set rows use for
- * "this one now", in a 40 dp circle that gives it an edge of its own.
+ * The row's body opens it unstarted (a look first); the `▶ Start` pill at its
+ * end starts it (4.0) — it was a bare ▶ in a circle, and the whole row did one
+ * thing, so "does this start it or show it" was a guess. The pill is its own
+ * 44 dp target inside the row's. `onStart` null (a workout is running) leaves
+ * the row a plain way back to it.
  */
-function ChoiceRow({ choice, onPress }: { choice: RoutineChoice; onPress: () => void }) {
+function ChoiceRow({
+  choice,
+  onPress,
+  onStart,
+}: {
+  choice: RoutineChoice;
+  onPress: () => void;
+  onStart: (() => void) | null;
+}) {
   const t = useT();
   const press = usePressScale(0.97);
   const detail = [
@@ -1544,24 +1418,39 @@ function ChoiceRow({ choice, onPress }: { choice: RoutineChoice; onPress: () => 
               className="tabular-nums"
             />
           </View>
-          <View
-            style={{
-              height: 42,
-              width: 42,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: radius.pill,
-              overflow: 'hidden',
-              borderWidth: 1,
-              borderColor: tint(0.26),
-              backgroundColor: tint(0.14),
-            }}
-          >
-            <SpecularEdge color="rgba(236,241,238,0.12)" radius={radius.pill} />
-            <View style={{ marginLeft: 2 }}>
-              <Icon name="play" size={15} color={palette.acc} />
-            </View>
-          </View>
+          {onStart ? (
+            <BubblePressable
+              onPress={onStart}
+              radius="pill"
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel={t('Start {name}', { name: choice.name })}
+              style={(state) => [
+                pressedStyle(state),
+                {
+                  height: 42,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 6,
+                  paddingLeft: 12,
+                  paddingRight: 14,
+                  borderRadius: radius.pill,
+                  overflow: 'hidden',
+                  borderWidth: 1,
+                  borderColor: tint(0.26),
+                  backgroundColor: tint(0.14),
+                },
+              ]}
+            >
+              <SpecularEdge color="rgba(236,241,238,0.12)" radius={radius.pill} />
+              <Icon name="play" size={14} color={palette.acc} />
+              <Text maxFontSizeMultiplier={1.3} className="text-label font-semibold text-acc">
+                {t('Start')}
+              </Text>
+            </BubblePressable>
+          ) : (
+            <Icon name="chevron-right" size={18} color={palette.inkFaint} />
+          )}
         </BubblePressable>
       </GlassSurface>
     </Animated.View>
@@ -1698,7 +1587,7 @@ function RecentRow({
  *   • `Start an empty workout` — the ghost: a session with nothing planned,
  *     exercises added as you go. Absent while a workout is already running, since
  *     that one would have to be thrown away first.
- * The routines that are all empty are one tap away in the corner's `Routines`.
+ * The routines that are all empty are one tap away on the Routines tab.
  */
 function Empty({
   first,
@@ -1842,80 +1731,5 @@ function CardChip({ label, onPress }: { label: string; onPress: () => void }) {
         {label}
       </Text>
     </BubblePressable>
-  );
-}
-
-/**
- * THE LAST SESSION, its exercises as links (#11).
- *
- *   LAST SESSION · Push · 27 Oct
- *   Bench press ›   Incline press ›   Cable fly ›
- *
- * Each name is underlined with a › and opens THAT exercise's history — "what did
- * I do on bench last time" answered from the screen you are standing on, instead
- * of ⟲ → the workout → the library. The workout itself is still a Recent row
- * below; this card is about the exercises in it.
- */
-function LastSessionCard({ onOpenExercise }: { onOpenExercise: (exerciseId: ID) => void }) {
-  const t = useT();
-  const lang = useLanguage();
-  const workouts = useWorkoutHistory((s) => s.workouts);
-  const last = useMemo(() => lastSession(workouts), [workouts]);
-  if (!last || last.exercises.length === 0) return null;
-  return (
-    <View
-      className="mx-lg mt-kicker"
-      style={{
-        borderRadius: radius.row,
-        borderWidth: 1,
-        borderColor: glass.raisedEdge,
-        backgroundColor: glass.raised,
-        paddingHorizontal: 14,
-        paddingTop: 12,
-        paddingBottom: 6,
-      }}
-    >
-      <Kicker>{t('Last session')}</Kicker>
-      <Text
-        numberOfLines={1}
-        maxFontSizeMultiplier={1.3}
-        className="mt-[2px] text-label text-ink-muted"
-      >
-        {`${last.title} · ${formatShortDate(last.startedAt, lang)}`}
-      </Text>
-      <View className="mt-xs flex-row flex-wrap" style={{ columnGap: 16 }}>
-        {last.exercises.map((exercise) => (
-          <BubblePressable
-            key={exercise.exerciseId}
-            onPress={() => onOpenExercise(exercise.exerciseId)}
-            radius={8}
-            accessibilityRole="link"
-            accessibilityLabel={t('{name}: open its history', { name: exercise.name })}
-            style={(state) => [
-              pressedStyle(state),
-              { minHeight: 44, flexDirection: 'row', alignItems: 'center', maxWidth: '100%' },
-            ]}
-          >
-            <View
-              style={{
-                flexShrink: 1,
-                borderBottomWidth: 1,
-                borderBottomColor: palette.inkFaint,
-                paddingBottom: 1,
-              }}
-            >
-              <Text
-                numberOfLines={1}
-                maxFontSizeMultiplier={1.3}
-                className="text-body font-semibold text-ink"
-              >
-                {exercise.name}
-              </Text>
-            </View>
-            <Icon name="chevron-right" size={14} color={palette.inkMuted} />
-          </BubblePressable>
-        ))}
-      </View>
-    </View>
   );
 }

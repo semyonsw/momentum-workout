@@ -53,9 +53,9 @@ export const LANGUAGE_NAMES: Record<Language, string> = {
   en: 'English',
 };
 
-/** A language this build knows, or Russian — the default this app ships in. */
+/** A language this build knows, or English — what a fresh install speaks. */
 export function usableLanguage(value: unknown): Language {
-  return LANGUAGES.includes(value as Language) ? (value as Language) : 'ru';
+  return LANGUAGES.includes(value as Language) ? (value as Language) : 'en';
 }
 
 /**
@@ -323,7 +323,6 @@ const RU: Record<string, string> = {
   'of {asked}': 'из {asked}',
   day: 'день',
   days: 'дней',
-  Note: 'Заметка',
   'What happened that day': 'Что произошло в этот день',
   'Archive this task': 'Архивировать задачу',
   'It leaves the day list. Every day you already answered stays where it is.':
@@ -335,19 +334,11 @@ const RU: Record<string, string> = {
   /* --- reminders --------------------------------------------------- */
   'Remind me': 'Напоминать',
   'Remind me about this': 'Напоминать об этом',
-  'At what time': 'Во сколько',
   'The phone will ask on the days this task asks.':
     'Телефон напомнит в те дни, когда задача спрашивает.',
   'Time to train': 'Пора тренироваться',
-  'Workout reminder': 'Напоминание о тренировке',
-  'Remind me to train': 'Напоминать о тренировке',
-  'On which days': 'В какие дни',
-  'A notification at the time you set, on the days you picked.':
-    'Уведомление в заданное время, в выбранные дни.',
   Hours: 'Часы',
   Minutes: 'Минуты',
-  'Notifications are switched off for this app, so nothing will arrive.':
-    'Уведомления для приложения выключены, поэтому ничего не придёт.',
   Reminders: 'Напоминания',
   'Reminds at {time}': 'Напомнит в {time}',
   'Reminds at {time}, then every {interval}': 'Напомнит в {time}, затем каждые {interval}',
@@ -365,13 +356,9 @@ const RU: Record<string, string> = {
   /* --- the session ------------------------------------------------- */
   'Start workout': 'Начать тренировку',
   'Stop and exit': 'Остановить и выйти',
-  'Restart clock': 'Сбросить время',
   'Session options': 'Действия с тренировкой',
   'Stop and exit…': 'Остановить и выйти…',
-  'Counts from now. Logged sets stay.': 'Отсчёт с этого момента. Записанные подходы останутся.',
   'Leaves without saving.': 'Выход без сохранения.',
-  'Restart the clock?': 'Сбросить время?',
-  'Restart it': 'Сбросить',
   'Remove it': 'Убрать',
   'Add an exercise': 'Добавить упражнение',
   'Stop and exit without saving?': 'Выйти без сохранения?',
@@ -437,7 +424,6 @@ const RU: Record<string, string> = {
 
   /* --- settings ---------------------------------------------------- */
   Sections: 'Разделы',
-  'Workout settings': 'Настройки тренировок',
   'Daily tasks settings': 'Настройки ежедневных задач',
   Answering: 'Ответы',
   'Let the app tick what it knows': 'Разрешить приложению отмечать то, что оно знает',
@@ -472,17 +458,8 @@ const RU: Record<string, string> = {
   '{name} slipped {n} {times}.': '{name}: пропущено {n} {times}.',
   'All of it on {category}.': 'Всё — {category}.',
   '{category} was {percent}% of it.': '{category} — {percent}%.',
-  'Export a spreadsheet (CSV)': 'Выгрузить таблицу (CSV)',
-  'Export as a spreadsheet': 'Выгрузить таблицу',
-  'Export amounts (CSV)': 'Выгрузить суммы (CSV)',
-  'Export workouts (CSV)': 'Выгрузить тренировки (CSV)',
   'One row per amount, transfers included.': 'Строка на каждую сумму, переводы тоже.',
-  'One row per set, warm-ups marked.': 'Строка на каждый подход, разминка отмечена.',
-  'Saved {name} to {where}.': '{name} сохранён в {where}.',
-  'A spreadsheet export is for reading a log in Excel or Google Sheets. It is not a backup and cannot be read back in — only the JSON file restores.':
-    'Таблица нужна, чтобы открыть журнал в Excel или Google Таблицах. Это не резервная копия, и загрузить её обратно нельзя — восстанавливает только файл JSON.',
   'Reset every setting to its default': 'Сбросить все настройки',
-  'Back up now': 'Сделать копию сейчас',
   'Last backup': 'Последняя копия',
   'Back up automatically': 'Копировать автоматически',
 
@@ -498,9 +475,6 @@ const RU: Record<string, string> = {
   'Off: rest only runs when you start it': 'Выкл: отдых идёт, только когда вы его запустите',
   'Timer ± step': 'Шаг таймера ±',
   'The +15 on the rest and set-timer pills': 'Кнопка +15 на таймерах отдыха и подхода',
-  'You rest {clock} {what}.': 'Вы отдыхаете {clock} {what}.',
-  'You rest {clock} {what}. Use that as the setting.':
-    'Вы отдыхаете {clock} {what}. Сделать это настройкой.',
   'Use it': 'Применить',
   'No rest': 'Без отдыха',
   'Straight to work': 'Сразу к делу',
@@ -543,18 +517,8 @@ const RU: Record<string, string> = {
   'Read only when working out session volume. It is not logged, charted or compared to anything.':
     'Читается только при расчёте объёма тренировки. Он не записывается, не строит график и ни с чем не сравнивается.',
   Gym: 'Зал',
-  'Gym {n}': 'Зал {n}',
   Plates: 'Блины',
-  'Plates · this gym': 'Блины · этот зал',
-  'Which plates this gym has, in kilograms. Only used to work out what goes on the bar; it never changes a weight you have typed.':
-    'Какие блины есть в этом зале, в килограммах. Нужны только для расчёта набора на штанге и никогда не меняют введённый вами вес.',
-  'Which plates your gym has, in kilograms. Only used to work out what goes on the bar; it never changes a weight you have typed.':
-    'Какие блины есть в вашем зале, в килограммах. Нужны только для расчёта набора на штанге и никогда не меняют введённый вами вес.',
-  '{count} sizes': 'размеров: {count}',
   'Remove {name}': 'Удалить «{name}»',
-  'Add another gym': 'Добавить ещё зал',
-  'A gym is a name and the plates on its rack — nothing else. Tap one to make it the current gym; the chips above then edit that gym’s plates.':
-    'Зал — это название и блины на стойке, больше ничего. Нажмите на него, чтобы сделать текущим; кнопки выше тогда правят блины этого зала.',
   'Weekly sets': 'Подходов в неделю',
   '{count} sets': 'подходов: {count}',
   'Optional. Set one and the training history compares this window against it; leave it at “—” and the counts stay counts.':
@@ -568,15 +532,10 @@ const RU: Record<string, string> = {
   'Workouts on disk': 'Тренировок на диске',
   'Cannot read the log': 'Не удалось прочитать журнал',
   '{onDisk} on disk · {loaded} loaded': 'на диске: {onDisk} · загружено: {loaded}',
-  'Share workouts with Health Connect': 'Передавать тренировки в Health Connect',
-  'On · start, end and name': 'Вкл · начало, конец и название',
-  'Needs permission': 'Нужно разрешение',
-  'Health Connect did not grant permission, so nothing will be shared.':
-    'Health Connect не дал разрешения, поэтому ничего передаваться не будет.',
   'Delete all workout history': 'Удалить всю историю тренировок',
   'Delete all workout history?': 'Удалить всю историю тренировок?',
-  'All {count} finished {workouts} go, and so do the sets in them — which is what the prefills and the overload suggestions read. This cannot be undone.':
-    'Исчезнут все завершённые {workouts} ({count}) и подходы в них — именно их читают подстановки и подсказки о прогрессии. Отменить это нельзя.',
+  'All {count} finished {workouts} go, and so do the sets in them — which is what the prefills and the records read. This cannot be undone.':
+    'Исчезнут все завершённые {workouts} ({count}) и подходы в них — именно их читают подстановки и рекорды. Отменить это нельзя.',
   'Delete everything': 'Удалить всё',
   'Keep my history': 'Оставить историю',
   workout: 'тренировка',
@@ -595,7 +554,6 @@ const RU: Record<string, string> = {
   'Add an exercise to this workout': 'Добавить упражнение в тренировку',
   'Add at least one step to turn it on': 'Добавьте хотя бы один шаг, чтобы включить',
   'Add to this category': 'Добавить в эту категорию',
-  'Add warm-up sets: {what}': 'Добавить разминочные подходы: {what}',
   'Add {name} to the sequence': 'Добавить «{name}» в последовательность',
   'Add {seconds} seconds': 'Добавить {seconds} с',
   'Add {unit}': 'Добавить {unit}',
@@ -621,7 +579,6 @@ const RU: Record<string, string> = {
   'Category glyph': 'Значок категории',
   'Category name': 'Название категории',
   Glyph: 'Значок',
-  'Choose a backup folder': 'Выбрать папку для копий',
   Close: 'Закрыть',
   'Complete set': 'Отметить подход',
   'Correct a set.': 'Исправить подход.',
@@ -647,7 +604,6 @@ const RU: Record<string, string> = {
   'Delete {name}': 'Удалить «{name}»',
   'Delete “{title}”?': 'Удалить «{title}»?',
   'Discard the workout and restart': 'Сбросить тренировку и перезапустить',
-  'Dismiss suggestion': 'Скрыть подсказку',
   'Distance per session': 'Дистанция за тренировку',
   'Done adjusting': 'Готово',
   'Done correcting': 'Готово',
@@ -718,10 +674,8 @@ const RU: Record<string, string> = {
   'Keep going': 'Продолжить',
   'Keep mine': 'Оставить свои',
   'Keep what I have': 'Оставить своё',
-  'Keep {minutes} min': 'Оставить {minutes} мин',
   Ladder: 'Лесенка',
   'Ladder · max {max}': 'Лесенка · максимум {max}',
-  Later: 'Позже',
   'Leave focus mode': 'Выйти из режима фокуса',
   'Lengthen {what} by {seconds} seconds': 'Увеличить «{what}» на {seconds} с',
   'Load mode': 'Тип нагрузки',
@@ -742,13 +696,11 @@ const RU: Record<string, string> = {
   'After every change': 'После каждого изменения',
   'Your data is still loading. Try again in a moment.':
     'Данные ещё загружаются. Попробуйте через минуту.',
-  'New best': 'Новый рекорд',
   'New {noun}': 'Новый {noun}',
   'No amounts yet': 'Пока нет сумм',
   'No completed sets yet.': 'Пока нет выполненных подходов.',
   'No file picked.': 'Файл не выбран.',
   'No folder picked, so nothing was saved.': 'Папка не выбрана, ничего не сохранено.',
-  'No rest between them — rest comes after the pair': 'Между ними без отдыха — отдых после пары',
   'No weight cell renders at all': 'Поля веса не будет вовсе',
   None: 'Нет',
   'Not enough yet': 'Пока мало данных',
@@ -762,13 +714,10 @@ const RU: Record<string, string> = {
   'Off — every set of this exercise plans the same number':
     'Выкл — во всех подходах этого упражнения одно и то же число',
   'Off — the plan is one number': 'Выкл — в плане одно число',
-  'On the bar: {plates} kilograms': 'На штанге: {plates} кг',
   'One max, and every set derived from it — plus a rep every session you meet it':
     'Один максимум, и все подходы выводятся из него — плюс повтор за каждую выполненную тренировку',
   'Open focus mode on your next set': 'Открыть режим фокуса на следующем подходе',
   'Open the history for {name}': 'Открыть историю «{name}»',
-  'Open {name} as a workout': 'Открыть «{name}» как тренировку',
-  'Overload nudges': 'Подсказки о прогрессии',
   'Pause rest': 'Пауза отдыха',
   'Percent done, day by day': 'Процент выполнения по дням',
   'Pick at least one, or it lands in the library’s Unfiled section.':
@@ -788,7 +737,6 @@ const RU: Record<string, string> = {
   'Requires weight': 'Нужен вес',
   'Reset every setting?': 'Сбросить все настройки?',
   'Reset settings': 'Сбросить настройки',
-  'Rest after every set, as normal': 'Отдых после каждого подхода, как обычно',
   'Rest between rounds': 'Отдых между кругами',
   'Rest between sets': 'Отдых между подходами',
   'Rest paused with {seconds} seconds left': 'Отдых на паузе, осталось {seconds} с',
@@ -800,8 +748,6 @@ const RU: Record<string, string> = {
   'Resume rest': 'Продолжить отдых',
   Right: 'В самый раз',
   Rounds: 'Круги',
-  'Same {held} for {days} days · {sessions} sessions':
-    'Одно и то же ({held}) уже {days} дн · тренировок: {sessions}',
   'Session complete': 'Тренировка завершена',
   Sessions: 'Тренировки',
   'Set inputs': 'Поля подхода',
@@ -836,7 +782,6 @@ const RU: Record<string, string> = {
   'Stop the timer and log this set': 'Остановить таймер и записать подход',
   'Suggests the next routine on the home screen':
     'Подсказывает следующую программу на главном экране',
-  'Superset with the exercise above': 'Суперсет с упражнением выше',
   'Swipe down, or tap': 'Проведите вниз или нажмите',
   'Tap to close its sets': 'Нажмите, чтобы свернуть подходы',
   'Tap to close its sets. Long press, then slide to reorder':
@@ -862,8 +807,6 @@ const RU: Record<string, string> = {
   'Top working weight': 'Максимальный рабочий вес',
   Trend: 'Тренд',
   'Try again': 'Попробовать снова',
-  'Try {count} {unit} at the same weight': 'Попробуйте {count} {unit} с тем же весом',
-  'Try {what}': 'Попробуйте {what}',
   Type: 'Ввести',
   'Type an exact value': 'Ввести точное значение',
   'Undo set': 'Отменить подход',
@@ -952,7 +895,6 @@ const RU: Record<string, string> = {
   'not started': 'не начата',
   'nothing left to rest for': 'отдыхать больше не за чем',
   'of {target}': 'из {target}',
-  'part of a superset': 'часть суперсета',
   paused: 'пауза',
   reps: 'повторы',
   'reps only · duration · distance + duration':
@@ -972,8 +914,6 @@ const RU: Record<string, string> = {
   'set {n} of {total}': 'подход {n} из {total}',
   setting: 'настройка',
   'skip the clock to finish the workout': 'пропустите таймер, чтобы завершить тренировку',
-  'suggestion waiting': 'есть подсказка',
-  'supersetted with the exercise above': 'в суперсете с упражнением выше',
   'target distance': 'целевая дистанция',
   'target reps': 'целевые повторы',
   'target time': 'целевое время',
@@ -1014,8 +954,8 @@ const RU: Record<string, string> = {
   '{count} {sets} logged': 'записано: {count} {sets}',
   '{count} {steps}': '{steps}: {count}',
   '{count} {workouts}': '{workouts}: {count}',
-  '{date} · {count} sets. This is the record of a workout you did — deleting it also removes those sets from what the overload suggestions read.':
-    '{date} · подходов: {count}. Это запись о проведённой тренировке — удаление уберёт эти подходы и из того, что читают подсказки о прогрессии.',
+  '{date} · {count} sets. This is the record of a workout you did — deleting it also removes those sets from what the prefills and the records read.':
+    '{date} · подходов: {count}. Это запись о проведённой тренировке — удаление уберёт эти подходы и из того, что читают подстановки и рекорды.',
   '{delta} since {date}': '{delta} с {date}',
   '{done} of {total} sets': 'подходов: {done} из {total}',
   '{file} holds {counts}.': 'В файле {file}: {counts}.',
@@ -1029,8 +969,6 @@ const RU: Record<string, string> = {
   '{seconds} seconds held': 'продержано {seconds} с',
   '{seconds} seconds left': 'осталось {seconds} с',
   '{seconds} seconds of rest left': 'отдыха осталось {seconds} с',
-  '{suggestion} — apply to every remaining set':
-    '{suggestion} — применить ко всем оставшимся подходам',
   '{total} over {count} {buckets} · about {average} each':
     '{total} за {count} {buckets} · примерно {average} на каждый',
   '{total} sets planned · not started': 'запланировано подходов: {total} · не начата',
@@ -1062,8 +1000,6 @@ const RU: Record<string, string> = {
   'This was deleted while you were looking at it.': 'Это удалили, пока вы на него смотрели.',
   Yesterday: 'Вчера',
   '{days} {daysWord} ago': '{days} {daysWord} назад',
-  '{count} sessions at {weight} {unit} without a rep. One session at {suggested} {unit} resets it.':
-    '{count} тренировок на {weight} {unit} без прибавки. Одна тренировка на {suggested} {unit} это сбросит.',
   'That is not valid JSON — the file or the paste is incomplete.':
     'Это не валидный JSON — файл или вставленный текст неполный.',
   'That file holds something other than a backup.': 'В этом файле не резервная копия.',
@@ -1074,7 +1010,6 @@ const RU: Record<string, string> = {
   'That backup is empty — there is nothing in it to restore.':
     'Эта копия пуста — восстанавливать нечего.',
   'the folder you picked': 'выбранная папка',
-  'This device has no writable app folder.': 'На этом устройстве нет папки для записи.',
   'Something went wrong reaching the file system.':
     'Что-то пошло не так при обращении к файловой системе.',
   'The log could not be read, so a backup would be missing it. Nothing is lost — close the app and open it again.':
@@ -1091,8 +1026,6 @@ const RU: Record<string, string> = {
   'One day at a time': 'По одному дню',
   'One line, shown on the card while you are doing this exercise. A seat height, a pin number, the thing you keep forgetting.':
     'Одна строка, видна на карточке во время упражнения. Высота сиденья, номер фиксатора — то, что вы всё время забываете.',
-  'Off · the ladder owns the reps': 'Выкл · повторения задаёт лестница',
-  'Off · no load to add': 'Выкл · нечего добавлять к весу',
   'Reps, time and metres swap the same two wells:':
     'Повторения, время и метры меняют одни и те же два поля:',
   'Current maximum': 'Текущий максимум',
@@ -1141,7 +1074,6 @@ const RU: Record<string, string> = {
     'Дни, в которые ничего не спрашивалось, не рисуются нулём, а просто выпадают — выходной это не провал. Задача, отмеченная как пропущенная намеренно, уходит из знаменателя.',
   'Max {max} · {total} reps · one rep is added every session you meet it':
     'Максимум {max} · {total} повт · по одному повторению за каждую выполненную тренировку',
-  'Superset with the one above': 'Суперсет с упражнением выше',
   'Open its history': 'Открыть его историю',
   'Nothing in {window}.': 'Ничего за {window}.',
   '4 weeks': '4 недели',
@@ -1149,7 +1081,6 @@ const RU: Record<string, string> = {
   All: 'Всё',
   'unit:rounds': 'кругов',
   'unit:sec': 'с',
-  'My gym': 'Мой зал',
   'Morning Bible/Narek reading': 'Утреннее чтение Библии / Нарека',
   'In-Work Task Report': 'Отчёт по рабочим задачам',
   'Gym / Boxing': 'Зал / бокс',
@@ -1169,17 +1100,15 @@ const RU: Record<string, string> = {
   '{count} left': '{count} осталось',
   '{count} on purpose': '{count} намеренно',
   'streak kept': 'серия сохранена',
-  'Rest, plates, weekly targets': 'Отдых, блины, недельные цели',
   'The automatic tick': 'Автоматическая отметка',
   'Automatic backups are off': 'Автокопии выключены',
   'Nothing you have logged is touched.': 'Ничего из записанного не трогается.',
   Amount: 'Сумма',
   'Type an amount first': 'Сначала введите сумму',
-  'Delete the last digit': 'Удалить последнюю цифру',
   Saved: 'Сохранено',
   'Written down': 'Записано',
 
-  /* ── The motion pass: session edit mode, the bubbles, the launch screen ── */
+  /* ── The motion pass: session edit mode, the bubbles ── */
   'Editing plan': 'Редактирование плана',
   'Edit the plan of {name}': 'Изменить план: {name}',
   'Done editing the plan': 'Закончить редактирование плана',
@@ -1187,8 +1116,6 @@ const RU: Record<string, string> = {
   'Remove this set': 'Удалить этот подход',
   'Removed {name}': 'Удалено: {name}',
   'Removed a logged set from {name}': 'Удалён выполненный подход: {name}',
-  'Was {weight} a warm-up?': '{weight} — это была разминка?',
-  'Yes, keep {weight}': 'Да, оставить {weight}',
   Excused: 'Пропуск по причине',
   'New expense': 'Новый расход',
   'New income': 'Новый доход',
@@ -1204,22 +1131,7 @@ const RU: Record<string, string> = {
   'Hide it. History stays.': 'Скрыть. История останется.',
   'Gone, with all its history.': 'Удалить вместе со всей историей.',
   // --- 2.9 redesign: A (set row, QuickAdjust, set-type sheet) ---
-  'setType:Normal': 'Обычный',
-  'Normal set': 'Обычный подход',
-  'As many as possible': 'Сколько сможете',
-  'Counts toward your volume': 'Идёт в объём',
-  'Light set, not counted': 'Лёгкий подход, не считается',
-  'Lower the weight, keep going': 'Снизьте вес и продолжайте',
-  'Until no clean rep is left': 'Пока не кончатся чистые повторы',
-  'Max reps at this weight': 'Максимум повторов с этим весом',
-  'W warm-up · D drop set · F to failure · A as many as possible':
-    'W разминка · D дроп-сет · F до отказа · A сколько сможете',
-  'Tap a set number to change it.': 'Нажмите на номер подхода, чтобы изменить его.',
-  'Got it': 'Понятно',
-  'Set {n} · Set type & reps left': 'Подход {n} · Тип и повторы в запасе',
-  'Reps left (RIR)': 'Повторов в запасе (RIR)',
   'Log set': 'Записать подход',
-  'Mark set {n} as warm-up': 'Отметить подход {n} как разминку',
   'Reorder this set': 'Переместить этот подход',
   'Not said': 'Не указано',
   // --- 2.9 redesign: B (session, exercise card, finish) ---
@@ -1237,8 +1149,6 @@ const RU: Record<string, string> = {
   'Auto-start rest': 'Автостарт отдыха',
   'Rest timer starts when you log a set': 'Таймер отдыха запускается, когда вы отмечаете подход',
   'Back, workout keeps running': 'Назад, тренировка продолжается',
-  'Workout still running — resume it from the Workout tab':
-    'Тренировка продолжается — вернуться к ней можно со вкладки «Тренировка»',
   Volume: 'Объём',
   'Keep training': 'Продолжить тренировку',
   'Changed from the plan': 'Отличается от плана',
@@ -1247,7 +1157,7 @@ const RU: Record<string, string> = {
     'Сохранить и обновить упражнений в плане: {count}',
   'Next {routine} starts with {shape}.': 'В следующий раз «{routine}» начнётся с {shape}.',
   'Other exercises stay as planned.': 'Остальные упражнения остаются по плану.',
-  // --- 2.9 redesign: C (workout section, nav, top bars, weekly goal) ---
+  // --- 2.9 redesign: C (workout section, nav, top bars) ---
   'AI coach': 'ИИ-тренер',
   '{name} · running': '{name} · идёт',
   '{time} · {exercise}, set {set} of {of}': '{time} · {exercise}, подход {set} из {of}',
@@ -1256,13 +1166,6 @@ const RU: Record<string, string> = {
   'Resume {name}': 'Продолжить «{name}»',
   Progress: 'Прогресс',
   'Open the graphs': 'Открыть графики',
-  'Last session': 'Последняя тренировка',
-  '{name}: open its history': '{name}: открыть историю',
-  '{done} of {goal} this week': '{done} из {goal} на этой неделе',
-  'Weekly workout goal: {line}. Opens the goal.':
-    'Цель тренировок на неделю: {line}. Открывает цель.',
-  'Shown on the Workout section': 'Показывается в разделе «Тренировка»',
-  '{n} a week': '{n} в неделю',
   'Create a routine': 'Создать программу',
   'Set up a training order': 'Настроить порядок тренировок',
   'Start an empty workout': 'Начать пустую тренировку',
@@ -1311,8 +1214,6 @@ const RU: Record<string, string> = {
   Accounts: 'Счета',
   'Add account': 'Добавить счёт',
   // --- 2.9 redesign: G (vocabulary) ---
-  'Mark as warm-up': 'Отметить как разминку',
-  'Warm-up set, tap to make it a working set': 'Разминочный подход, нажмите, чтобы сделать рабочим',
   'Removed a set': 'Подход удалён',
   'Discard your changes?': 'Отменить изменения?',
   'Discard changes?': 'Отменить изменения?',
@@ -1341,7 +1242,6 @@ const RU: Record<string, string> = {
   '{category} · {amount} saved': '{category} · {amount} сохранено',
   'Back to {name}': 'Назад: {name}',
   'Loading your training log': 'Загрузка журнала тренировок',
-  Loading: 'Загрузка',
   Open: 'Открыть',
   Last: 'Последняя',
   '{percent} percent': '{percent} процентов',
@@ -1349,10 +1249,9 @@ const RU: Record<string, string> = {
   accounts: 'счетов',
   'Train · tick · count': 'Тренируйся · отмечай · считай',
 
-  /* --- 3.0.0: three apps. The launch screen's line under each app's name, the
+  /* --- 3.0.0: three apps. The sibling apps' taglines, the
      reminder channel each app describes in the phone's settings, and the refusal
      of a file that holds nothing for this app. --- */
-  'Train · log · progress': 'Тренируйся · записывай · расти',
   'Plan · tick · repeat': 'Планируй · отмечай · повторяй',
   'Spend · save · count': 'Трать · копи · считай',
   'A workout, at the time you asked to be reminded.':
@@ -1483,7 +1382,6 @@ const RU: Record<string, string> = {
   new: 'новое',
   edit: 'правка',
   insight: 'вывод',
-  plan: 'план',
   breakdown: 'разбор',
   changed: 'изменено',
   removed: 'убрано',
@@ -1515,76 +1413,10 @@ const RU: Record<string, string> = {
   BW: 'СВ',
   'Less {label}': 'Меньше: {label}',
   'More {label}': 'Больше: {label}',
-  // Notifications
-  'Allow notifications': 'Разрешить уведомления',
-
-  // After-workout questions (lib/debrief.ts, components/DebriefSheet.tsx)
-  'How did the weights feel?': 'Как ощущались веса?',
-  'Too light': 'Слишком легко',
-  'A bit light': 'Легковато',
-  'Just right': 'В самый раз',
-  'A bit heavy': 'Тяжеловато',
-  'Too heavy': 'Слишком тяжело',
-  'How was your energy?': 'Как было с энергией?',
-  Low: 'Мало сил',
+  // Short answers
   Normal: 'Нормально',
-  High: 'Много сил',
-  'Any pain or discomfort?': 'Была боль или дискомфорт?',
-  Shoulder: 'Плечо',
-  Elbow: 'Локоть',
-  Wrist: 'Запястье',
-  Neck: 'Шея',
-  'Lower back': 'Поясница',
-  Hip: 'Тазобедренный',
-  Knee: 'Колено',
-  'Somewhere else': 'Другое место',
-  'Which exercise was the hardest?': 'Какое упражнение было самым тяжёлым?',
-  'None stood out': 'Ничего особенного',
-  'What should happen to this routine next time?': 'Что сделать с программой в следующий раз?',
-  'Keep it as is': 'Оставить как есть',
-  'Make it harder': 'Сделать тяжелее',
-  'Make it easier': 'Сделать легче',
-  'Swap some exercises': 'Заменить упражнения',
-  'Make it shorter': 'Сделать короче',
-  'Would you do this workout again?': 'Повторили бы эту тренировку?',
   Yes: 'Да',
-  Maybe: 'Возможно',
   No: 'Нет',
-  'Anything else the AI coach should know?': 'Что ещё стоит знать ИИ-тренеру?',
-  'After the workout': 'После тренировки',
-  '{n} of {total}': '{n} из {total}',
-  'Pick all that apply': 'Можно выбрать несколько',
-  'Sleep, stress, what worked, what did not…': 'Сон, стресс, что получилось, что нет…',
-  'Add a detail (optional)': 'Подробность (необязательно)',
-  'Add a note': 'Добавить заметку',
-  'Save answers': 'Сохранить ответы',
-  Next: 'Далее',
-  'Not this time': 'Не сейчас',
-  'Thanks — noted': 'Спасибо, записано',
-  'The AI coach reads these answers whenever you ask about your training or a routine.':
-    'Ассистент учитывает эти ответы, когда вы спрашиваете о тренировках или программе.',
-  'Ask the AI coach about it': 'Спросить ИИ-тренера',
-  'How did my {routine} workout go, and should I change anything?':
-    'Как прошла тренировка «{routine}» и стоит ли что-то изменить?',
-  'How did my last workout go, and should I change anything?':
-    'Как прошла последняя тренировка и стоит ли что-то изменить?',
-  // The debrief's message to a new chat (lib/debrief.ts `debriefChatMessage`)
-  'Analyse my workout: {title}, {date}.': 'Разбери мою тренировку: «{title}», {date}.',
-  'Analyse my last workout, {date}.': 'Разбери мою последнюю тренировку, {date}.',
-  'My answers after the workout:': 'Мои ответы после тренировки:',
-  'What I did ({minutes} min):': 'Что сделано ({minutes} мин):',
-  'The plan in the routine "{routine}":': 'План в программе «{routine}»:',
-  'Based on all of this, how did it go, and what concrete changes would you make for next time?':
-    'Как прошла тренировка и какие конкретные изменения стоит внести к следующему разу?',
-  'How did {routine} go?': 'Как прошла «{routine}»?',
-  'How did the workout go?': 'Как прошла тренировка?',
-  '{answered} of {total} answered · pick up where you left off':
-    'Отвечено {answered} из {total} · продолжить',
-  '{total} quick questions for the AI coach': 'Вопросов для ИИ-тренера: {total}',
-  'Questions after a workout': 'Вопросы после тренировки',
-  'A few taps on how it went, so the AI coach knows more than the numbers':
-    'Пара касаний о том, как всё прошло, — чтобы ИИ-тренер знал больше, чем цифры',
-
   'Google is busy — asking again…': 'Google занят — спрашиваю ещё раз…',
   'The AI coach is overloaded right now. Try again in a minute.':
     'ИИ-тренер сейчас перегружен. Попробуйте через минуту.',
@@ -1601,6 +1433,30 @@ const RU: Record<string, string> = {
   // labels and values, and the toast. Short weekday names are a task schedule.
   'Suggested changes': 'Предложенные изменения',
   '{n} changes applied': 'Применено изменений: {n}',
+  // What the assistant can create, remove and edit (`lib/ai/aiEdits.ts`).
+  'Delete exercise': 'Удалить упражнение',
+  Deleted: 'Удалено',
+  Created: 'Создано',
+  Copy: 'Копия',
+  Removed: 'Убрано',
+  'Lowest reps': 'Нижняя граница повторов',
+  Next: 'Следующая',
+  'Own copy for step {n}': 'Своя копия для шага {n}',
+  'Start time': 'Время начала',
+  Length: 'Длительность',
+  'Workout number': 'Номер тренировки',
+  'New set': 'Новый подход',
+  'This workout': 'Эта тренировка',
+  '+1 set': '+1 подход',
+  Logged: 'Записан',
+  'Bodyweight reps': 'Свой вес, повторы',
+  'Exercise type': 'Тип упражнения',
+  'Start weight': 'Стартовый вес',
+  'Weekly sets · {cluster}': 'Подходов в неделю · {cluster}',
+  '{n} suggested changes could not be applied and were left out.':
+    'Не удалось применить предложенных изменений: {n} — они пропущены.',
+  'Applying removes {n} — Undo is offered right after.':
+    'Применение удалит: {n} — сразу после можно отменить.',
   moved: 'перемещено',
   superset: 'суперсет',
   '{n}× a week': '{n}× в неделю',
@@ -1615,7 +1471,6 @@ const RU: Record<string, string> = {
   'Rep ladder max': 'Максимум лесенки',
   'Weight step': 'Шаг веса',
   'Get-ready countdown': 'Отсчёт перед стартом',
-  'Weekly workout goal': 'Цель тренировок на неделю',
   'Rest between exercises': 'Отдых между упражнениями',
   Schedule: 'Расписание',
   'Daily target': 'Цель на день',
@@ -1642,32 +1497,7 @@ const RU: Record<string, string> = {
   'Finance history': 'История финансов',
   'Tap to add an amount here. Long press or tap the arrow to open the category.':
     'Нажмите, чтобы добавить сумму. Долгое нажатие или стрелка — открыть категорию.',
-  Appearance: 'Оформление',
-  Presets: 'Готовые темы',
   Custom: 'Свой',
-  'Pick your own three colours': 'Выберите свои три цвета',
-  'The three colours tint the buttons, the rings, the lit cards and the light behind every section. The AI button keeps its own colours so it always stands out.':
-    'Три цвета окрашивают кнопки, кольца, подсвеченные карточки и свет за каждым разделом. Кнопка ИИ сохраняет свои цвета, чтобы всегда выделяться.',
-  'Colour {n}': 'Цвет {n}',
-  Hue: 'Оттенок',
-  'Hex colour': 'Цвет в HEX',
-  Apply: 'Применить',
-  'Fintech Lime': 'Финтех лайм',
-  Emerald: 'Изумруд',
-  'Electric Violet': 'Электрик фиолет',
-  'Aqua Tech': 'Аква тех',
-  'Sunset Pulse': 'Закатный пульс',
-  'Deep Sapphire': 'Глубокий сапфир',
-  Aurora: 'Аврора',
-  Ember: 'Уголь',
-  'Default · money and growth': 'По умолчанию · деньги и рост',
-  'The original green, plus teal': 'Прежний зелёный и бирюза',
-  'Blue, violet, pink': 'Синий, фиолетовый, розовый',
-  'The 2026 blue-green': 'Сине-зелёный 2026 года',
-  'Workout energy': 'Энергия тренировки',
-  'Calm and trust': 'Спокойствие и доверие',
-  'Acid, cyan, violet': 'Кислотный, циан, фиолетовый',
-  'Warm focus': 'Тёплый фокус',
   'On purpose': 'Намеренно',
   '4w': '4н',
   '12w': '12н',
@@ -1704,7 +1534,6 @@ const RU: Record<string, string> = {
   'Next: warm-up': 'Далее: разминка',
   'Next: {name}': 'Далее: {name}',
   'All sets logged': 'Все подходы записаны',
-  'Routines & exercises': 'Программы и упражнения',
   'Routines or exercises': 'Программы или упражнения',
   'Options for {name}': 'Действия для «{name}»',
   'Long press or tap the dots to edit the account':
@@ -1714,9 +1543,6 @@ const RU: Record<string, string> = {
   'Can’t be undone': 'Нельзя отменить',
   'Chat deleted': 'Чат удалён',
   'Remove {name}?': 'Удалить «{name}»?',
-  'Its plate list goes with it. Your workouts are untouched.':
-    'Вместе с ним удалится список блинов. Тренировки не изменятся.',
-  'Decimal point': 'Десятичная точка',
   'The keypad has a decimal key: amounts here are kept in cents.':
     'На клавиатуре есть десятичная точка: суммы хранятся в сотых долях.',
   'This log was started in whole units, so the keypad keeps its 000 key. Nothing already recorded is ever rescaled.':
@@ -1802,64 +1628,6 @@ const RU: Record<string, string> = {
     '{year}: {done} из {asked} сделано. Нажмите на квадрат, чтобы увидеть день.',
   'One row a month, one square a day. Hatched days were excused and are out of the count; empty squares asked for nothing.':
     'Строка — месяц, квадрат — день. Заштрихованные дни освобождены и в счёт не входят; пустые квадраты — дни без задач.',
-  // W6 · records this session
-  'Records this session': 'Рекорды этой тренировки',
-  'new best e1RM, {value}': 'новый лучший e1RM, {value}',
-  'heaviest yet, {value}': 'самый большой вес, {value}',
-  'most reps yet, {value}': 'больше всего повторов, {value}',
-  'longest yet, {value}': 'дольше всего, {value}',
-  'furthest yet, {value}': 'дальше всего, {value}',
-  'most rounds yet, {value}': 'больше всего раундов, {value}',
-  // X1 · wrapped
-  'the year before': 'годом раньше',
-  'the month before': 'месяцем раньше',
-  and: 'и',
-  t: 'т',
-  d: 'дн.',
-  car: 'машины',
-  cars: 'машин',
-  'task done': 'выполненная задача',
-  'tasks done': 'выполненных задач',
-  times: 'раз',
-  card: 'карточка',
-  cards: 'карточек',
-  'About as heavy as a car.': 'Это примерно вес одной машины.',
-  'About as heavy as {n} {cars}.': 'Это примерно вес {n} {cars}.',
-  'Same as {before}.': 'Столько же, сколько {before}.',
-  '{n} more than {before}.': 'На {n} больше, чем {before}.',
-  '{n} fewer than {before}.': 'На {n} меньше, чем {before}.',
-  'Your year': 'Ваш год',
-  'Your month': 'Ваш месяц',
-  'Tap the right side to step through.': 'Нажимайте справа, чтобы листать дальше.',
-  Tonnage: 'Тоннаж',
-  'Every working set. Warm-ups are left out.': 'Все рабочие подходы. Разминка не считается.',
-  'Working sets with a known load. Warm-ups are left out.':
-    'Рабочие подходы с известным весом. Разминка не считается.',
-  'Workout {first} to workout {last}.': 'С тренировки {first} по тренировку {last}.',
-  'Best record': 'Лучший рекорд',
-  '{name} · {set} on {date}.': '{name} · {set}, {date}.',
-  'e1RM is an estimate (Epley).': 'e1RM — оценка (по формуле Эпли).',
-  'Longest streak': 'Самая длинная серия',
-  'Counted on the days it was asked for.': 'Считаются только дни, когда задача была в плане.',
-  'Top category': 'Главная категория',
-  '{category} · all of it.': '{category} · всё целиком.',
-  '{category} · {percent}% of everything that went out.': '{category} · {percent}% всех расходов.',
-  'Whole-month amounts are counted in their month.': 'Суммы за весь месяц учтены в своём месяце.',
-  'Expenses only. Transfers between accounts are not spending.':
-    'Только расходы. Переводы между счетами — не траты.',
-  'Busiest weekday': 'Самый активный день недели',
-  '{percent}% of tasks done': '{percent}% задач выполнено',
-  'Quietest for tasks: {weekday}, {percent}%.': 'Меньше всего задач: {weekday}, {percent}%.',
-  Summary: 'Итог',
-  'Tasks done': 'Задачи',
-  'My year in numbers': 'Мой год в цифрах',
-  'My month in numbers': 'Мой месяц в цифрах',
-  '{period}, wrapped': '{period} в итогах',
-  '{cards} · your year in numbers': '{cards} · ваш год в цифрах',
-  '{cards} · your month in numbers': '{cards} · ваш месяц в цифрах',
-  'Nothing to wrap up for this period.': 'За этот период подводить нечего.',
-  'Tap right for next · left to go back': 'Справа — дальше · слева — назад',
-  'no account · on my phone': 'без аккаунта · на моём телефоне',
   // M4 · money calendar
   Calendar: 'Календарь',
   'The day or the calendar': 'День или календарь',
@@ -1875,25 +1643,12 @@ const RU: Record<string, string> = {
   'Expenses only: incomes, and transfers between your accounts, are not spending. The dearest day of the month is the darkest; every other day is shaded against it.':
     'Только расходы: доходы и переводы между счетами — это не траты. Самый дорогой день месяца — самый тёмный, остальные закрашены относительно него.',
   // W1 · RIR per set
-  '{rir} in reserve · RPE {rpe}': '{rir} в запасе · RPE {rpe}',
-  'Reps in reserve': 'Повторов в запасе',
-  'Add reps in reserve': 'Указать повторы в запасе',
-  'Opens the reps-in-reserve scale': 'Открывает шкалу повторов в запасе',
   'Set {n}': 'Подход {n}',
   Clear: 'Очистить',
-  'How many more reps you could have done. The small number is the same answer as RPE.':
-    'Сколько ещё повторов вы могли бы сделать. Маленькое число — тот же ответ по шкале RPE.',
   'A set at 0 or 0.5 was at the limit: it is not taken as a reason to add weight.':
     'Подход на 0 или 0.5 — на пределе: он не считается поводом добавить вес.',
   // W2 · set types (design copy set.type.*)
-  'Drop set': 'Дроп-сет',
-  'To failure': 'До отказа',
   AMRAP: 'Максимум повторов',
-  'Set type': 'Тип',
-  'Set {n}, {kind}': 'Подход {n}, {kind}',
-  'Opens the set type and reps in reserve': 'Открывает тип подхода и повторы в запасе',
-  'Drop, failure and AMRAP sets are working sets: they count as volume. A warm-up counts for nothing.':
-    'Дроп-сет, до отказа и максимум повторов — рабочие подходы, они идут в объём. Разминка не считается.',
   // T1 · counted tasks (design copy editor.target)
   'A target, counted in parts': 'Цель по частям',
   'The circle fills by parts · +1 per tap': 'Круг заполняется по частям · +1 за нажатие',
@@ -1949,8 +1704,6 @@ const RU: Record<string, string> = {
   'Monthly budget': 'Бюджет на месяц',
   'Save budget': 'Сохранить бюджет',
   'Budget in {currency}': 'Бюджет в {currency}',
-  'Less by {amount}': 'Меньше на {amount}',
-  'More by {amount}': 'Больше на {amount}',
   'The ring on the tile turns coral only once the month goes past 100%.':
     'Кольцо на плитке становится коралловым, только когда месяц переходит за 100%.',
   'Set it to 0 to remove the budget.': 'Поставьте 0, чтобы убрать бюджет.',
@@ -2035,44 +1788,11 @@ const RU: Record<string, string> = {
   'Add a goal': 'Добавить цель',
   'Only the goal goes. The money stays in its account.':
     'Удалится только цель. Деньги останутся на своём счёте.',
-  // W9 · body measurements (design 16)
-  'unit:cm': 'см',
-  'unit:in': 'дюйм',
-  'measure:Waist': 'Талия',
-  'measure:Hips': 'Бёдра',
-  'measure:Chest': 'Грудь',
-  'measure:Arm': 'Рука',
-  'measure:Thigh': 'Бедро',
-  'measure:Calf': 'Голень',
-  'measure:Neck': 'Шея',
+  // The bodyweight log (design 16)
   'One reading': 'Одно измерение',
   '{change} since {date}': '{change} с {date}',
-  reading: 'измерение',
-  readings: 'измерений',
-  'Body measurements': 'Замеры тела',
-  'Tap a measurement for its readings, and a reading to correct it.':
-    'Нажмите на замер, чтобы увидеть измерения, и на измерение, чтобы исправить его.',
-  'Nothing measured yet. Add a reading — waist, chest, arm… — on any date, so older notes can go in too.':
-    'Пока ничего не измерено. Добавьте измерение — талия, грудь, рука… — на любую дату, так что старые записи тоже можно внести.',
-  'Add a reading': 'Добавить измерение',
-  'Delete the {name} reading from {date}?': 'Удалить измерение «{name}» от {date}?',
-  'Only this reading goes. The others stay as they are.':
-    'Удалится только это измерение. Остальные останутся как есть.',
   Weight: 'Вес',
   'Set in Workout settings': 'Задаётся в настройках тренировок',
-  'Opens the reading': 'Открывает измерение',
-  'First reading': 'Первое измерение',
-  'New reading': 'Новое измерение',
-  'This day already has a reading; saving replaces it.':
-    'За этот день уже есть измерение; сохранение заменит его.',
-  'Any past day, so older notes can go in too.':
-    'Любой прошедший день — старые записи тоже можно внести.',
-  'Save changes': 'Сохранить изменения',
-  'Save {name}': 'Сохранить: {name}',
-  'Between {min} and {max} {unit}.': 'От {min} до {max} {unit}.',
-  'Delete this reading': 'Удалить это измерение',
-  '{n} measured': 'измерено: {n}',
-  'Waist, chest, arm…': 'Талия, грудь, рука…',
   // W3 · muscle map (design 17, copy muscles.tap)
   'Muscle map': 'Карта мышц',
   'Muscle map · this week': 'Карта мышц · эта неделя',
@@ -2137,158 +1857,6 @@ const RU: Record<string, string> = {
     'Для неё нужно хотя бы {days} дней в каждой группе за последние {window} недель и разница в {relative}%. Меньшие различия не показываются.',
   '{n} found': 'найдено: {n}',
   'Not enough data yet': 'Пока мало данных',
-  // E1 · achievements (design 19a/19b, Wave 3 — behind the one switch)
-  'Achievements and levels': 'Достижения и уровни',
-  'Off by default. Quiet badges and levels, worked out from your logs.':
-    'По умолчанию выключено. Тихие значки и уровни, посчитанные по вашим журналам.',
-  Badges: 'Значки',
-  '{n} of {total} earned.': 'Получено {n} из {total}.',
-  'Worked out from your logs, so days before the switch count too.':
-    'Считаются по вашим журналам, поэтому дни до включения тоже идут в зачёт.',
-  Bronze: 'Бронза',
-  Silver: 'Серебро',
-  Gold: 'Золото',
-  Locked: 'Ещё не получен',
-  'Not yet': 'Пока нет',
-  'Earned {date}': 'Получен {date}',
-  'badge:task': 'задача',
-  'badge:record': 'рекорд',
-  'badge:records': 'рекордов',
-  'badge:t': 'т',
-  'badge:perfect day': 'идеальный день',
-  'badge:perfect days': 'идеальных дней',
-  'badge:amount': 'сумма',
-  'badge:amounts': 'сумм',
-  'badge:day logged': 'день с записями',
-  'badge:days logged': 'дней с записями',
-  'badge:goal': 'цель',
-  'badge:goals': 'целей',
-  'First workout': 'Первая тренировка',
-  'Save your first workout.': 'Сохраните первую тренировку.',
-  '10 workouts': '10 тренировок',
-  'Save 10 workouts.': 'Сохраните 10 тренировок.',
-  '50 workouts': '50 тренировок',
-  'Save 50 workouts.': 'Сохраните 50 тренировок.',
-  '100 workouts': '100 тренировок',
-  'Save 100 workouts.': 'Сохраните 100 тренировок.',
-  '250 workouts': '250 тренировок',
-  'Save 250 workouts.': 'Сохраните 250 тренировок.',
-  '500 workouts': '500 тренировок',
-  'Save 500 workouts.': 'Сохраните 500 тренировок.',
-  '1 tonne in a session': '1 тонна за тренировку',
-  'Move 1,000 kg in the working sets of one workout.':
-    'Поднимите 1000 кг в рабочих подходах одной тренировки.',
-  '5 tonnes in a session': '5 тонн за тренировку',
-  'Move 5,000 kg in the working sets of one workout.':
-    'Поднимите 5000 кг в рабочих подходах одной тренировки.',
-  '10 tonnes in a session': '10 тонн за тренировку',
-  'Move 10,000 kg in the working sets of one workout.':
-    'Поднимите 10 000 кг в рабочих подходах одной тренировки.',
-  '10 tonnes moved': '10 тонн поднято',
-  'Move 10 tonnes in working sets, all workouts together.':
-    'Поднимите 10 тонн в рабочих подходах, все тренировки вместе.',
-  '100 tonnes moved': '100 тонн поднято',
-  'Move 100 tonnes in working sets, all workouts together.':
-    'Поднимите 100 тонн в рабочих подходах, все тренировки вместе.',
-  '1,000 tonnes moved': '1000 тонн поднято',
-  'Move 1,000 tonnes in working sets, all workouts together.':
-    'Поднимите 1000 тонн в рабочих подходах, все тренировки вместе.',
-  'First record': 'Первый рекорд',
-  'Beat a previous best: a new e1RM, heaviest set or most reps.':
-    'Побейте прежний лучший результат: новый e1RM, самый тяжёлый подход или больше всего повторений.',
-  '10 records': '10 рекордов',
-  'Beat a previous best in 10 exercise sessions.':
-    'Побейте прежний лучший результат в упражнении на 10 тренировках.',
-  '50 records': '50 рекордов',
-  'Beat a previous best in 50 exercise sessions.':
-    'Побейте прежний лучший результат в упражнении на 50 тренировках.',
-  '1,000 working sets': '1000 рабочих подходов',
-  'Log 1,000 working sets. Warm-ups are not counted.':
-    'Запишите 1000 рабочих подходов. Разминка не считается.',
-  'First task done': 'Первая выполненная задача',
-  'Tick a task on a day it asks.': 'Отметьте задачу в день, когда она запланирована.',
-  '100 tasks done': '100 выполненных задач',
-  'Tick 100 tasks, on the days they ask.': 'Отметьте 100 задач в дни, когда они запланированы.',
-  '1,000 tasks done': '1000 выполненных задач',
-  'Tick 1,000 tasks, on the days they ask.': 'Отметьте 1000 задач в дни, когда они запланированы.',
-  '7 days in a row': '7 дней подряд',
-  'Do one daily task 7 asked days in a row. A day skipped on purpose is stepped over, not counted.':
-    'Выполняйте одну ежедневную задачу 7 запланированных дней подряд. День, пропущенный намеренно, не прерывает и не засчитывается.',
-  '30-day streak': 'Серия 30 дней',
-  'Do one daily task 30 asked days in a row. A day skipped on purpose is stepped over, not counted.':
-    'Выполняйте одну ежедневную задачу 30 запланированных дней подряд. День, пропущенный намеренно, не прерывает и не засчитывается.',
-  '100-day streak': 'Серия 100 дней',
-  'Do one daily task 100 asked days in a row. A day skipped on purpose is stepped over, not counted.':
-    'Выполняйте одну ежедневную задачу 100 запланированных дней подряд. День, пропущенный намеренно, не прерывает и не засчитывается.',
-  'A full week': 'Полная неделя',
-  'Every task done on every day of a Monday–Sunday week, at least 5 days of it. A paused day does not count.':
-    'Все задачи выполнены в каждый день недели с понедельника по воскресенье, минимум 5 дней. День на паузе не засчитывается.',
-  '30 perfect days': '30 идеальных дней',
-  'Finish every task 30 days. Days skipped on purpose are left out.':
-    'Выполните все задачи за 30 дней. Намеренно пропущенные задачи не учитываются.',
-  'First amount': 'Первая сумма',
-  'Record your first amount. Transfers are not counted.':
-    'Запишите первую сумму. Переводы не считаются.',
-  '100 amounts': '100 сумм',
-  'Record 100 amounts. Transfers are not counted.': 'Запишите 100 сумм. Переводы не считаются.',
-  '30 days of logging': '30 дней записей',
-  'Record spending on 30 different days.': 'Записывайте расходы в 30 разных дней.',
-  '100 days of logging': '100 дней записей',
-  'Record spending on 100 different days.': 'Записывайте расходы в 100 разных дней.',
-  'A year of logging': 'Год записей',
-  'Record spending on 365 different days.': 'Записывайте расходы в 365 разных дней.',
-  'Budget kept': 'Бюджет соблюдён',
-  'A whole month inside every budget you have set.': 'Целый месяц в рамках всех заданных бюджетов.',
-  'Budget kept 3 months': 'Бюджет соблюдён 3 месяца',
-  'Three whole months inside every budget you have set.':
-    'Три целых месяца в рамках всех заданных бюджетов.',
-  'Budget kept a year': 'Бюджет соблюдён год',
-  'Twelve whole months inside every budget you have set.':
-    'Двенадцать целых месяцев в рамках всех заданных бюджетов.',
-  'Goal reached': 'Цель достигнута',
-  'A savings goal’s account reaches its target.': 'Счёт цели накопления достигает целевой суммы.',
-  // E2 · XP and levels (design 20)
-  'Log a working set': 'Рабочий подход',
-  'Finish a workout': 'Завершённая тренировка',
-  'Tick a task': 'Отмеченная задача',
-  'A day with every task done': 'День, когда сделаны все задачи',
-  'Record an amount': 'Записанная сумма',
-  'A personal record': 'Личный рекорд',
-  'of {xp} XP to level {level}': 'из {xp} опыта до уровня {level}',
-  'Level {n}': 'Уровень {n}',
-  'Lv {n}': 'Ур. {n}',
-  'How XP is earned': 'Как начисляется опыт',
-  '{n} so far': 'пока: {n}',
-  'XP only goes up. A missed day earns nothing and takes nothing.':
-    'Опыт только растёт. Пропущенный день ничего не даёт и ничего не отнимает.',
-  'Level {n}, {xp} XP. Open the level': 'Уровень {n}, опыт {xp}. Открыть уровень',
-  XP: 'опыт',
-  // E3 · streak freezes (design 21)
-  '{n} streak freeze': '{n} заморозка серии',
-  '{n} streak freezes': '{n} заморозок серии',
-  "A freeze covers one day you didn't answer, so the streak carries on.":
-    'Заморозка закрывает один неотмеченный день — серия продолжается.',
-  'It’s used for you, the morning after.': 'Она срабатывает сама, на следующее утро.',
-  'Earn one for every {n} days in a row. Hold up to {max}. Skipping on purpose never needs one.':
-    'Одна за каждые {n} дней подряд. Можно держать до {max}. Осознанному пропуску она не нужна.',
-  'Used on {days}.': 'Дни под заморозкой: {days}.',
-  '{n} streak freezes held. Open': 'Заморозок серии: {n}. Открыть',
-  // E4 · milestones (design 2)
-  Milestone: 'Веха',
-  'Since {date}. {n} sets.': 'С {date}. Подходов: {n}.',
-  // W8 · weekly training goal
-  '{done} of {goal} workout this week': '{done} из {goal} тренировки на этой неделе',
-  '{done} of {goal} workouts this week': '{done} из {goal} тренировок на этой неделе',
-  '{line} · excused': '{line} · не в счёт',
-  'Weekly goal': 'Цель на неделю',
-  'Workouts a week': 'Тренировок в неделю',
-  'Excuse this week': 'Не считать эту неделю',
-  'Excuse last week': 'Не считать прошлую неделю',
-  'Illness, travel: an excused week is not a miss.': 'Болезнь, поездка: такая неделя — не пропуск.',
-  'Last week: {done} of {goal}': 'Прошлая неделя: {done} из {goal}',
-  'A week runs Monday to Sunday and starts empty. No streaks.':
-    'Неделя идёт с понедельника по воскресенье и начинается с нуля. Без серий.',
-  'Weekly goal: {line}. Opens the goal.': 'Цель на неделю: {line}. Открывает настройку.',
   // X4 · AI weekly summary
   'Summarize my last week in a few sentences.':
     'Подведи итоги моей прошлой недели в нескольких предложениях.',
@@ -2335,8 +1903,8 @@ const RU: Record<string, string> = {
     'разом возвращает настройки этого приложения к исходным. Ничего из записанного это не трогает — ни задачу, ни отвеченный день.',
   'puts this app’s settings back to their defaults at once. It does not touch a single thing you have logged — not an account, not an amount.':
     'разом возвращает настройки этого приложения к исходным. Ничего из записанного это не трогает — ни счёт, ни сумму.',
-  'Every duration, switch, target and default in this app goes back to how it shipped. Your exercises, routines, history, gyms and bodyweight are untouched.':
-    'Все длительности, переключатели, цели и значения по умолчанию в этом приложении вернутся к исходным. Упражнения, программы, история, залы и вес тела останутся нетронутыми.',
+  'Every duration, switch, target and default in this app goes back to how it shipped. Your exercises, routines, history and bodyweight are untouched.':
+    'Все длительности, переключатели, цели и значения по умолчанию в этом приложении вернутся к исходным. Упражнения, программы, история и вес тела останутся нетронутыми.',
   'Every switch and default in this app goes back to how it shipped. Your tasks and every answered day are untouched.':
     'Все переключатели и значения по умолчанию в этом приложении вернутся к исходным. Задачи и все отвеченные дни останутся нетронутыми.',
   'Every default in this app goes back to how it shipped, the currency label included. Your accounts and amounts are untouched.':
@@ -2347,8 +1915,42 @@ const RU: Record<string, string> = {
     'Только ваши ежедневные задачи, отвеченные дни и заметки — и сначала в виде сводки, собранной на телефоне. Ничего не меняется, пока вы не нажмёте «Применить».',
   'Only your amounts, categories, accounts and budgets, summarised on the phone first. Nothing is changed until you press Apply.':
     'Только ваши суммы, категории, счета и бюджеты — и сначала в виде сводки, собранной на телефоне. Ничего не меняется, пока вы не нажмёте «Применить».',
-  'Everything on this screen is about training. The look, the language, the backup and the AI coach are on the Settings screen itself.':
-    'Всё на этом экране — о тренировках. Оформление, язык, резервная копия и ИИ-тренер — на самом экране настроек.',
+
+  /* --- 4.0: the weigh-in reminder (`lib/weighInReminder.ts`) --- */
+  'Time to weigh in': 'Пора взвеситься',
+  'Step on the scale before breakfast and log it.': 'Встаньте на весы до завтрака и запишите вес.',
+  'A weigh-in, at the time you asked to be reminded.':
+    'Взвешивание — в то время, о котором вы просили напомнить.',
+  'Weigh-in reminder': 'Напоминание о взвешивании',
+  'Remind me to weigh in': 'Напоминать взвеситься',
+  'A notification at the time you set, on the days you picked.':
+    'Уведомление в выбранное время, в выбранные дни.',
+  'On which days': 'В какие дни',
+  'At what time': 'Во сколько',
+  'Next: {day} at {time}': 'Следующее: {day} в {time}',
+  'Notifications are switched off for this app, so nothing will arrive.':
+    'Уведомления для этого приложения выключены, поэтому ничего не придёт.',
+  'Allow notifications': 'Разрешить уведомления',
+  'Remind me tomorrow at {time}': 'Напомнить завтра в {time}',
+  'I’ll remind you tomorrow at {time}': 'Напомню завтра в {time}',
+  // 4.0 · the warm-up toggle and finding a ladder's max in a workout
+  // (`lib/warmup.ts`, `lib/repLadder.ts` — `isAwaitingMax`)
+  'Add a warm-up set on top': 'Добавить разминочный подход сверху',
+  'Remove the warm-up set': 'Убрать разминочный подход',
+  'MAX, then the ladder': 'МАКС, затем лесенка',
+  'Max reps — go all out': 'Максимум повторений — на пределе',
+  'max reps — go all out': 'максимум повторений — на пределе',
+  'Waiting for your max': 'Ждём ваш максимум',
+  'Find my max in the next workout': 'Найти мой максимум на следующей тренировке',
+  'Your max is found in the next workout: set 1 is all-out':
+    'Максимум определится на следующей тренировке: подход 1 — на пределе',
+  'In your next workout set 1 is the all-out set: do as many reps as you can and log them. The rest of the sets are then built from that number.':
+    'На следующей тренировке подход 1 — на пределе: сделайте столько повторений, сколько сможете, и запишите их. Остальные подходы будут построены от этого числа.',
+  // 4.0 · four tabs, one Settings page, one big Start
+  // (`lib/sectionNav.ts`, `screens/SettingsHomeScreen.tsx`, `screens/HomeScreen.tsx`)
+  'Start {name}': 'Начать «{name}»',
+  'Timers & sound': 'Таймеры и звук',
+  'Data & backup': 'Данные и резервная копия',
 };
 
 /** Test hook: the strings this build can translate. Not read by the app. */

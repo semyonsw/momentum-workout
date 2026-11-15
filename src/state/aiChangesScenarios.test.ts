@@ -26,7 +26,6 @@ import { useActiveWorkout } from './activeWorkoutStore';
 import { useLibrary } from './libraryStore';
 import { useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
-import { seedUser } from '../data/seed';
 import type { Exercise, Routine } from '../types/models';
 
 /* ------------------------------------------------------------------ */
@@ -127,7 +126,6 @@ function snapshot() {
       rest: s.restSecondsBetweenSets,
       restExercises: s.restSecondsBetweenExercises,
       autoRest: s.autoStartRest,
-      goal: s.weeklyWorkoutGoal ?? null,
     }),
   );
 }
@@ -146,7 +144,6 @@ beforeEach(() => {
   useAi.getState().markReady(500);
   useSettings.getState().resetToDefaults();
   useSettings.getState().setLanguage('en');
-  useSettings.setState({ weeklyWorkoutGoal: undefined });
   useLibrary.getState().replaceLibrary({ exercises: EXERCISES, routines: [ROUTINE] });
   useWorkoutHistory.setState({ workouts: [] });
   useActiveWorkout.getState().discardSession();
@@ -174,13 +171,13 @@ const WORKOUT_ITEMS = [
   { target: 'exercise', id: 'ex_pull', field: 'ladder', number: 14 },
   { target: 'exercise', id: 'ex_bench', field: 'cue', text: '' },
   { target: 'setting', field: 'auto_rest', on: false },
-  { target: 'setting', field: 'weekly_goal', number: 5 },
   { target: 'setting', field: 'rest_between_exercises', number: 180 },
   // Dropped on the way in: archived-style unknown id, a ladder on a timed
-  // exercise, a task (a target this app does not have).
+  // exercise, a task (a target this app does not have), a retired setting.
   { target: 'exercise', id: 'ex_gone', field: 'rest', number: 30 },
   { target: 'exercise', id: 'ex_plank', field: 'ladder', number: 5 },
   { target: 'task', id: 't_read', field: 'archive' },
+  { target: 'setting', field: 'weekly_goal', number: 5 },
 ];
 
 describe('a Workout card', () => {
@@ -189,7 +186,7 @@ describe('a Workout card', () => {
     const { card } = await ask(reply(WORKOUT_ITEMS));
     expect(card?.status).toBe('pending');
     expect(card?.why).toBe('Here is what I would change.');
-    expect(card?.changes).toHaveLength(8);
+    expect(card?.changes).toHaveLength(7);
     expect(
       card?.rows.map(({ subject, label, from, to }) => `${subject} | ${label} | ${from} → ${to}`),
     ).toEqual([
@@ -199,7 +196,6 @@ describe('a Workout card', () => {
       'Pull-up | Rep ladder max | 10 → 14',
       'Bench press | Form cue | Tuck elbows → None',
       'Settings | Start rest automatically | On → Off',
-      'Settings | Weekly workout goal | 3 → 5',
       'Settings | Rest between exercises | 2:30 → 3:00',
     ]);
     expect(snapshot()).toEqual(before);
@@ -209,13 +205,12 @@ describe('a Workout card', () => {
     const before = snapshot();
     const { id, card } = await ask(reply(WORKOUT_ITEMS));
     const applied = applyChanges('Workout', id);
-    expect(applied?.message).toBe('8 changes applied');
+    expect(applied?.message).toBe('7 changes applied');
 
     const s = useSettings.getState();
     expect(s.restSecondsBetweenSets).toBe(60);
     expect(s.restSecondsBetweenExercises).toBe(180);
     expect(s.autoStartRest).toBe(false);
-    expect(s.weeklyWorkoutGoal).toBe(5);
     // Settings went first: the new global rest cleared Row's own 0:45, and
     // Bench's 1:30 from the SAME card was written after it, so it stands.
     expect(ex('ex_bench').defaultRestSeconds).toBe(90);
@@ -233,7 +228,6 @@ describe('a Workout card', () => {
 
     applied!.undo();
     expect(snapshot()).toEqual(before);
-    expect(useSettings.getState().weeklyWorkoutGoal).toBeUndefined();
     expect(cardOf(id)?.status).toBe('pending');
 
     // And it can be applied again after its Undo.
@@ -296,6 +290,7 @@ describe('a Workout card', () => {
     expect(last.role === 'model' && last.blocks).toEqual([
       { type: 'text', text: 'Sure.' },
       { type: 'text', text: 'Planks have no ladder.' },
+      { type: 'text', text: '1 suggested changes could not be applied and were left out.' },
     ]);
   });
 
@@ -333,7 +328,6 @@ describe('a Workout card', () => {
       routine: ROUTINE,
       exercisesById: library,
       historyByExerciseId: {},
-      policy: seedUser.overloadPolicy,
       unitSystem: 'metric',
       defaultRestSeconds: 120,
       defaultTransitionRestSeconds: 150,

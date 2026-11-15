@@ -45,7 +45,6 @@ it('a timed set is announced as the clock it shows, not as raw seconds', () => {
     <SetRow
       set={hold}
       workingNumber={1}
-      position={1}
       exercise={plank}
       unitSystem="metric"
       focusedField={null}
@@ -55,4 +54,21 @@ it('a timed set is announced as the clock it shows, not as raw seconds', () => {
   );
   expect(view.getByLabelText('1:30 min')).toBeTruthy();
   expect(view.queryByLabelText('90 min')).toBeNull();
+});
+
+it('a ladder’s max test reads MAX until reps are entered, then its number', () => {
+  const pullups: Exercise = { ...plank, id: 'ex_pull', name: 'Pull-ups', countUnit: 'reps' };
+  const props = {
+    workingNumber: 1,
+    exercise: pullups,
+    unitSystem: 'metric' as const,
+    focusedField: null,
+    onFocusField: jest.fn(),
+    onToggleComplete: jest.fn(),
+  };
+  const view = render(<SetRow {...props} set={{ ...hold, count: 0 }} maxTest />);
+  expect(view.getByLabelText('MAX')).toBeTruthy();
+  view.rerender(<SetRow {...props} set={{ ...hold, count: 16 }} maxTest />);
+  expect(view.queryByLabelText('MAX')).toBeNull();
+  expect(view.getByLabelText('16 reps')).toBeTruthy();
 });

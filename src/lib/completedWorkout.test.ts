@@ -13,7 +13,7 @@ import {
   type CompletedWorkout,
 } from './completedWorkout';
 import { buildDraftSession, type DraftSession } from './draft';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import type { Exercise, ID } from '../types/models';
 
@@ -27,7 +27,6 @@ function draft(startedAt = '2026-08-17T17:00:00.000Z'): DraftSession {
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,

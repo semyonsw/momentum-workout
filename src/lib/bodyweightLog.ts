@@ -21,9 +21,8 @@
  *     Editing one rep in a session from June silently re-costed that whole session
  *     at September's weight.
  *  2. PROGRESS WENT MISSING. A lifter who gained 4 kg and held `+20 × 8` has added
- *     4 kg to the bar. The overload engine, reading only the logged number, saw a
- *     flat line and called it a plateau — and nudged for weight the user had
- *     already added.
+ *     4 kg to the bar. Reading only the logged number saw a flat line where the
+ *     lifter had in fact got stronger.
  *
  * So the weight is a series, and `bodyweightAt` is the one way anything asks what
  * the lifter weighed on a given day.
@@ -33,7 +32,7 @@
  * Not body measurements, not photos, not composition. Bodyweight is here because
  * `effectiveLoadKg` NEEDS it to read a set correctly — it is load-bearing arithmetic,
  * not a second product bolted onto a training log. Nothing else about the body is
- * tracked, and a chest measurement would not make a single set easier to read.
+ * tracked, and a waist measurement would not make a single set easier to read.
  *
  * ONE ENTRY PER DAY. A second reading on the same date replaces the first rather
  * than appending: nobody wants a log of their morning and evening weight, and the

@@ -1,6 +1,6 @@
 /**
  * The words on an open exercise card that are not set rows (redesign #3): the
- * sub-line under the name, and the percentages on edit mode's `+ Warm-up`.
+ * sub-line under the name.
  *
  * ── THE SUB-LINE SAYS THE PLAN IN THE ORDER IT IS USED ───────────────────────
  *
@@ -13,14 +13,6 @@
  *
  * Rejected: reusing `formatTarget` whole and prefixing a weight. It speaks in
  * `N × reps`, so the line would have said the set count twice.
- *
- * ── THE WARM-UP SAYS ITS PERCENTAGES ─────────────────────────────────────────
- *
- * `+ Warm-up  40 · 60 · 80` — the share of the working weight each rung is,
- * which is the same on every exercise and so learnable, rather than the kilos,
- * which change with every card. The kilos snap to plates (`lib/warmup.ts`), so
- * the share is read back off the weight and rounded to the nearest ten: the
- * scheme is written in tens, and 32.5 of 80 is "the 40 % rung", not 41.
  */
 
 import type { DraftEntry } from './draft';
@@ -78,17 +70,4 @@ export function exerciseSubline(
     sets: countOfSets(n, exercise.countUnit === 'rounds', lang),
     what: what.trim(),
   });
-}
-
-/**
- * `40 · 60 · 80` — each warm-up row's share of the working weight, to the
- * nearest ten percent. Null when there is nothing to say (no rows, no weight).
- */
-export function warmupPercents(
-  sets: readonly { weightKg: number }[],
-  workingWeightKg: number | null | undefined,
-): string | null {
-  if (sets.length === 0) return null;
-  if (typeof workingWeightKg !== 'number' || !(workingWeightKg > 0)) return null;
-  return sets.map((set) => Math.round((set.weightKg / workingWeightKg) * 10) * 10).join(' · ');
 }

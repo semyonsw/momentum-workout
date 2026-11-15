@@ -1,6 +1,6 @@
 /**
  * The decisions behind the Workout section and Home's running-workout card
- * (the 2.9 findability redesign, #7 #8 #11 #13 #18). Pure, so each one is
+ * (the 2.9 findability redesign, #7 #11 #18, and 4.0's hero). Pure, so each one is
  * tested without a renderer; the screens are composition.
  *
  * ── WHERE YOU ARE, NOT HOW FAR ────────────────────────────────────────────
@@ -19,23 +19,30 @@
  * bodyweight set, all timed holds) is left out rather than drawn as a dip —
  * a line that drops because the user did planks is a line that lies. It is a
  * shape, not a chart: the numbers live behind `Graphs ›`. Rejected: workouts
- * per week (the weekly goal card right above already says that) and a top-set
- * line (which exercise's?).
+ * per week (a count, not progress) and a top-set line (which exercise's?).
  *
- * ── THE EXTENDED ▶ PILL ────────────────────────────────────────────────────
+ * ── ONE HERO, ONE START (4.0) ─────────────────────────────────────────────
  *
- * At the top of the list there is room, and `▶ Open Push` says what the slot
- * does in words; once the list moves, the words would sit over the rows being
- * read, so it folds to the round ▶. Hysteresis (fold past 32, unfold under 16)
- * for the same reason the bubble has it: a thumb resting near one line would
- * make it flicker.
+ * Home leads with ONE routine and one large `Start`. With the training
+ * sequence on, it is the sequence's turn. With it off, it is the routine after
+ * the one you trained last, in list order, wrapping — the order people already
+ * file Push · Pull · Legs in — and the first openable one on a phone that has
+ * trained nothing. Rejected: the routine trained longest ago (a routine tried
+ * once and abandoned would sit in the hero forever) and no hero without a
+ * sequence (the screen then opened on a list, and "which one do I press" was
+ * the question the owner asked to remove). It only suggests: every other
+ * routine is right under it with its own `Start`.
+ *
+ * The floating ▶ that used to fold from `▶ Open Push` to a circle went with it:
+ * the hero's button is the start, and once the hero scrolls away the capsule
+ * at the top carries the same ▶ (`components/FloatingBubble.tsx`).
  *
  * ── AN EMPTY WORKOUT IS A ROUTINE WITH NO ID ───────────────────────────────
  *
  * `Start an empty workout` builds the session from a routine with no items and
  * an EMPTY id, never stored in the library. Every reader of `routineId` in the
  * app already tests it for truthiness (`buildCompletedWorkout`, the sequence
- * advance, the plan diff, the debrief), so `''` reads as "not from a routine"
+ * advance, the plan diff), so `''` reads as "not from a routine"
  * everywhere without a new code path. The session screen's own empty state is
  * what greets it — `Add an exercise` — which is the next thing to do anyway.
  */
@@ -99,21 +106,41 @@ export function describeRunningSet(running: RunningSet | null, time: string, lan
 }
 
 /* ------------------------------------------------------------------ */
-/* #8 — the floating ▶, extended at the top                           */
+/* 4.0 — the hero                                                     */
 /* ------------------------------------------------------------------ */
 
-const FAB_FOLD_Y = 32;
-const FAB_UNFOLD_Y = 16;
+/** What the hero needs to know about a routine to suggest it. */
+export interface HeroCandidate {
+  routineId: ID;
+  exerciseCount: number;
+  /** ISO time it was last trained, or null if never. */
+  lastTrainedAt: string | null;
+}
 
-/** Whether the ▶ shows its words at scroll offset `y`, given what it showed. */
-export function nextFabExtended(extended: boolean, y: number): boolean {
-  if (!Number.isFinite(y)) return extended;
-  if (extended) return y <= FAB_FOLD_Y;
-  return y < FAB_UNFOLD_Y;
+/**
+ * The routine Home's hero suggests, or null when nothing can be opened. See
+ * the file header: the sequence's turn, else the openable routine after the
+ * one trained last (list order, wrapping), else the first openable one.
+ */
+export function suggestedRoutine<C extends HeroCandidate>(
+  choices: readonly C[],
+  sequenceNext: C | null,
+): C | null {
+  if (sequenceNext) return sequenceNext;
+  const openable = choices.filter((choice) => choice.exerciseCount > 0);
+  if (openable.length === 0) return null;
+  let last = -1;
+  openable.forEach((choice, index) => {
+    const at = choice.lastTrainedAt;
+    if (at == null) return;
+    const best = last >= 0 ? openable[last].lastTrainedAt : null;
+    if (best == null || at > best) last = index;
+  });
+  return openable[(last + 1) % openable.length];
 }
 
 /* ------------------------------------------------------------------ */
-/* #11 — the Progress card and the last-session card                  */
+/* #11 — the Progress card                                            */
 /* ------------------------------------------------------------------ */
 
 export const PROGRESS_SPARK_COUNT = 10;
@@ -137,50 +164,6 @@ export function progressSpark(
   const high = Math.max(...values);
   const pad = Math.max((high - low) * 0.15, high * 0.05, 1);
   return { values, min: Math.max(0, low - pad), max: high + pad };
-}
-
-export interface LastSession {
-  workoutId: ID;
-  title: string;
-  startedAt: string;
-  /** In the order they were trained, each exercise once. */
-  exercises: { exerciseId: ID; name: string }[];
-}
-
-/** The most recent workout, with its exercises as the links the card draws. */
-export function lastSession(workouts: readonly CompletedWorkout[]): LastSession | null {
-  let latest: CompletedWorkout | null = null;
-  for (const workout of workouts) {
-    if (!latest || workout.startedAt > latest.startedAt) latest = workout;
-  }
-  if (!latest) return null;
-  const seen = new Set<ID>();
-  const exercises: LastSession['exercises'] = [];
-  for (const exercise of latest.exercises) {
-    if (seen.has(exercise.exerciseId)) continue;
-    seen.add(exercise.exerciseId);
-    exercises.push({ exerciseId: exercise.exerciseId, name: exercise.name });
-  }
-  return { workoutId: latest.id, title: latest.title, startedAt: latest.startedAt, exercises };
-}
-
-/* ------------------------------------------------------------------ */
-/* #11 / #13 — the weekly workout goal card                           */
-/* ------------------------------------------------------------------ */
-
-/** One pip per workout of the goal, the first `done` of them lit. */
-export function goalPips(done: number, goal: number): boolean[] {
-  const size = Math.max(0, Math.floor(goal));
-  return Array.from({ length: size }, (_, i) => i < done);
-}
-
-/** `2 of 4 this week`, or `… · excused`. */
-export function describeGoalShort(
-  status: { done: number; goal: number; excused: boolean },
-  lang: Language,
-): string {
-  const line = t('{done} of {goal} this week', lang, { done: status.done, goal: status.goal });
-  return status.excused ? t('{line} · excused', lang, { line }) : line;
 }
 
 /* ------------------------------------------------------------------ */

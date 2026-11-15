@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { routineUsageCount, useLibrary } from './libraryStore';
+import { useSettings } from './settingsStore';
 import { defaultTargetSets } from '../lib/draft';
 import { seedExercises, seedRoutines } from '../data/seed';
 import type { Exercise } from '../types/models';
@@ -774,6 +775,8 @@ describe('duplicating a routine', () => {
   });
 
   it('counts rather than stacks the suffix: (копия), then (копия 2)', () => {
+    // In Russian, which an install keeps once chosen; a fresh one speaks English.
+    useSettings.setState({ language: 'ru' });
     const source = useLibrary.getState().routines[0];
     const first = useLibrary.getState().duplicateRoutine(source.id);
     const second = useLibrary.getState().duplicateRoutine(source.id);
@@ -783,6 +786,7 @@ describe('duplicating a routine', () => {
     expect(first?.name).toBe(`${source.name} (копия)`);
     expect(second?.name).toBe(`${source.name} (копия 2)`);
     expect(third?.name).toBe(`${source.name} (копия 3)`);
+    useSettings.setState({ language: 'en' });
   });
 
   it('is null for a routine that is not there, so a caller cannot navigate to nothing', () => {

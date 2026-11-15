@@ -4,7 +4,7 @@
  *
  * `smoke.test.ts` proves the happy path holds together. This file is the
  * session that does NOT go to plan: the extra set decided at the rack, the
- * logged set removed by a mis-tap and put back, warm-ups, a superset, a ladder
+ * logged set removed by a mis-tap and put back, warm-ups, a ladder
  * whose top set beat the plan, a MAX set, a plank timed by the clock, a nudge
  * taken and a nudge ignored, an exercise edited and reordered mid-workout, a
  * session that runs past midnight, and the workout corrected in History a day
@@ -37,12 +37,10 @@ import {
   workingSetLabels,
   type DraftSession,
 } from '../lib/draft';
-import { DEFAULT_OVERLOAD_POLICY } from '../lib/progressiveOverload';
-import { exerciseBests, recordsBeatenBy, recordsBrokenIn } from '../lib/records';
+import { exerciseBests } from '../lib/records';
 import { ladderForMax, ladderOutcomes, ladderTargets } from '../lib/repLadder';
 import { applyPlannedSetDiff, performedSetCounts, plannedSetDiff } from '../lib/routinePlan';
-import { effectiveLoadKg, formatWeight, kgToLb, lbToKg, roundToStep } from '../lib/units';
-import { warmupSets } from '../lib/warmup';
+import { effectiveLoadKg, formatWeight, roundToStep } from '../lib/units';
 import {
   clampDurationMinutes,
   formatTimeSpan,
@@ -50,7 +48,6 @@ import {
   removeExerciseFromWorkout,
 } from '../lib/workoutEdit';
 import { summarizeSessionSets } from '../lib/history';
-import { upNextSet } from '../lib/upNext';
 import type { Exercise, ID, Routine, RoutineItem, SetHistory } from '../types/models';
 
 /* ------------------------------------------------------------------ */
@@ -172,7 +169,6 @@ function open(r: Routine, extraHistory: Record<ID, SetHistory[]> = {}) {
     routine: r,
     exercisesById: libraryById(),
     historyByExerciseId: historyByExerciseId(useWorkoutHistory.getState().workouts, extraHistory),
-    policy: DEFAULT_OVERLOAD_POLICY,
     unitSystem: settings.unitSystem,
     defaultRestSeconds: settings.restSecondsBetweenSets,
     defaultTransitionRestSeconds: settings.restSecondsBetweenExercises,
@@ -418,24 +414,34 @@ describe('a push day that does not go to plan', () => {
 describe('warming up before the working sets', () => {
   const r = () => saveRoutine(routine('qa_bench_day', [item(BENCH.id, 0, 3)]));
 
+  /** Three warm-up rows on top of the bench, as a warm-up control files them. */
   function addRamp() {
     const bench = entryOf(BENCH.id);
-    const ramp = warmupSets({ workingWeightKg: 100, exercise: BENCH });
-    act().addWarmupSets(bench.localId, ramp);
+    const ramp = [40, 60, 80].map((weightKg, i) => ({
+      localId: `wu${i}`,
+      weightKg,
+      count: 5,
+      isWarmup: true,
+      isCompleted: false,
+      completedAt: null,
+      isPrefilled: false,
+    }));
+    const session = live();
+    useActiveWorkout.setState({
+      session: {
+        ...session,
+        entries: session.entries.map((e) =>
+          e.localId === bench.localId ? { ...e, sets: [...ramp, ...e.sets] } : e,
+        ),
+      },
+    });
     return ramp;
   }
 
-  it('puts the ramp on top, numbered around, and only once', () => {
+  it('numbers the working sets around the warm-ups', () => {
     open(r());
-    const bench = entryOf(BENCH.id);
-    act().patchSet(bench.localId, bench.sets[0].localId, { weightKg: 100 });
-    const ramp = addRamp();
-    expect(ramp.map((w) => w.weightKg)).toEqual([40, 60, 80]);
-    addRamp(); // the button pressed twice
-
-    const sets = entryOf(BENCH.id).sets;
-    expect(sets).toHaveLength(6);
-    expect(workingSetLabels(sets)).toEqual([null, null, null, 1, 2, 3]);
+    addRamp();
+    expect(workingSetLabels(entryOf(BENCH.id).sets)).toEqual([null, null, null, 1, 2, 3]);
   });
 
   it('ticking a warm-up neither carries its weight down nor teaches the library', () => {
@@ -451,14 +457,6 @@ describe('warming up before the working sets', () => {
     expect(libraryById()[BENCH.id].defaultWeightKg).toBe(60);
     // Mid-exercise: a between-sets rest, not the walk to the next machine.
     expect(act().rest.source).toBe('set');
-  });
-
-  it('is refused once a working set is logged', () => {
-    open(r());
-    const bench = entryOf(BENCH.id);
-    act().completeSet(bench.localId, bench.sets[0].localId);
-    addRamp();
-    expect(entryOf(BENCH.id).sets).toHaveLength(3);
   });
 
   it('the saved workout counts the working sets only — volume, set count, and the next prefill', () => {
@@ -495,7 +493,6 @@ describe('warming up before the working sets', () => {
         .sets.filter((s) => !s.isWarmup)
         .map((s) => s.weightKg),
     ).toEqual([60, 60, 60]);
-    expect(act().warmupOffer).toBeNull();
   });
 
   it('“Update the plan” does not count warm-ups as sets', () => {
@@ -525,72 +522,20 @@ describe('warming up before the working sets', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* 3. A superset                                                       */
+/* 3. A routine saved with supersets, before they were removed         */
 /* ------------------------------------------------------------------ */
 
-describe('a superset of bench and rows', () => {
-  const r = () =>
-    saveRoutine(
-      routine('qa_superset', [
-        item(BENCH.id, 0, 3, { supersetGroup: 'A' }),
-        item(ROW.id, 1, 2, { supersetGroup: 'A' }),
-        item(PUSHUPS.id, 2, 2),
-      ]),
+describe('a routine that still carries a superset group', () => {
+  it('trains as ordinary exercises: rest after every set, the cursor stays put', () => {
+    open(
+      saveRoutine(
+        routine('qa_old_superset', [
+          item(BENCH.id, 0, 3, { supersetGroup: 'A' } as never),
+          item(ROW.id, 1, 2, { supersetGroup: 'A' } as never),
+        ]),
+      ),
     );
-
-  it('alternates with no rest inside a round, rests after it, and rests at once on the unequal tail', () => {
-    open(r());
     const bench = entryOf(BENCH.id);
-    const row = entryOf(ROW.id);
-
-    act().completeSet(bench.localId, bench.sets[0].localId);
-    expect(act().activeEntryId).toBe(row.localId);
-    expect(act().rest.endsAt).toBeNull();
-
-    act().completeSet(row.localId, row.sets[0].localId);
-    expect(act().rest.endsAt).not.toBeNull();
-    // REGRESSION: the round is closed, so round 2 starts back at the bench — the
-    // card and the glow both. They used to stay on rows and point at row set 2,
-    // which made every other round two sets of the same exercise back to back.
-    expect(act().activeEntryId).toBe(bench.localId);
-    expect(upNextSet(live())).toEqual({ entryId: bench.localId, setId: bench.sets[1].localId });
-
-    act().skipRest();
-    act().completeSet(bench.localId, bench.sets[1].localId);
-    act().completeSet(row.localId, row.sets[1].localId); // rows are done
-    act().skipRest();
-    // Round 3 is bench alone: it rests like any other exercise.
-    act().completeSet(bench.localId, bench.sets[2].localId);
-    expect(act().rest.source).toBe('transition');
-    // The group is finished: the glow moves on to the push-ups.
-    expect(upNextSet(live())?.entryId).toBe(entryOf(PUSHUPS.id).localId);
-  });
-
-  it('focus mode’s DONE, pressed over and over, alternates the whole way down', () => {
-    open(r());
-    const names: string[] = [];
-    for (let guard = 0; guard < 20; guard += 1) {
-      const next = upNextSet(live());
-      if (!next) break;
-      names.push(live().entries.find((e) => e.localId === next.entryId)!.exercise.name);
-      act().completeSet(next.entryId, next.setId);
-      act().skipRest();
-    }
-    expect(names).toEqual([
-      'Bench press',
-      'Cable row',
-      'Bench press',
-      'Cable row',
-      'Bench press', // the unequal tail
-      'Push-ups',
-      'Push-ups',
-    ]);
-  });
-
-  it('dropping one member mid-session leaves the other an ordinary exercise', () => {
-    open(r());
-    const bench = entryOf(BENCH.id);
-    act().removeEntry(entryOf(ROW.id).localId);
     act().completeSet(bench.localId, bench.sets[0].localId);
     expect(act().rest.source).toBe('set');
     expect(act().activeEntryId).toBe(bench.localId);
@@ -722,68 +667,6 @@ describe('a calisthenics day: MAX sets, a plank on the clock, a hang counted up'
 });
 
 /* ------------------------------------------------------------------ */
-/* 6. The overload nudge                                               */
-/* ------------------------------------------------------------------ */
-
-describe('the overload nudge', () => {
-  const r = () => saveRoutine(routine('qa_nudge', [item(BENCH.id, 0, 3)]));
-  /** Three sessions at 80 × 10 over three weeks: a plateau that has earned a nudge. */
-  const plateau = (): Record<ID, SetHistory[]> => {
-    const now = Date.now();
-    const day = 86_400_000;
-    const rows: SetHistory[] = [];
-    [21, 14, 7].forEach((ago, s) => {
-      const at = new Date(now - ago * day).toISOString();
-      for (let i = 0; i < 3; i += 1) rows.push(historyRow(`old_${s}`, at, BENCH, 80, 10, i));
-    });
-    return { [BENCH.id]: rows };
-  };
-
-  it('accepting it moves every unlogged working set and nothing else', () => {
-    open(r(), plateau());
-    const bench = entryOf(BENCH.id);
-    expect(bench.overload.shouldNudge).toBe(true);
-    const suggested = bench.overload.suggestedWeightKg;
-    expect(suggested).toBe(82.5);
-
-    act().completeSet(bench.localId, bench.sets[0].localId); // the first set, at 80, before reading the card
-    act().acceptOverload(bench.localId);
-
-    const sets = entryOf(BENCH.id).sets;
-    expect(sets[0].weightKg).toBe(80);
-    expect(sets.slice(1).map((s) => s.weightKg)).toEqual([82.5, 82.5]);
-    expect(entryOf(BENCH.id).overloadAccepted).toBe(true);
-  });
-
-  it('dismissing it silences the card and changes no number', () => {
-    open(r(), plateau());
-    const bench = entryOf(BENCH.id);
-    const before = bench.sets.map((s) => s.weightKg);
-    act().dismissOverload(bench.localId);
-    expect(entryOf(BENCH.id).overloadAccepted).toBe(true);
-    expect(entryOf(BENCH.id).sets.map((s) => s.weightKg)).toEqual(before);
-  });
-
-  it('an imperial lifter is nudged by a loadable 5 lb, not by 2.5 kg', () => {
-    useSettings.getState().setUnitSystem('imperial');
-    const at = (ago: number) => new Date(Date.now() - ago * 86_400_000).toISOString();
-    const lb100 = lbToKg(100);
-    const rows: SetHistory[] = [];
-    [21, 14, 7].forEach((ago, s) => {
-      for (let i = 0; i < 3; i += 1) rows.push(historyRow(`lb_${s}`, at(ago), BENCH, lb100, 10, i));
-    });
-    open(r(), { [BENCH.id]: rows });
-
-    const suggested = entryOf(BENCH.id).overload.suggestedWeightKg!;
-    expect(kgToLb(suggested)).toBeCloseTo(105, 1);
-    expect(formatWeight(suggested, 'imperial')).toBe('105');
-    // Stored in kilograms whatever the display says.
-    act().acceptOverload(entryOf(BENCH.id).localId);
-    expect(entryOf(BENCH.id).sets[0].weightKg).toBeCloseTo(47.627, 2);
-  });
-});
-
-/* ------------------------------------------------------------------ */
 /* 7. Changing the session's shape mid-workout                          */
 /* ------------------------------------------------------------------ */
 
@@ -818,7 +701,6 @@ describe('re-planning in the gym', () => {
       buildDraftEntry({
         exercise: NECK,
         history: [],
-        policy: DEFAULT_OVERLOAD_POLICY,
         unitSystem: 'metric',
         restSeconds: 90,
         transitionRestSeconds: 120,
@@ -963,11 +845,9 @@ describe('bodyweight, belts and the assisted machine', () => {
 
     act().patchSet(assisted.localId, assisted.sets[0].localId, { weightKg: 20 });
     act().completeSet(assisted.localId, assisted.sets[0].localId);
-    const beaten = recordsBeatenBy(entryOf(ASSISTED.id).sets[0], assisted.bests!, ASSISTED, 80);
-    expect(beaten.heaviest).toBe(true);
-
-    const records = recordsBrokenIn(draftToSetHistory(live()), old, () => 80);
-    expect(records.map((rec) => rec.exerciseId)).toContain(ASSISTED.id);
+    const bests = exerciseBests([...old, ...draftToSetHistory(live())], ASSISTED, () => 80);
+    expect(bests.heaviest?.weightKg).toBe(20);
+    expect(bests.heaviest?.value).toBe(60);
   });
 
   it('assistance heavier than the lifter is no load at all, never a negative one', () => {
@@ -1147,7 +1027,6 @@ describe('edge numbers in the pure libraries', () => {
           ...buildDraftEntry({
             exercise: BENCH,
             history: [],
-            policy: DEFAULT_OVERLOAD_POLICY,
             unitSystem: 'metric',
             restSeconds: 90,
             transitionRestSeconds: 120,
@@ -1187,16 +1066,6 @@ describe('edge numbers in the pure libraries', () => {
     expect(summary.lead).toContain('1000000');
   });
 
-  it('warm-ups for a weight that is not a weight are none at all', () => {
-    for (const w of [0, -20, Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
-      expect(warmupSets({ workingWeightKg: w, exercise: BENCH })).toEqual([]);
-    }
-    // A 2.5 kg working weight has no lighter rung worth loading on a fine step.
-    expect(warmupSets({ workingWeightKg: 2.5, exercise: { ...BENCH, incrementKg: 2.5 } })).toEqual(
-      [],
-    );
-  });
-
   it('a ladder from a nonsense max is still a ladder of whole, non-increasing reps', () => {
     for (const max of [Number.NaN, -5, 0, 0.4, 1e9]) {
       const targets = ladderForMax(max, 5);
@@ -1220,9 +1089,6 @@ describe('edge numbers in the pure libraries', () => {
     const bests = exerciseBests(rows, BENCH);
     expect(bests.heaviest).toBeNull();
     expect(bests.mostCount?.value).toBe(5);
-    expect(recordsBeatenBy({ weightKg: 70, count: Number.NaN }, bests, BENCH, null).heaviest).toBe(
-      false,
-    );
   });
 
   it('durations clamp, indices rebuild, and an orphan row is kept last', () => {
@@ -1272,20 +1138,6 @@ describe('QA regressions in the live session', () => {
     act().removeSet(bench.localId, bench.sets[0].localId);
     expect(act().rest.endsAt).toBeNull();
     expect(act().rest.originSetId).toBeNull();
-  });
-
-  it('a set added under a drop set continues the working weight, not the drop', () => {
-    open(saveRoutine(routine('qa_drop_add', [item(BENCH.id, 0, 2)])));
-    const bench = entryOf(BENCH.id);
-    act().patchSet(bench.localId, bench.sets[0].localId, { weightKg: 80, count: 8 });
-    act().patchSet(bench.localId, bench.sets[1].localId, { weightKg: 50, count: 12 });
-    act().markSet(bench.localId, bench.sets[1].localId, { kind: 'drop' });
-
-    act().addSet(bench.localId);
-    const added = entryOf(BENCH.id).sets[2];
-    expect(added.setType).not.toBe('drop');
-    expect(added.weightKg).toBe(80);
-    expect(added.count).toBe(8);
   });
 
   it('a set added after an ordinary row still copies that row', () => {

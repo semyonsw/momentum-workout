@@ -34,7 +34,7 @@ import { persist } from 'zustand/middleware';
 import { persistedStorage } from './persistStorage';
 
 import { defaultTargetCount, defaultTargetSets } from '../lib/draft';
-import { autoLadderFor, isAutoLadder, ladderOf } from '../lib/repLadder';
+import { autoLadderFor, isAutoLadder, ladderOf, resolveTestedMax } from '../lib/repLadder';
 import { clearExerciseRest } from '../lib/rest';
 import { t, type Language } from '../lib/i18n';
 import { useSettings } from './settingsStore';
@@ -68,7 +68,7 @@ interface LibraryState {
    * Replace one exercise in place.
    *
    * IN PLACE is the point: the row keeps its id, so every set ever logged against
-   * it stays attached and the history, the chart and the overload verdict all follow
+   * it stays attached and the history, the chart and the records all follow
    * the rename. Editing by delete-and-recreate — which is what the app forced before
    * this existed — silently orphans all of it.
    */
@@ -88,6 +88,12 @@ interface LibraryState {
    * completed at. See `state/weightSync.ts`, the only caller.
    */
   setExerciseDefaultWeight: (exerciseId: ID, weightKg: number) => void;
+  /**
+   * A max test was logged: the waiting ladder takes the reps it proved as its max
+   * (`resolveTestedMax` decides). `replacing` is what the test set said before an
+   * edit to it, so a correction follows the test. See `state/ladderSync.ts`.
+   */
+  setExerciseTestedMax: (exerciseId: ID, max: number, replacing?: number | null) => void;
   /** Removes the exercise and every routine item pointing at it. */
   deleteExercise: (exerciseId: ID) => void;
   /**
@@ -422,6 +428,15 @@ export const useLibrary = create<LibraryState>()(
         });
       },
 
+      setExerciseTestedMax: (exerciseId, max, replacing = null) => {
+        const { exercises } = get();
+        const before = exercises.find((e) => e.id === exerciseId);
+        if (!before) return;
+        const ladder = resolveTestedMax(ladderOf(before), max, replacing);
+        if (!ladder) return;
+        set({ exercises: exercises.map((e) => (e.id === exerciseId ? { ...e, ladder } : e)) });
+      },
+
       deleteExercise: (exerciseId) => {
         const { exercises, routines } = get();
         set({
@@ -443,7 +458,9 @@ export const useLibrary = create<LibraryState>()(
       createRoutine: (name) => {
         const { routines } = get();
         const routine: Routine = {
-          id: `r_${Date.now().toString(36)}`,
+          // `freshStamp`, as `duplicateRoutine` does: an AI card creating two
+          // routines in one Apply runs both inside the same millisecond.
+          id: `r_${freshStamp(routines.map((r) => r.id))}`,
           ownerId: seedUser.id,
           name: name?.trim() || nextUntitledName(routines),
           items: [],
@@ -858,7 +875,16 @@ function sanitizeLibrary(
   const routines = Array.isArray(rawRoutines)
     ? rawRoutines.filter(isRenderableRoutine).map((routine) => ({
         ...routine,
-        items: routine.items.filter((item) => known.has(item.exerciseId)),
+        // `supersetGroup` (until 4.0) is dropped: supersets are gone, and a stale
+        // group string would ride along through every edit and backup forever.
+        items: routine.items
+          .filter((item) => known.has(item.exerciseId))
+          .map((item) => {
+            const { supersetGroup: _retired, ...rest } = item as typeof item & {
+              supersetGroup?: unknown;
+            };
+            return rest;
+          }),
       }))
     : fallback.routines;
 

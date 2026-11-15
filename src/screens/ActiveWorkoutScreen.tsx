@@ -3,7 +3,7 @@
  *
  *   ┌──────────────────────────────────────────────┐
  *   │ (‹) PULL + SWIMMING                  #92   ⋮ │   ← header, always visible
- *   │     11 of 18 sets · 42:10            Options │   ← ⋮: add, auto-rest, restart, stop
+ *   │     11 of 18 sets · 42:10            Options │   ← ⋮: add, auto-rest, stop
  *   ├──────────────────────────────────────────────┤
  *   │ ╭──────────────────────────────────────────╮ │
  *   │ │ BETWEEN SETS               Next: set 3   │ │   ← the lit rest card, up top
@@ -49,10 +49,6 @@
  * path — is the fourth way out and the quiet one: it leaves a started workout
  * running (the store persists it, so the session is still there when you come
  * back) and throws away one that was only being looked at.
- *
- * `Restart the clock` is the same action as `Start`, offered again (in the
- * header's ⋮) while a workout runs: a session left open in a locker reads five
- * hours, and one tap re-anchors it without touching a single logged set.
  *
  * ── THE SESSION IS EDITABLE WHILE IT RUNS ───────────────────────────────────
  *
@@ -154,7 +150,7 @@ import { StatusBar } from 'expo-status-bar';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { ExerciseCard } from '../components/ExerciseCard';
-import { FinishSheet, type FinishRecord } from '../components/FinishSheet';
+import { FinishSheet } from '../components/FinishSheet';
 import { FocusMode } from '../components/FocusMode';
 import { GrowIn, pressedStyle } from '../components/motion';
 import { ReorderRow } from '../components/ReorderRow';
@@ -162,7 +158,6 @@ import { RestTimerPill } from '../components/RestTimerPill';
 import { SessionHeader } from '../components/SessionHeader';
 import { SetTimerPill } from '../components/SetTimerPill';
 import { useLanguage, useT } from '../hooks/useT';
-import { describeDeload } from '../lib/deload';
 import type { DraftEntry, DraftSession, DraftSet } from '../lib/draft';
 import { celebrate, commit, tap, undo } from '../lib/feedback';
 import { useDragReorder, type CardLayout } from '../hooks/useDragReorder';
@@ -170,32 +165,15 @@ import { ADVANCE_HOLD_MS, holdsAfterFinishing } from '../lib/cardAdvance';
 import { resolveRest } from '../lib/rest';
 import { describeLadderOutcomes, ladderOutcomes } from '../lib/repLadder';
 import { performedSetCounts, plannedSetDiff } from '../lib/routinePlan';
-import { supersetPosition } from '../lib/superset';
 import { upNextSet } from '../lib/upNext';
-import { describeWarmup, warmupSets, type WarmupSet } from '../lib/warmup';
-import { warmupPercents } from '../lib/exerciseCardLine';
-import {
-  beatSomething,
-  describeSessionRecord,
-  recordsBeatenBy,
-  recordsBrokenIn,
-} from '../lib/records';
-import { bodyweightAt } from '../lib/bodyweightLog';
-import { useWorkoutHistory } from '../state/workoutHistoryStore';
-import { formatCount, formatWeight, unitLabel } from '../lib/units';
 import { useActiveWorkout, useSessionProgress } from '../state/activeWorkoutStore';
-import { platesInForce, useSettings } from '../state/settingsStore';
-import { useEngagementView } from '../hooks/useEngagement';
+import { useSettings } from '../state/settingsStore';
 import { finishOpensSheet, planOffer } from '../lib/finishSheet';
-import { describeMilestone, milestoneCard, milestoneDue } from '../lib/milestones';
 import { PrimaryButton, Separator, SwitchRow, TextButton } from '../components/primitives';
 import { DOCK_HEIGHT, SessionDock } from '../components/SessionDock';
 import { Sheet } from '../components/Sheet';
-import { SetMarksSheet } from '../components/SetMarksSheet';
-import { effortApplies } from '../lib/effort';
-import { setKindOf, setSheetTitle, type SetKind } from '../lib/setType';
 import { Lamps, Toast, type ToastAction } from '../components/glass';
-import { draftToSetHistory, sessionVolume, workingSetLabels } from '../lib/draft';
+import { sessionVolume } from '../lib/draft';
 import type { ID, RoutineItem, UnitSystem } from '../types/models';
 
 /**
@@ -224,16 +202,10 @@ interface CardHandlers {
   onPressTimer: (setId: ID) => void;
   onToggleSet: (setId: ID) => void;
   onPatchSet: (setId: ID, patch: Partial<DraftSet>) => void;
-  onOpenSetMarks: (setId: ID) => void;
-  onToggleWarmup: (setId: ID) => void;
-  /** The inline editor's type and reps-left chips — the sheet's `markSet`, in place. */
-  onMarkSet: (setId: ID, marks: { kind?: SetKind; rir?: number | null }) => void;
-  onAddWarmup: () => void;
   onAddSet: () => void;
+  onToggleWarmup: () => void;
   onRemoveSet: (setId: ID) => void;
   onMoveSet: (setId: ID, toIndex: number) => void;
-  onAcceptOverload: () => void;
-  onDismissOverload: () => void;
   onRemoveExercise: () => void;
   onToggleEditing: () => void;
   onEditExercise: () => void;
@@ -323,9 +295,7 @@ export function ActiveWorkoutScreen({
   const cardLayouts = useRef<Record<ID, CardLayout>>({});
   /** Where the list wrapper starts inside the scroll content. */
   const listTop = useRef(0);
-  const [confirming, setConfirming] = useState<'finish' | 'clock' | 'discard' | 'menu' | null>(
-    null,
-  );
+  const [confirming, setConfirming] = useState<'finish' | 'discard' | 'menu' | null>(null);
   /**
    * The exercise on its way out: still drawn, closing, with the snapshot and the
    * index its Undo will need. It leaves the store when its card has finished
@@ -339,8 +309,6 @@ export function ActiveWorkoutScreen({
     text: string;
     action?: ToastAction;
     key: number;
-    /** The warm-up question's toast, which leaves when the question does. */
-    warmup?: boolean;
   } | null>(null);
   useEffect(() => {
     if (!toast) return undefined;
@@ -364,8 +332,6 @@ export function ActiveWorkoutScreen({
   const [collapsedId, setCollapsedId] = useState<ID | null>(null);
   /** Focus mode is open over this screen. See the file header. */
   const [focusOpen, setFocusOpen] = useState(false);
-  /** The set whose annotations sheet is open (`SetMarksSheet`). */
-  const [marking, setMarking] = useState<{ entryId: ID; setId: ID } | null>(null);
 
   /* --- store bindings: one selector per slice, never the whole store --- */
   const session = useActiveWorkout((s) => s.session);
@@ -404,19 +370,16 @@ export function ActiveWorkoutScreen({
   const completeSet = useActiveWorkout((s) => s.completeSet);
   const uncompleteSet = useActiveWorkout((s) => s.uncompleteSet);
   const patchSet = useActiveWorkout((s) => s.patchSet);
-  const markSet = useActiveWorkout((s) => s.markSet);
   const addSet = useActiveWorkout((s) => s.addSet);
   const moveSet = useActiveWorkout((s) => s.moveSet);
-  const addWarmupSets = useActiveWorkout((s) => s.addWarmupSets);
   const removeSet = useActiveWorkout((s) => s.removeSet);
   const insertSet = useActiveWorkout((s) => s.insertSet);
   const removeEntry = useActiveWorkout((s) => s.removeEntry);
   const insertEntry = useActiveWorkout((s) => s.insertEntry);
   const moveEntry = useActiveWorkout((s) => s.moveEntry);
+  const toggleWarmup = useActiveWorkout((s) => s.toggleWarmup);
   const startWorkout = useActiveWorkout((s) => s.startWorkout);
   const discardSession = useActiveWorkout((s) => s.discardSession);
-  const acceptOverload = useActiveWorkout((s) => s.acceptOverload);
-  const dismissOverload = useActiveWorkout((s) => s.dismissOverload);
   const finishSession = useActiveWorkout((s) => s.finishSession);
   const startSetTimer = useActiveWorkout((s) => s.startSetTimer);
   const commitSetTimer = useActiveWorkout((s) => s.commitSetTimer);
@@ -433,112 +396,15 @@ export function ActiveWorkoutScreen({
    */
   const restSeconds = useSettings((s) => s.restSecondsBetweenSets);
   /* The Session options sheet's switch (redesign #4) — the same setting as
-     Workout settings' `Start rest automatically`, so the two cannot disagree. */
+     Settings' `Start rest automatically`, so the two cannot disagree. */
   const autoStartRest = useSettings((s) => s.autoStartRest);
   const setSettingFlag = useSettings((s) => s.setFlag);
   /*
-   * The plates of whichever gym the user says they are in, for the `20 + 2×10`
-   * line under a barbell lift. Memoized on the two stable references it derives
-   * from, because `platesInForce` builds a fresh array and `SetRow` is memoized:
-   * a new array identity every render would repaint eighteen rows on every tick
-   * of the rest timer.
-   */
-  /*
-   * Today's bodyweight, for reading a bodyweight-loaded set against its own record.
-   * The scalar rather than the log, because every set being compared here happened
-   * in this session — today is the only day involved.
+   * Today's bodyweight, for the session's volume. The scalar rather than the log,
+   * because every set counted here happened in this session — today is the only
+   * day involved.
    */
   const bodyweightKg = useSettings((s) => s.bodyweightKg);
-  const gyms = useSettings((s) => s.gyms);
-  const activeGymId = useSettings((s) => s.activeGymId);
-  const availablePlatesKg = useMemo(
-    () => platesInForce({ gyms, activeGymId }),
-    [gyms, activeGymId],
-  );
-
-  /**
-   * The warm-up rows each exercise would get, keyed by entry.
-   *
-   * ONE PASS FOR THE WHOLE SESSION, memoized, because the alternative is running
-   * `loadableAtOrBelow`'s plate walk inside a render that happens four times a
-   * second while a rest timer ticks. Keyed by entry rather than by exercise, since
-   * two entries can be the same movement at different weights.
-   *
-   * An exercise is absent from the map when there is nothing to offer — see
-   * `warmupSets` for the four cases — and the card reads that as "no row".
-   */
-  const warmupPlans = useMemo(() => {
-    const plans: Record<ID, { sets: WarmupSet[]; summary: string; percents: string | null }> = {};
-    for (const entry of session?.entries ?? []) {
-      // Nothing to warm up for once the exercise is under way — or once its
-      // warm-ups are already on it: a second tap used to add the ramp twice.
-      if (entry.sets.some((set) => set.isCompleted || set.isWarmup)) continue;
-      // The first working set's weight is what the rungs are a fraction of.
-      const working = entry.sets.find((set) => !set.isWarmup)?.weightKg ?? null;
-      const sets = warmupSets({
-        workingWeightKg: working,
-        exercise: entry.exercise,
-        availablePlatesKg,
-      });
-      const summary = describeWarmup(sets);
-      if (summary) {
-        plans[entry.localId] = { sets, summary, percents: warmupPercents(sets, working) };
-      }
-    }
-    return plans;
-  }, [availablePlatesKg, session?.entries]);
-
-  /**
-   * The best each exercise has broken in this session, keyed by entry.
-   *
-   * Read off LOGGED rows only, and compared against the bests copied onto the entry
-   * when the session was built — so the second good set of a day does not stop
-   * reading as a best because the first one already moved the bar. Memoized on the
-   * entries, because it walks every logged set and this screen re-renders on every
-   * tick of the rest timer.
-   */
-  const bestLines = useMemo(() => {
-    const lines: Record<ID, string> = {};
-    for (const entry of session?.entries ?? []) {
-      const bests = entry.bests;
-      if (!bests) continue;
-
-      let best: { weightKg: number | null; count: number } | null = null;
-      for (const set of entry.sets) {
-        if (!set.isCompleted || set.isWarmup) continue;
-        const beaten = recordsBeatenBy(set, bests, entry.exercise, bodyweightKg ?? null);
-        if (!beatSomething(beaten)) continue;
-        // The last one that beat something — a session that keeps climbing should
-        // report where it got to, not where it started.
-        best = set;
-      }
-      if (!best) continue;
-
-      lines[entry.localId] = entry.exercise.requiresWeight
-        ? `${formatWeight(best.weightKg, unitSystem, entry.exercise.loadMode)} ${unitLabel(unitSystem, lang)} × ${formatCount(best.count, entry.exercise.countUnit)}`
-        : formatCount(best.count, entry.exercise.countUnit);
-    }
-    return lines;
-  }, [bodyweightKg, lang, session?.entries, unitSystem]);
-
-  /**
-   * Stalled lifts, keyed by entry.
-   *
-   * Suppressed wherever the overload nudge is already speaking: "add a rep" and
-   * "take some weight off" on one card is one of them wrong, and the deload wins
-   * because three failed sessions is newer information than a stale weight.
-   *
-   * Memoized for the same reason the warm-up plan is — it walks history and this
-   * screen re-renders four times a second while a rest timer runs.
-   */
-  const deloadMessages = useMemo(() => {
-    const out: Record<ID, string> = {};
-    for (const entry of session?.entries ?? []) {
-      if (entry.overload.shouldNudge && !entry.overloadAccepted) continue;
-      if (entry.deload?.shouldSuggest) out[entry.localId] = describeDeload(entry.deload, lang);
-    }
-    return out;
-  }, [session?.entries, lang]);
 
   /**
    * THE BEAT AFTER AN EXERCISE'S LAST ✓. The store has already moved the cursor
@@ -595,8 +461,51 @@ export function ActiveWorkoutScreen({
     () => (session?.entries ?? []).map((e) => e.localId),
     [session?.entries],
   );
-  const reorder = useDragReorder(entryIds, cardLayouts, moveEntry);
-  const { lifted, dragY, panHandlers, lift, drop, shiftFor } = reorder;
+  /*
+   * THE LIST SCROLLS ITSELF DURING A DRAG — `useDragReorder`'s `autoScroll`. The
+   * offset is tracked here (and set the instant this screen scrolls, not when the
+   * scroll event comes back), because the drop index is only right if the hook
+   * knows how far the content under the finger has moved.
+   */
+  const scrollOffset = useRef(0);
+  const contentHeight = useRef(0);
+  const viewportBox = useRef<View>(null);
+  const autoScroll = useMemo(
+    () => ({
+      measureViewport: (done: (viewport: { top: number; height: number }) => void) =>
+        viewportBox.current?.measureInWindow((_x, y, _w, height) => done({ top: y, height })),
+      getOffset: () => scrollOffset.current,
+      getContentHeight: () => contentHeight.current,
+      scrollTo: (y: number) => {
+        scrollOffset.current = y;
+        scrollRef.current?.scrollTo({ y, animated: false });
+      },
+    }),
+    [],
+  );
+  const reorder = useDragReorder(entryIds, cardLayouts, moveEntry, autoScroll);
+  const { lifted, dragY, panHandlers, drop, shiftFor, lift: liftRow } = reorder;
+  /**
+   * A LIFT SHUTS EVERY CARD FIRST. An open card is several screens tall, so with
+   * one in the list the slots the finger moves through are wildly uneven and the
+   * open card itself could not be carried anywhere useful — that was the "an open
+   * card won't reorder" bug. Collapsed, every slot is one card high.
+   *
+   * Nothing is reopened after the drop, deliberately: the user has just rearranged
+   * the list and is looking at its new ORDER, and springing a card open (and
+   * scrolling to it) would move the thing they were looking at. One tap opens
+   * whichever card they want next. Edit mode ends with the collapse, since a shut
+   * card shows no rows to edit.
+   */
+  const lift = useCallback(
+    (entryId: ID) => {
+      setHoldOpenId(null);
+      setCollapsedId(useActiveWorkout.getState().activeEntryId);
+      setEditingEntryId(null);
+      liftRow(entryId);
+    },
+    [liftRow],
+  );
   const liftedName = lifted
     ? (session?.entries.find((e) => e.localId === lifted)?.exercise.name ?? '')
     : '';
@@ -712,77 +621,6 @@ export function ActiveWorkoutScreen({
     [session?.entries, lang],
   );
 
-  /**
-   * The records this session broke (W6), for the Finish sheet.
-   *
-   * Against the whole saved log, with each set weighed at that day's bodyweight —
-   * the same reading the exercise screen's timeline makes, so the row on the sheet
-   * and the timeline entry the save is about to create say the same number.
-   * A function rather than a memo because `handleFinish` asks it before the sheet
-   * exists; the memo below is only the sheet's copy, worked out while it is open.
-   */
-  const historyWorkouts = useWorkoutHistory((s) => s.workouts);
-  const bodyweightLog = useSettings((s) => s.bodyweightLog);
-  const findRecords = useCallback(
-    (draft: DraftSession) => {
-      const rows = draftToSetHistory(draft);
-      if (rows.length === 0) return [];
-      const ids = new Set(rows.map((row) => row.exerciseId));
-      const history = historyWorkouts.flatMap((w) => w.sets.filter((r) => ids.has(r.exerciseId)));
-      return recordsBrokenIn(rows, history, (at) => bodyweightAt(bodyweightLog, at));
-    },
-    [bodyweightLog, historyWorkouts],
-  );
-  /*
-   * E4: the milestone card — only with Wave 3's switch on, only for a number
-   * above the one already celebrated (`lib/milestones.ts`). Stamped in
-   * `commitFinish` once the save lands, so `Keep going` does not spend it.
-   */
-  const milestonesOn = useEngagementView().milestones;
-  const milestoneShown = useSettings((s) => s.milestoneShown);
-  const recordMilestone = useSettings((s) => s.recordMilestone);
-  const milestone = useMemo(() => {
-    if (confirming !== 'finish' || !session) return null;
-    const due = milestoneDue({
-      on: milestonesOn,
-      workoutNumber: workoutNumber ?? null,
-      shown: milestoneShown,
-    });
-    if (due == null) return null;
-    return {
-      n: due,
-      ...describeMilestone(
-        milestoneCard(due, historyWorkouts, {
-          startedAt: session.startedAt ?? null,
-          loggedSets: progress.done,
-        }),
-        lang,
-      ),
-    };
-  }, [
-    confirming,
-    historyWorkouts,
-    lang,
-    milestoneShown,
-    milestonesOn,
-    progress.done,
-    session,
-    workoutNumber,
-  ]);
-
-  const finishRecords = useMemo((): FinishRecord[] => {
-    if (confirming !== 'finish' || !session) return [];
-    return findRecords(session).map((record) => {
-      const name =
-        session.entries.find((entry) => entry.exercise.id === record.exerciseId)?.exercise.name ??
-        '';
-      return {
-        key: record.exerciseId,
-        ...describeSessionRecord(record, name, unitSystem, lang),
-      };
-    });
-  }, [confirming, findRecords, lang, session, unitSystem]);
-
   /*
    * SAVE FIRST, CLEAR SECOND. This used to clear the session (and so its
    * persisted copy) and then save it: a save that threw — a full disk, a
@@ -795,7 +633,6 @@ export function ActiveWorkoutScreen({
       setConfirming(null);
       const draft = useActiveWorkout.getState().session;
       if (!draft) return;
-      const celebrated = milestone?.n ?? null;
       try {
         await onFinish(draft, updatePlan);
       } catch (error) {
@@ -806,12 +643,10 @@ export function ActiveWorkoutScreen({
         });
         return;
       }
-      // Saved: the card this sheet showed has now been seen, once.
-      if (celebrated != null) recordMilestone(celebrated);
       finishSession();
       onExit();
     },
-    [finishSession, milestone, onExit, onFinish, recordMilestone, t],
+    [finishSession, onExit, onFinish, t],
   );
 
   /**
@@ -855,42 +690,6 @@ export function ActiveWorkoutScreen({
     [insertSet, t],
   );
 
-  /*
-   * "WAS THAT A WARM-UP?" — the store raises it on a ✓ that looks like an
-   * unmarked warm-up (`lib/warmupOffer.ts`), and it rides the same toast as the
-   * Undo: a sentence and one button, gone in a few seconds if it was a lighter
-   * day after all. The offer itself outlives the toast until the next ✓, so the
-   * set's own sheet can still answer it.
-   */
-  const warmupOffer = useActiveWorkout((s) => s.warmupOffer);
-  const acceptWarmupOffer = useActiveWorkout((s) => s.acceptWarmupOffer);
-  useEffect(() => {
-    if (!warmupOffer) {
-      // Answered from the sheet, withdrawn by an un-tick, replaced by the next ✓.
-      setToast((current) => (current?.warmup ? null : current));
-      return;
-    }
-    const entry = useActiveWorkout
-      .getState()
-      .session?.entries.find((e) => e.localId === warmupOffer.entryId);
-    if (!entry) return;
-    const kg = (w: number) =>
-      `${formatWeight(w, unitSystem, entry.exercise.loadMode)} ${unitLabel(unitSystem, lang)}`;
-    setToast({
-      text: t('Was {weight} a warm-up?', { weight: kg(warmupOffer.carriedKg) }),
-      key: Date.now(),
-      warmup: true,
-      action: {
-        label: t('Yes, keep {weight}', { weight: kg(warmupOffer.keepKg) }),
-        onPress: () => {
-          tap();
-          acceptWarmupOffer();
-          setToast(null);
-        },
-      },
-    });
-  }, [warmupOffer, acceptWarmupOffer, unitSystem, lang, t]);
-
   const openFocus = useCallback(() => setFocusOpen(true), []);
 
   /*
@@ -900,7 +699,7 @@ export function ActiveWorkoutScreen({
    * per render — so a ✓ on one card re-rendered every card in the list, each with
    * its rolling counter, ring and marquee, three or four times over as the cursor
    * advanced. Now each entry keeps the same functions for its whole life, and they
-   * read what they need (the open card, the warm-up plan, the set's own state) at
+   * read what they need (the open card, the set's own state) at
    * the moment they are pressed, from `live` and the store. The store keeps
    * untouched entries by identity, so a ✓ re-renders the card it landed on.
    */
@@ -911,7 +710,6 @@ export function ActiveWorkoutScreen({
     handleRemoveEntry,
     offerSetUndo,
     lift,
-    warmupPlans,
     onEditExercise,
   });
   live.current = {
@@ -921,7 +719,6 @@ export function ActiveWorkoutScreen({
     handleRemoveEntry,
     offerSetUndo,
     lift,
-    warmupPlans,
     onEditExercise,
   };
   const cardHandlers = useRef(new Map<ID, CardHandlers>()).current;
@@ -939,17 +736,8 @@ export function ActiveWorkoutScreen({
         live.current.handleToggleSet(entryId, setId, target?.isCompleted ?? false);
       },
       onPatchSet: (setId, patch) => patchSet(entryId, setId, patch),
-      onOpenSetMarks: (setId) => setMarking({ entryId, setId }),
-      onToggleWarmup: (setId) => {
-        const target = entryNow()?.sets.find((set) => set.localId === setId);
-        if (target) markSet(entryId, setId, { kind: target.isWarmup ? 'working' : 'warmup' });
-      },
-      onMarkSet: (setId, marks) => markSet(entryId, setId, marks),
-      onAddWarmup: () => {
-        const plan = live.current.warmupPlans[entryId];
-        if (plan) addWarmupSets(entryId, plan.sets);
-      },
       onAddSet: () => addSet(entryId),
+      onToggleWarmup: () => toggleWarmup(entryId),
       onMoveSet: (setId, toIndex) => moveSet(entryId, setId, toIndex),
       onRemoveSet: (setId) => {
         const sets = entryNow()?.sets ?? [];
@@ -958,8 +746,6 @@ export function ActiveWorkoutScreen({
         removeSet(entryId, setId);
         if (removed?.isCompleted) live.current.offerSetUndo(entryId, removed, index);
       },
-      onAcceptOverload: () => acceptOverload(entryId),
-      onDismissOverload: () => dismissOverload(entryId),
       onRemoveExercise: () => live.current.handleRemoveEntry(entryId),
       onToggleEditing: () => setEditingEntryId((current) => (current === entryId ? null : entryId)),
       onEditExercise: () => {
@@ -1004,27 +790,13 @@ export function ActiveWorkoutScreen({
      *     is opened is a progression the app forgot to mention. One tap, on the
      *     button the thumb is already going for.
      *
-     *  3. A RECORD FELL (W6). The same argument as the ladder: the number is the
-     *     news, and it is only news today. Still one tap to save.
-     *
-     *  4. A MILESTONE IS DUE (E4, switch on only). It is stamped when the save
-     *     lands, so a one-tap finish that skipped the sheet would neither show
-     *     the card nor stamp it — and workout 101 is not a milestone, so the
-     *     celebration would be lost for good.
-     *
-     * None is a nag: with nothing unlogged, no ladder, no record and no
-     * milestone, Finish still finishes in one tap, exactly as it always did.
+     * None is a nag: with nothing unlogged, no ladder and no change to the plan,
+     * Finish still finishes in one tap, exactly as it always did.
      */
     const opens = finishOpensSheet({
       unlogged: progress.total - progress.done,
       ladderMoved: Boolean(ladderChange),
-      records: findRecords(session).length,
-      milestone: milestoneDue({
-        on: milestonesOn,
-        workoutNumber: workoutNumber ?? null,
-        shown: milestoneShown,
-      }),
-      // 5. THE SESSION STRAYED FROM ITS PLAN (redesign #6): the sheet's primary
+      // 3. THE SESSION STRAYED FROM ITS PLAN (redesign #6): the sheet's primary
       //    button is the offer to make it the plan, and a one-tap save would
       //    never show it.
       planChanged:
@@ -1037,18 +809,7 @@ export function ActiveWorkoutScreen({
       return;
     }
     void commitFinish();
-  }, [
-    commitFinish,
-    findRecords,
-    ladderChange,
-    milestoneShown,
-    milestonesOn,
-    progress.done,
-    progress.total,
-    routineItems,
-    session,
-    workoutNumber,
-  ]);
+  }, [commitFinish, ladderChange, progress.done, progress.total, routineItems, session]);
 
   /* --- empty states --------------------------------------------------- */
   /*
@@ -1117,21 +878,6 @@ export function ActiveWorkoutScreen({
   const dimmed = confirming != null;
   const allLogged = progress.total > 0 && progress.done === progress.total;
 
-  /* The set the annotations sheet is about, read live — and its title, in the
-     row's own numbering: `Set 2` counts working sets, a warm-up is a warm-up. */
-  const markingTarget = (() => {
-    if (!marking) return null;
-    const entry = session.entries.find((e) => e.localId === marking.entryId);
-    const index = entry?.sets.findIndex((s) => s.localId === marking.setId) ?? -1;
-    if (!entry || index < 0) return null;
-    const label = workingSetLabels(entry.sets)[index];
-    return {
-      entry,
-      set: entry.sets[index],
-      title: setSheetTitle(setKindOf(entry.sets[index]), label, lang),
-    };
-  })();
-
   return (
     <View className="flex-1 bg-bg">
       <StatusBar style="light" />
@@ -1151,7 +897,7 @@ export function ActiveWorkoutScreen({
              running), and the label says so — `Back` out of a session read as
              "stop", and people pressed Finish to get Home. */
           backLabel={isStarted ? t('Back, workout keeps running') : undefined}
-          // `Stop and exit` and `Restart clock` live behind the ⋮ (U16).
+          // `Stop and exit` lives behind the ⋮ (U16).
           // No `tap()` here: the captioned button already gives the haptic.
           onMenu={() => setConfirming('menu')}
           /*
@@ -1186,134 +932,123 @@ export function ActiveWorkoutScreen({
         */}
         {focusOpen ? null : setTimer ? <SetTimerPill /> : <RestTimerPill />}
 
-        <KeyboardAwareScrollView
-          ref={scrollRef}
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            paddingTop: 8,
-            // The dock is 64 tall at `PAIR_BOTTOM`; this is what keeps
-            // the last card clear of it.
-            paddingBottom: insets.bottom + PAIR_BOTTOM + 96,
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={!dimmed && !lifted}
-        >
-          {/* The drag surface. Claims a touch only while something is lifted. */}
-          <View
-            {...panHandlers}
-            onLayout={(e) => {
-              listTop.current = e.nativeEvent.layout.y;
+        <View ref={viewportBox} collapsable={false} style={{ flex: 1 }}>
+          <KeyboardAwareScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            onScroll={(e) => {
+              scrollOffset.current = e.nativeEvent.contentOffset.y;
             }}
+            scrollEventThrottle={16}
+            onContentSizeChange={(_w, h) => {
+              contentHeight.current = h;
+            }}
+            contentContainerStyle={{
+              paddingTop: 8,
+              // The dock is 64 tall at `PAIR_BOTTOM`; this is what keeps
+              // the last card clear of it.
+              paddingBottom: insets.bottom + PAIR_BOTTOM + 96,
+            }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!dimmed && !lifted}
           >
-            {session.entries.map((entry, index) => {
-              const isLifted = entry.localId === lifted;
-              const handlers = handlersFor(entry.localId);
-              return (
-                <ReorderRow
-                  key={entry.localId}
-                  lifted={isLifted}
-                  dragging={lifted != null}
-                  dragY={dragY}
-                  // The cards either side open the gap while the finger is still
-                  // over it, so which two exercises you are landing between is
-                  // something you can see rather than something you find out on
-                  // release.
-                  shift={shiftFor(entry.localId)}
-                  onLayout={(e) => {
-                    const { y, height } = e.nativeEvent.layout;
-                    cardLayouts.current[entry.localId] = { y, height };
-                    // The real offset, one frame after the effect wanted it.
-                    const pending = pendingScroll.current;
-                    if (pending?.id === entry.localId && Date.now() < pending.until) {
-                      scrollToCard(entry.localId);
-                    }
-                  }}
-                >
-                  <GrowIn
-                    appear={false}
-                    leaving={removing?.entry.localId === entry.localId}
-                    onLeft={finishRemoval}
+            {/* The drag surface. Claims a touch only while something is lifted. */}
+            <View
+              {...panHandlers}
+              onLayout={(e) => {
+                listTop.current = e.nativeEvent.layout.y;
+              }}
+            >
+              {session.entries.map((entry) => {
+                const isLifted = entry.localId === lifted;
+                const handlers = handlersFor(entry.localId);
+                return (
+                  <ReorderRow
+                    key={entry.localId}
+                    lifted={isLifted}
+                    dragging={lifted != null}
+                    dragY={dragY}
+                    // The cards either side open the gap while the finger is still
+                    // over it, so which two exercises you are landing between is
+                    // something you can see rather than something you find out on
+                    // release.
+                    shift={shiftFor(entry.localId)}
+                    onLayout={(e) => {
+                      const { y, height } = e.nativeEvent.layout;
+                      cardLayouts.current[entry.localId] = { y, height };
+                      // The real offset, one frame after the effect wanted it.
+                      const pending = pendingScroll.current;
+                      if (pending?.id === entry.localId && Date.now() < pending.until) {
+                        scrollToCard(entry.localId);
+                      }
+                    }}
                   >
-                    <ExerciseCard
-                      entry={entry}
-                      isExpanded={entry.localId === expandedEntryId}
-                      /* The glow, and only for the one card that holds it: the set
+                    <GrowIn
+                      appear={false}
+                      leaving={removing?.entry.localId === entry.localId}
+                      onLeft={finishRemoval}
+                    >
+                      <ExerciseCard
+                        entry={entry}
+                        isExpanded={entry.localId === expandedEntryId}
+                        /* The glow, and only for the one card that holds it: the set
                        after the one last logged, which is not the same question as
                        "is it open" or "is it the cursor". See the file header. */
-                      upNextSetId={upNext?.entryId === entry.localId ? upNext.setId : null}
-                      /* And the door into focus mode, on that same card only —
+                        upNextSetId={upNext?.entryId === entry.localId ? upNext.setId : null}
+                        /* And the door into focus mode, on that same card only —
                        focus mode always shows the work, so the row that opens it
                        belongs where the work is. */
-                      onOpenFocus={upNext?.entryId === entry.localId ? openFocus : undefined}
-                      focusModeOpen={focusOpen}
-                      unitSystem={unitSystem}
-                      /* The bracket down a superset's left edge. Computed here
-                       because only the screen can see the cards either side. */
-                      superset={supersetPosition(session.entries, index)}
-                      availablePlatesKg={availablePlatesKg}
-                      timingSetId={setTimer?.entryId === entry.localId ? setTimer.setId : null}
-                      isLifted={isLifted}
-                      dimmed={lifted != null && !isLifted}
-                      restSeconds={resolveRest(entry.exercise, restSeconds).seconds}
-                      onStartRest={entry.localId === activeEntryId ? startRestNow : undefined}
-                      onRemoveExercise={handlers.onRemoveExercise}
-                      /* SESSION EDIT MODE — one card at a time, ended only by
+                        onOpenFocus={upNext?.entryId === entry.localId ? openFocus : undefined}
+                        focusModeOpen={focusOpen}
+                        unitSystem={unitSystem}
+                        timingSetId={setTimer?.entryId === entry.localId ? setTimer.setId : null}
+                        isLifted={isLifted}
+                        dimmed={lifted != null && !isLifted}
+                        restSeconds={resolveRest(entry.exercise, restSeconds).seconds}
+                        onStartRest={entry.localId === activeEntryId ? startRestNow : undefined}
+                        onRemoveExercise={handlers.onRemoveExercise}
+                        /* SESSION EDIT MODE — one card at a time, ended only by
                        `Done`. See `ExerciseCard`. */
-                      isEditing={editingEntryId === entry.localId}
-                      onToggleEditing={handlers.onToggleEditing}
-                      /* Only on the open card, like `Rest` and `Focus`: it is a
+                        isEditing={editingEntryId === entry.localId}
+                        onToggleEditing={handlers.onToggleEditing}
+                        /* Only on the open card, like `Rest` and `Focus`: it is a
                        control you press about the exercise you are doing. */
-                      onEditExercise={onEditExercise ? handlers.onEditExercise : undefined}
-                      onToggleExpanded={handlers.onToggleExpanded}
-                      // One exercise cannot be reordered, and the gesture would only
-                      // ever end where it started.
-                      onLift={entryIds.length > 1 ? handlers.onLift : undefined}
-                      onPressTimer={handlers.onPressTimer}
-                      onToggleSet={handlers.onToggleSet}
-                      onPatchSet={handlers.onPatchSet}
-                      onOpenSetMarks={handlers.onOpenSetMarks}
-                      onToggleWarmup={handlers.onToggleWarmup}
-                      onMarkSet={handlers.onMarkSet}
-                      /*
-                      WARM-UP. Decided here rather than in the card because it
-                      needs the gym's plates and `lib/warmup.ts` — the card renders
-                      the offer and nothing else. Both props go undefined together
-                      when there is nothing to add, so the row disappears rather
-                      than becoming a control that does nothing.
-                    */
-                      bestLine={bestLines[entry.localId] ?? null}
-                      deloadMessage={deloadMessages[entry.localId] ?? null}
-                      warmupSummary={warmupPlans[entry.localId]?.summary ?? null}
-                      warmupPercents={warmupPlans[entry.localId]?.percents ?? null}
-                      onAddWarmup={warmupPlans[entry.localId] ? handlers.onAddWarmup : undefined}
-                      onAddSet={handlers.onAddSet}
-                      onRemoveSet={handlers.onRemoveSet}
-                      onMoveSet={handlers.onMoveSet}
-                      onAcceptOverload={handlers.onAcceptOverload}
-                      onDismissOverload={handlers.onDismissOverload}
-                    />
-                  </GrowIn>
-                </ReorderRow>
-              );
-            })}
+                        onEditExercise={onEditExercise ? handlers.onEditExercise : undefined}
+                        onToggleExpanded={handlers.onToggleExpanded}
+                        // One exercise cannot be reordered, and the gesture would only
+                        // ever end where it started.
+                        onLift={entryIds.length > 1 ? handlers.onLift : undefined}
+                        onPressTimer={handlers.onPressTimer}
+                        onToggleSet={handlers.onToggleSet}
+                        onPatchSet={handlers.onPatchSet}
+                        onAddSet={handlers.onAddSet}
+                        onToggleWarmup={handlers.onToggleWarmup}
+                        onRemoveSet={handlers.onRemoveSet}
+                        onMoveSet={handlers.onMoveSet}
+                      />
+                    </GrowIn>
+                  </ReorderRow>
+                );
+              })}
 
-            {/* Anything at all, appended to the workout in flight. Last in the
+              {/* Anything at all, appended to the workout in flight. Last in the
                 list because that is where it lands. A full-width secondary
                 button since the 2.9 redesign (#4): the faint dashed pill it
                 replaced read as a hint, not a control, and people went looking
                 for "add" in the ⋮. It is in the ⋮ now too. */}
-            {onAddExercise && !lifted ? (
-              <View className="mx-lg mt-xs">
-                <PrimaryButton
-                  label={`+ ${t('Add an exercise')}`}
-                  variant="ghost"
-                  onPress={onAddExercise}
-                />
-              </View>
-            ) : null}
-          </View>
-        </KeyboardAwareScrollView>
+              {onAddExercise && !lifted ? (
+                <View className="mx-lg mt-xs">
+                  <PrimaryButton
+                    label={`+ ${t('Add an exercise')}`}
+                    variant="ghost"
+                    onPress={onAddExercise}
+                  />
+                </View>
+              ) : null}
+            </View>
+          </KeyboardAwareScrollView>
+        </View>
       </View>
 
       {/*
@@ -1382,8 +1117,6 @@ export function ActiveWorkoutScreen({
           loggedCount={progress.done}
           planOffer={planOffer(planChanges, session.title, unitSystem, lang)}
           ladderChange={ladderChange}
-          records={finishRecords}
-          milestone={milestone}
           effort={session.effort}
           onSetEffort={(effort) => {
             tap();
@@ -1395,29 +1128,9 @@ export function ActiveWorkoutScreen({
         />
       ) : null}
 
-      {/* A set's annotations — type and RIR, from the row's number or badge, its
-          chip, and the editor's doors. Read
-          from the live session, so a set that left it closes the sheet. */}
-      {markingTarget ? (
-        <SetMarksSheet
-          title={markingTarget.title}
-          kind={setKindOf(markingTarget.set)}
-          onKind={(kind) => {
-            if (marking) markSet(marking.entryId, marking.setId, { kind });
-          }}
-          rir={markingTarget.set.rir}
-          showEffort={effortApplies(markingTarget.entry.exercise.countUnit)}
-          onRir={(rir) => {
-            if (marking) markSet(marking.entryId, marking.setId, { rir });
-          }}
-          onDismiss={() => setMarking(null)}
-        />
-      ) : null}
-
-      {/* THE ⋮ (U16). Restart only once there is a clock to restart. Neither
-          row acts on its own: Restart goes on to its confirm as the chip did,
-          and Stop goes through `handleStopAndExit`, which asks first in the
-          danger sheet when sets would be thrown away. */}
+      {/* THE ⋮ (U16). Stop does not act on its own: it goes through
+          `handleStopAndExit`, which asks first in the danger sheet when sets
+          would be thrown away. */}
       {confirming === 'menu' ? (
         <Sheet title={t('Session options')} onDismiss={() => setConfirming(null)}>
           {/* Redesign #4: the two session-wide things that had no home on this
@@ -1445,19 +1158,6 @@ export function ActiveWorkoutScreen({
             />
           </View>
           <View className="overflow-hidden rounded-surface bg-surface-alt">
-            {isStarted ? (
-              <>
-                <MenuRow
-                  label={t('Restart clock')}
-                  detail={t('Counts from now. Logged sets stay.')}
-                  onPress={() => {
-                    tap();
-                    setConfirming('clock');
-                  }}
-                />
-                <Separator inset={16} />
-              </>
-            ) : null}
             <MenuRow
               label={t('Stop and exit…')}
               detail={t('Leaves without saving.')}
@@ -1470,26 +1170,6 @@ export function ActiveWorkoutScreen({
           </View>
           <TextButton label={t('Cancel')} onPress={() => setConfirming(null)} />
         </Sheet>
-      ) : null}
-
-      {confirming === 'clock' ? (
-        // Danger: the time already on the clock is overwritten, not kept.
-        <ConfirmSheet
-          tone="danger"
-          title={t('Restart the clock?')}
-          body={t(
-            'This workout reads {minutes} min. Restarting the clock makes it 0, and history will record it from this moment — the sets you already logged stay exactly as they are.',
-            { minutes: elapsedMinutes },
-          )}
-          confirmLabel={t('Restart it')}
-          cancelLabel={t('Keep {minutes} min', { minutes: elapsedMinutes })}
-          onConfirm={() => {
-            commit();
-            startWorkout();
-            setConfirming(null);
-          }}
-          onCancel={() => setConfirming(null)}
-        />
       ) : null}
 
       {/* Last child, over the floating pair's band rather than on it: this one

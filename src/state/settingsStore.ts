@@ -21,15 +21,6 @@
  */
 
 import { create } from 'zustand';
-import {
-  DEFAULT_CUSTOM_COLORS,
-  DEFAULT_THEME_ID,
-  normalizeHex,
-  usableCustomColors,
-  usableThemeId,
-  type ThemeColors,
-  type ThemeId,
-} from '../lib/theme';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -40,37 +31,10 @@ import {
   sanitizeBodyweightLog,
   type BodyweightEntry,
 } from '../lib/bodyweightLog';
-import {
-  recordMeasurement,
-  removeMeasurement,
-  sanitizeMeasurements,
-  type MeasurementKey,
-  type MeasurementLog,
-} from '../lib/bodyMeasurements';
-import { DEFAULT_PLATES_KG } from '../lib/plates';
-import {
-  activeGymPlates,
-  addGym as addGymTo,
-  DEFAULT_GYM_ID,
-  gymsFromLegacyPlates,
-  removeGym as removeGymFrom,
-  resolveActiveGymId,
-  sanitizeGyms,
-  toggleGymPlate,
-  updateGym,
-  type Gym,
-} from '../lib/gyms';
 import { formatClockTime, parseClockTime, parseDay, weekStart, type Weekday } from '../lib/days';
+import { DEFAULT_WEIGH_IN_DAYS, DEFAULT_WEIGH_IN_TIME } from '../lib/weighInReminder';
 import { AI_SECTIONS, type AiSection } from '../lib/ai/aiSchema';
 import { usableLanguage, type Language } from '../lib/i18n';
-import { usableEngagement } from '../lib/engagement';
-import { milestoneAfterSave, usableMilestone } from '../lib/milestones';
-import {
-  setWeekExcused,
-  stepWeeklyGoal,
-  usableExcusedWeeks,
-  usableWeeklyGoal,
-} from '../lib/weeklyGoal';
 import type { MuscleCluster, UnitSystem } from '../types/models';
 
 export interface Settings {
@@ -126,8 +90,6 @@ export interface Settings {
   keepAwakeEnabled: boolean;
   /** Fire a local notification when a timer ends, for a phone in a pocket. */
   notifyOnTimerEnd: boolean;
-  /** Ask a few questions after a workout is saved (`lib/debrief.ts`). */
-  askAfterWorkout: boolean;
   /**
    * EVERY rep-counted exercise runs a rep ladder.
    *
@@ -145,20 +107,6 @@ export interface Settings {
   ladderAllExercises: boolean;
   unitSystem: UnitSystem;
   /**
-   * THE GYMS, each with the plates on its rack.
-   *
-   * A fact about the room rather than about any one lift, which is why it is here
-   * and `Exercise.barWeightKg` is not: the bar you are holding changes between
-   * exercises, the rack of plates behind you does not — it changes when you change
-   * buildings. This was a single `availablePlatesKg` list, which is right until you
-   * train anywhere else; `lib/gyms.ts` has the argument and the migration.
-   *
-   * Read through `activeGymPlates`, never directly, so everything below this line
-   * still sees one plate list.
-   */
-  gyms: Gym[];
-  activeGymId: string;
-  /**
    * WEEKLY SET TARGETS PER MUSCLE CLUSTER, and every one of them is optional.
    *
    * `lib/balance.ts` counts sets per cluster and refuses to score them — "a count,
@@ -174,7 +122,8 @@ export interface Settings {
   weeklySetTargets: Partial<Record<MuscleCluster, number>>;
 
   /**
-   * Which language the app speaks. Russian by default — see `lib/i18n.ts`.
+   * Which language the app speaks. English on a fresh install; an existing
+   * install keeps whatever it has stored.
    *
    * A setting rather than the phone's locale, because the phone's locale is a
    * fact about the phone and this is a fact about the person holding it: the same
@@ -182,58 +131,6 @@ export interface Settings {
    * the toggle in the corner of Settings is one tap either way.
    */
   language: Language;
-
-  /**
-   * Whether the language above was CHOSEN, or is just the default sitting there.
-   *
-   * The two are indistinguishable in `language` itself and they mean opposite
-   * things: `ru` because the app ships in Russian is a guess, and `ru` because
-   * somebody picked РУ on the first screen is an answer. Only the guess earns a
-   * question, and the flag is what lets it be asked exactly once — a launch
-   * screen that reappears after it has been answered is worse than never asking.
-   *
-   * False for everyone upgrading from a build that had no picker, which is
-   * correct: they were never asked either, and the app they have been using is
-   * one tap away on that screen.
-   */
-  languageChosen: boolean;
-
-  /* --- appearance: see `lib/theme.ts` -------------------------------- */
-  /**
-   * Which of the eight presets the app wears, or `custom`. Fintech Lime by
-   * default, which is also the colour the icon is exported in.
-   */
-  themeId: ThemeId;
-  /**
-   * The three stops Custom uses. Kept while a preset is selected, so switching
-   * back to Custom returns the colours somebody picked rather than the defaults.
-   */
-  customColors: ThemeColors;
-
-  /* --- the workout reminder: see `screens/WorkoutSettingsScreen.tsx` --- */
-  /**
-   * Have the phone say "time to train" on the days you train.
-   *
-   * OFF by default, like every other reminder in this app. The days are a
-   * weekday list rather than the training sequence's cursor, because the sequence
-   * advances when you TRAIN and a reminder has to fire on a day you have not
-   * trained yet — reading the queue would mean the nudge arrives after the thing
-   * it was nudging you to do.
-   */
-  workoutReminderEnabled: boolean;
-  /** Monday = 0 … Sunday = 6, matching the grid the whole app draws. */
-  workoutReminderDays: Weekday[];
-  /** `HH:MM`, 24-hour. The wheel writes it; `lib/reminders.ts` reads it. */
-  workoutReminderTime: string;
-
-  /**
-   * One-time tips, each shown until it is answered once (redesign #1, #7): the
-   * set-type legend above the first set rows, and "the workout keeps running"
-   * after the first Back out of a session. A tip that comes back every time is a
-   * banner, and banners stop being read.
-   */
-  seenSetTypeTip: boolean;
-  seenLeaveRunningTip: boolean;
   /* --- automatic backup: see `lib/autoBackup.ts` --------------------- */
   /**
    * Rewrite the backup file after every change, without being asked.
@@ -259,15 +156,6 @@ export interface Settings {
   autoBackupFolderUri?: string;
   /** When the last backup — automatic or manual — actually landed. */
   lastBackupAt?: string;
-  /**
-   * Write a finished workout to Health Connect, so the rest of the phone knows.
-   *
-   * OFF by default, and it stays off until the user turns it on and grants the
-   * permission — sending training data to another app is not something to opt
-   * somebody into. Write-only, and the record carries a start, an end and a title
-   * and nothing else; `lib/healthConnect.ts` has the argument.
-   */
-  shareToHealthConnect: boolean;
   /**
    * The day's backup file — its URI and the day it belongs to — so the next write
    * that day overwrites it in place and the first write of a new day knows which
@@ -303,45 +191,21 @@ export interface Settings {
    */
   weeklyReviewDismissed?: string;
 
-  /* --- body measurements (W9) ----------------------------------------- */
+  /* --- the weigh-in reminder: see `lib/weighInReminder.ts` ------------ */
   /**
-   * The tape-measure log: waist, chest, arm… each a dated series in canonical
-   * centimetres — see `lib/bodyMeasurements.ts`. Beside the bodyweight log
-   * because it is the same kind of record, and like it NOT a setting the reset
-   * touches.
+   * Have the phone say "time to weigh in" on the mornings you weigh in.
    *
-   * OPTIONAL, absent = nothing measured: a 2.2.0 phone and its backups have no
-   * such key, and an emptied log goes absent again rather than writing `{}`.
+   * ON by default — unlike the workout reminder it replaced — because the owner
+   * asked for it on, and because it is inert until notifications are granted:
+   * `useWeighInReminder` schedules nothing behind a denied permission, and the
+   * settings row says so. `!== false`, so a device upgrading from a build with no
+   * such key comes up with it on, like a fresh install.
    */
-  bodyMeasurements?: MeasurementLog;
-
-  /* --- the engagement layer (Wave 3) ---------------------------------- */
-  /**
-   * "Achievements and levels": the ONE switch behind every Wave 3 piece —
-   * badges, the level chip, streak freezes, milestone cards. See
-   * `lib/engagement.ts`.
-   *
-   * OPTIONAL `true`, absent = off: a 2.2.0 phone and its backups have no such
-   * key and come up exactly as they were. Never a stored `false`.
-   */
-  engagement?: true;
-  /**
-   * E4: the highest workout milestone (50, 100, 250, 500…) already celebrated
-   * on a Finish sheet — stored because "celebrated" is not something the log
-   * can say. See `lib/milestones.ts`. OPTIONAL, absent = none yet.
-   */
-  milestoneShown?: number;
-  /* --- the weekly training goal (W8): see `lib/weeklyGoal.ts` --------- */
-  /**
-   * Workouts a week the ring counts towards, 1–7. OPTIONAL, absent = three: a
-   * 2.2.0 phone and its backups have no such key and read the default.
-   */
-  weeklyWorkoutGoal?: number;
-  /**
-   * The Mondays of weeks the user excused (illness, travel) — they read
-   * "excused", not short of the goal. OPTIONAL, absent = none excused.
-   */
-  excusedWeeks?: string[];
+  weighInReminderEnabled: boolean;
+  /** Monday = 0 … Sunday = 6. Wednesday and Sunday by default. */
+  weighInReminderDays: Weekday[];
+  /** `HH:MM`, 24-hour. The wheel writes it; the snooze reuses it for "tomorrow". */
+  weighInReminderTime: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -364,35 +228,20 @@ export const DEFAULT_SETTINGS: Settings = {
   hapticsEnabled: true,
   keepAwakeEnabled: true,
   notifyOnTimerEnd: true,
-  askAfterWorkout: true,
   ladderAllExercises: false,
   unitSystem: 'metric',
-  gyms: gymsFromLegacyPlates(DEFAULT_PLATES_KG),
-  activeGymId: DEFAULT_GYM_ID,
   weeklySetTargets: {},
-  language: 'ru',
-  languageChosen: false,
-  themeId: DEFAULT_THEME_ID,
-  customColors: DEFAULT_CUSTOM_COLORS,
-  workoutReminderEnabled: false,
-  workoutReminderDays: [0, 2, 4],
-  workoutReminderTime: '18:00',
-  seenSetTypeTip: false,
-  seenLeaveRunningTip: false,
+  language: 'en',
   autoBackupEnabled: true,
   autoBackupFolderUri: undefined,
-  shareToHealthConnect: false,
   lastBackupAt: undefined,
   autoBackupFile: undefined,
   // Declared so the key set is complete; absent on disk means "no card closed".
   aiCardsDismissed: undefined,
   weeklyReviewDismissed: undefined,
-  bodyMeasurements: undefined,
-  // Off by default (IMPLEMENTATION_DECISIONS row 6): nothing keeps score unasked.
-  engagement: undefined,
-  milestoneShown: undefined,
-  weeklyWorkoutGoal: undefined,
-  excusedWeeks: undefined,
+  weighInReminderEnabled: true,
+  weighInReminderDays: [...DEFAULT_WEIGH_IN_DAYS],
+  weighInReminderTime: DEFAULT_WEIGH_IN_TIME,
 };
 
 /**
@@ -448,19 +297,6 @@ export function sanitizeSettings(input: Partial<Settings> | undefined | null): S
   const raw: Settings = { ...DEFAULT_SETTINGS, ...(input ?? {}) };
 
   /*
-   * THE GYM MIGRATION. A blob written by 1.0.x has `availablePlatesKg` and no
-   * `gyms`, and that list is the plates of the one place the user trains — so it
-   * becomes their first gym, named generically, and the plate labels on the day
-   * after the update are the labels on the day before it. A blob that has both is
-   * a device that has already migrated, and the legacy key is ignored.
-   */
-  const legacy = (input ?? {}) as { availablePlatesKg?: unknown; gyms?: unknown };
-  const gyms =
-    legacy.gyms == null && legacy.availablePlatesKg != null
-      ? gymsFromLegacyPlates(legacy.availablePlatesKg)
-      : sanitizeGyms(raw.gyms);
-
-  /*
    * The bodyweight log and the scalar are one fact in two shapes, and the LOG wins:
    * a scalar with no matching entry is a device upgrading from a build that only
    * had the scalar, so it is seeded as the first reading. Without that seeding, the
@@ -491,41 +327,24 @@ export function sanitizeSettings(input: Partial<Settings> | undefined | null): S
     hapticsEnabled: raw.hapticsEnabled !== false,
     keepAwakeEnabled: raw.keepAwakeEnabled !== false,
     notifyOnTimerEnd: raw.notifyOnTimerEnd !== false,
-    askAfterWorkout: raw.askAfterWorkout !== false,
     // The one flag that defaults OFF, so `!== false` would be the wrong test: an
     // upgraded device with no such key must not wake up having rewritten its
     // whole library.
     ladderAllExercises: raw.ladderAllExercises === true,
     unitSystem: raw.unitSystem === 'imperial' ? 'imperial' : 'metric',
-    gyms,
-    // Resolved rather than trusted: deleting the active gym leaves a dangling
-    // pointer, and a plate label that goes blank reads as a broken feature.
-    activeGymId: resolveActiveGymId(gyms, raw.activeGymId),
     weeklySetTargets: sanitizeWeeklyTargets(raw.weeklySetTargets),
     language: usableLanguage(raw.language),
-    languageChosen: raw.languageChosen === true,
-    themeId: usableThemeId(raw.themeId),
-    customColors: usableCustomColors(raw.customColors),
-    workoutReminderEnabled: raw.workoutReminderEnabled === true,
-    workoutReminderDays: sanitizeWeekdays(raw.workoutReminderDays),
-    workoutReminderTime: usableClockTime(raw.workoutReminderTime),
-    seenSetTypeTip: raw.seenSetTypeTip === true,
-    seenLeaveRunningTip: raw.seenLeaveRunningTip === true,
     autoBackupEnabled: raw.autoBackupEnabled !== false,
     autoBackupFolderUri: usableFolderUri(raw.autoBackupFolderUri),
     // `=== true`, not `!== false`: this one defaults OFF, so a device upgrading
     // from a build without the key must not wake up sharing its training data.
-    shareToHealthConnect: raw.shareToHealthConnect === true,
     lastBackupAt: usableInstant(raw.lastBackupAt),
     autoBackupFile: usableBackupFile(raw.autoBackupFile),
     aiCardsDismissed: usableSections(raw.aiCardsDismissed),
     weeklyReviewDismissed: usableMonday(raw.weeklyReviewDismissed),
-    bodyMeasurements: sanitizeMeasurements(raw.bodyMeasurements),
-    // Only a literal `true` is on, so junk and a 2.2.0 blob both read as off.
-    engagement: usableEngagement(raw.engagement),
-    milestoneShown: usableMilestone(raw.milestoneShown),
-    weeklyWorkoutGoal: usableWeeklyGoal(raw.weeklyWorkoutGoal),
-    excusedWeeks: usableExcusedWeeks(raw.excusedWeeks),
+    weighInReminderEnabled: raw.weighInReminderEnabled !== false,
+    weighInReminderDays: usableWeekdays(raw.weighInReminderDays),
+    weighInReminderTime: usableClockTime(raw.weighInReminderTime),
   };
 }
 
@@ -577,31 +396,6 @@ function usableInstant(value: unknown): string | undefined {
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : undefined;
 }
 
-/** Weekday indices this app draws, deduplicated and in order. */
-function sanitizeWeekdays(value: unknown): Weekday[] {
-  if (!Array.isArray(value)) return [];
-  const kept = new Set(
-    value.filter((day): day is Weekday => Number.isInteger(day) && day >= 0 && day <= 6),
-  );
-  return [...kept].sort((a, b) => a - b);
-}
-
-/**
- * `HH:MM` on a 24-hour clock, or the default.
- *
- * Through `parseClockTime` and back out through `formatClockTime` rather than a
- * bare regex test, so a legal but untidy `7:05` is normalised to `07:05` on the
- * way in and every reader downstream gets one shape. Anything `parseClockTime`
- * refuses — and it refuses rather than guesses — lands on the default, which is
- * a time the scheduler can actually use rather than a `NaN` trigger.
- */
-function usableClockTime(value: unknown): string {
-  const parsed = parseClockTime(value);
-  return parsed
-    ? formatClockTime(parsed.hour, parsed.minute)
-    : DEFAULT_SETTINGS.workoutReminderTime;
-}
-
 /**
  * Known sections, once each, in the app's own order — or `undefined` for none,
  * so a device that never dismissed a card writes no key at all.
@@ -618,7 +412,33 @@ function usableMonday(value: unknown): string | undefined {
   return parseDay(value) != null && weekStart(value) === value ? value : undefined;
 }
 
-/** The rotation list: strings only, and capped so a corrupt blob cannot grow. */
+/**
+ * Weekdays, once each and in order — or the default pair.
+ *
+ * An empty or unreadable list falls back to Wednesday and Sunday rather than
+ * staying empty: the only way to reach an empty list is unticking the last chip,
+ * which also switches the reminder off, so turning it back on after a relaunch
+ * finds two days to fire on instead of a switch that does nothing.
+ */
+function usableWeekdays(value: unknown): Weekday[] {
+  if (!Array.isArray(value)) return [...DEFAULT_WEIGH_IN_DAYS];
+  const kept = new Set(
+    value.filter((day): day is Weekday => Number.isInteger(day) && day >= 0 && day <= 6),
+  );
+  return kept.size > 0 ? [...kept].sort((a, b) => a - b) : [...DEFAULT_WEIGH_IN_DAYS];
+}
+
+/**
+ * `HH:MM` on a 24-hour clock, or the default. Through `parseClockTime` and back
+ * out, so a legal but untidy `6:00` is normalised to `06:00` and every reader
+ * downstream gets one shape — and anything refused lands on a time the
+ * scheduler can actually use rather than a `NaN` trigger.
+ */
+function usableClockTime(value: unknown): string {
+  const parsed = parseClockTime(value);
+  return parsed ? formatClockTime(parsed.hour, parsed.minute) : DEFAULT_WEIGH_IN_TIME;
+}
+
 interface SettingsState extends Settings {
   setNumber: (key: NumericSetting, value: number) => void;
   /** Relative nudge, for the ± controls on the settings rows. */
@@ -630,58 +450,28 @@ interface SettingsState extends Settings {
       | 'hapticsEnabled'
       | 'keepAwakeEnabled'
       | 'notifyOnTimerEnd'
-      | 'askAfterWorkout'
-      | 'ladderAllExercises'
-      | 'seenSetTypeTip'
-      | 'seenLeaveRunningTip',
+      | 'ladderAllExercises',
     value: boolean,
   ) => void;
   setUnitSystem: (unitSystem: UnitSystem) => void;
   /**
-   * The one write behind the РУ / EN toggle in the corner of Settings, and
-   * behind the first-launch picker.
-   *
-   * Writing a language ALWAYS answers the question, whichever control did it:
-   * somebody who reaches the toggle in Settings has plainly made a choice, and
-   * asking them again on the next launch would be the app not listening.
+   * The one write behind the РУ / EN toggle in the corner of Settings.
    */
   setLanguage: (language: Language) => void;
-  /** Wear a preset. */
-  setTheme: (themeId: ThemeId) => void;
-  /** Change one of Custom's three dots — which also SELECTS Custom. */
-  setCustomColor: (index: 0 | 1 | 2, hex: string) => void;
-  /** The workout reminder, as three writes because they are three questions. */
-  setWorkoutReminderEnabled: (enabled: boolean) => void;
-  toggleWorkoutReminderDay: (day: Weekday) => void;
-  setWorkoutReminderTime: (hour: number, minute: number) => void;
   /**
    * Set or clear the bodyweight. `undefined` clears it, which is a real choice —
    * "I would rather the app said nothing than guessed".
    */
   setBodyweightKg: (kg: number | undefined) => void;
-  /**
-   * Add or remove one plate size ON THE ACTIVE GYM. Removing the last one is a
-   * no-op: an empty list makes every target unreachable, so every plate label
-   * silently disappears — which looks exactly like the feature being broken.
-   */
-  togglePlate: (kg: number) => void;
-
-  /* --- gyms: see `lib/gyms.ts` --------------------------------------- */
-  /** Switch which gym's plates are in force. */
-  setActiveGym: (gymId: string) => void;
-  /** A new gym, seeded from the active one's plates. Capped at `MAX_GYMS`. */
-  addGym: (name: string) => void;
-  renameGym: (gymId: string, name: string) => void;
-  /** Remove one. The last gym cannot go — there is always somewhere you train. */
-  removeGym: (gymId: string) => void;
-
   /** A weekly set target for one cluster. `undefined` clears it. */
   setWeeklyTarget: (cluster: MuscleCluster, sets: number | undefined) => void;
+  /** The weigh-in reminder, as three writes because they are three questions. */
+  setWeighInReminderEnabled: (enabled: boolean) => void;
+  toggleWeighInReminderDay: (day: Weekday) => void;
+  setWeighInReminderTime: (hour: number, minute: number) => void;
 
   /* --- automatic backup: see `lib/autoBackup.ts` --------------------- */
   setAutoBackupEnabled: (enabled: boolean) => void;
-  /** Share finished workouts with Health Connect. Off unless granted. */
-  setShareToHealthConnect: (enabled: boolean) => void;
   /** Remember the granted folder. `undefined` forgets it, which turns backup off. */
   setAutoBackupFolder: (folderUri: string | undefined) => void;
   /**
@@ -700,24 +490,6 @@ interface SettingsState extends Settings {
 
   /** Close the weekly review until next Monday (X3); `today` picks the week. */
   dismissWeeklyReview: (today: string) => void;
-  /** W9: one site's reading on one day (a second one that day replaces it), in cm. */
-  recordMeasurement: (key: MeasurementKey, day: string, cm: number) => void;
-  /** W9: remove one site's reading on one day. Asked first by the screen (U19). */
-  removeMeasurement: (key: MeasurementKey, day: string) => void;
-  /** One ± step of the weekly goal, clamped to 1–7. */
-  stepWeeklyWorkoutGoal: (delta: number) => void;
-  /**
-   * The goal set outright — an applied AI suggestion, and its Undo. `undefined`
-   * is "never set", which is what an Undo of the first goal must restore.
-   */
-  setWeeklyWorkoutGoal: (goal: number | undefined) => void;
-  /** Excuse, or stop excusing, the week `day` is in. Weeks ahead are refused. */
-  setWeekExcused: (day: string, excused: boolean, today: string) => void;
-
-  /** Wave 3's one switch. Off writes nothing (the key goes absent). */
-  setEngagement: (on: boolean) => void;
-  /** E4: a Finish sheet that showed milestone `n` was saved. Never lowers it. */
-  recordMilestone: (n: number) => void;
 
   /** `Reset every setting` — see the action for what it keeps. */
   resetToDefaults: () => void;
@@ -749,45 +521,7 @@ export const useSettings = create<SettingsState>()(
 
       setUnitSystem: (unitSystem) => set({ unitSystem }),
 
-      setLanguage: (language) => set({ language: usableLanguage(language), languageChosen: true }),
-
-      setTheme: (themeId) => set({ themeId: usableThemeId(themeId) }),
-
-      setCustomColor: (index, hex) => {
-        const next = [...get().customColors] as string[];
-        next[index] = normalizeHex(hex) ?? next[index];
-        set({ themeId: 'custom', customColors: usableCustomColors(next) });
-      },
-
-      /*
-       * Turning it on with no days picked would arm a reminder that can never
-       * fire, which reads on screen as the switch not working. Monday/Wednesday/
-       * Friday: three days a week, evenly spread.
-       */
-      setWorkoutReminderEnabled: (workoutReminderEnabled) =>
-        set({
-          workoutReminderEnabled,
-          workoutReminderDays:
-            workoutReminderEnabled && get().workoutReminderDays.length === 0
-              ? [...DEFAULT_SETTINGS.workoutReminderDays]
-              : get().workoutReminderDays,
-        }),
-
-      toggleWorkoutReminderDay: (day) => {
-        const current = get().workoutReminderDays;
-        const next = current.includes(day)
-          ? current.filter((d) => d !== day)
-          : [...current, day].sort((a, b) => a - b);
-        // The last day cannot be taken away while the reminder is on: an armed
-        // reminder with no day is the switch lying about what it does.
-        set({
-          workoutReminderDays: next,
-          workoutReminderEnabled: next.length === 0 ? false : get().workoutReminderEnabled,
-        });
-      },
-
-      setWorkoutReminderTime: (hour, minute) =>
-        set({ workoutReminderTime: formatClockTime(hour, minute) }),
+      setLanguage: (language) => set({ language: usableLanguage(language) }),
 
       /*
        * BOTH, always. The scalar is what "what do I weigh now" reads and the log is
@@ -805,28 +539,6 @@ export const useSettings = create<SettingsState>()(
         });
       },
 
-      togglePlate: (kg) => {
-        const { gyms, activeGymId } = get();
-        set({ gyms: toggleGymPlate(gyms, resolveActiveGymId(gyms, activeGymId), kg) });
-      },
-
-      setActiveGym: (gymId) => set({ activeGymId: resolveActiveGymId(get().gyms, gymId) }),
-
-      addGym: (name) => {
-        const { gyms, activeGymId } = get();
-        const id = `gym_${Date.now().toString(36)}`;
-        const next = addGymTo(gyms, name, activeGymId, id, get().language);
-        // At the cap nothing was added, so nothing becomes active either.
-        set({ gyms: next, activeGymId: next.some((g) => g.id === id) ? id : activeGymId });
-      },
-
-      renameGym: (gymId, name) => set({ gyms: updateGym(get().gyms, gymId, { name }) }),
-
-      removeGym: (gymId) => {
-        const gyms = removeGymFrom(get().gyms, gymId);
-        set({ gyms, activeGymId: resolveActiveGymId(gyms, get().activeGymId) });
-      },
-
       setWeeklyTarget: (cluster, sets) => {
         const current = { ...get().weeklySetTargets };
         if (sets == null) delete current[cluster];
@@ -835,8 +547,6 @@ export const useSettings = create<SettingsState>()(
       },
 
       setAutoBackupEnabled: (autoBackupEnabled) => set({ autoBackupEnabled }),
-
-      setShareToHealthConnect: (shareToHealthConnect) => set({ shareToHealthConnect }),
 
       setAutoBackupFolder: (folderUri) => {
         const next = usableFolderUri(folderUri);
@@ -863,59 +573,58 @@ export const useSettings = create<SettingsState>()(
       dismissAiCard: (section) =>
         set({ aiCardsDismissed: usableSections([...(get().aiCardsDismissed ?? []), section]) }),
 
+      /*
+       * Turning it on with no days would arm a reminder that can never fire,
+       * which reads on screen as the switch not working — so it comes back with
+       * the default pair.
+       */
+      setWeighInReminderEnabled: (weighInReminderEnabled) =>
+        set({
+          weighInReminderEnabled,
+          weighInReminderDays:
+            weighInReminderEnabled && get().weighInReminderDays.length === 0
+              ? [...DEFAULT_WEIGH_IN_DAYS]
+              : get().weighInReminderDays,
+        }),
+
+      toggleWeighInReminderDay: (day) => {
+        const current = get().weighInReminderDays;
+        const next = current.includes(day)
+          ? current.filter((d) => d !== day)
+          : [...current, day].sort((a, b) => a - b);
+        // Unticking the last day switches the reminder off: an armed reminder
+        // with no day is the switch lying about what it does.
+        set({
+          weighInReminderDays: next,
+          weighInReminderEnabled: next.length === 0 ? false : get().weighInReminderEnabled,
+        });
+      },
+
+      setWeighInReminderTime: (hour, minute) =>
+        set({ weighInReminderTime: formatClockTime(hour, minute) }),
+
       dismissWeeklyReview: (today) =>
         set({ weeklyReviewDismissed: usableMonday(weekStart(today)) }),
 
-      recordMeasurement: (key, day, cm) =>
-        set({ bodyMeasurements: recordMeasurement(get().bodyMeasurements, key, day, cm) }),
-
-      removeMeasurement: (key, day) =>
-        set({ bodyMeasurements: removeMeasurement(get().bodyMeasurements, key, day) }),
-
-      setEngagement: (on) => set({ engagement: usableEngagement(on) }),
-
-      recordMilestone: (n) =>
-        set({
-          milestoneShown: usableMilestone(
-            milestoneAfterSave(usableMilestone(n) ?? null, get().milestoneShown),
-          ),
-        }),
-      stepWeeklyWorkoutGoal: (delta) =>
-        set({ weeklyWorkoutGoal: stepWeeklyGoal(get().weeklyWorkoutGoal, delta) }),
-      setWeeklyWorkoutGoal: (goal) => set({ weeklyWorkoutGoal: usableWeeklyGoal(goal) }),
-
-      setWeekExcused: (day, excused, today) =>
-        set({ excusedWeeks: setWeekExcused(get().excusedWeeks, day, excused, today) }),
-
       resetToDefaults: () =>
         /*
-         * The gyms, the bodyweight log and the granted folder are NOT settings in
-         * the sense this button means. "Reset settings to defaults" is about the
-         * durations and the toggles; it is not about deleting the plate lists of
-         * three buildings, a year of weigh-ins, or a folder permission the user
-         * would then have to grant again. `Delete all workout history` is the
+         * The bodyweight log and the granted folder are NOT settings in the sense
+         * this button means. "Reset settings to defaults" is about the durations
+         * and the toggles; it is not about deleting a year of weigh-ins, or a
+         * folder permission the user would then have to grant again. `Delete all workout history` is the
          * button that destroys data, and it says so.
          *
          * THE LANGUAGE IS THE SAME KIND OF EXCEPTION, and it is the sharpest one.
-         * Defaulting it would flip the app to Russian under somebody who just
-         * pressed a button in English — and defaulting `languageChosen` with it
-         * would drop them onto the first-launch picker, which is a launch screen
-         * arriving in the middle of a session. The reset is about the durations
+         * Defaulting it would flip the app to English under somebody who just
+         * pressed a button in Russian. The reset is about the durations
          * and the toggles inside the app's section; which language those words
          * are in is not one of them, and the РУ / EN toggle is right there.
          */
         set({
           ...DEFAULT_SETTINGS,
           language: get().language,
-          languageChosen: get().languageChosen,
-          // Appearance is not a section setting either: the reset is about
-          // "every duration, switch, target and default in this app".
-          themeId: get().themeId,
-          customColors: get().customColors,
           bodyweightKg: get().bodyweightKg,
           bodyweightLog: get().bodyweightLog,
-          gyms: get().gyms,
-          activeGymId: get().activeGymId,
           autoBackupFolderUri: get().autoBackupFolderUri,
           lastBackupAt: get().lastBackupAt,
           autoBackupFile: get().autoBackupFile,
@@ -923,14 +632,6 @@ export const useSettings = create<SettingsState>()(
           // timers is no reason for it to come back.
           aiCardsDismissed: get().aiCardsDismissed,
           weeklyReviewDismissed: get().weeklyReviewDismissed,
-          // A record, like the bodyweight log: the reset is about durations.
-          bodyMeasurements: get().bodyMeasurements,
-          // A celebration that happened is a record, not a switch: resetting
-          // the timers must not let "Workout 100" be celebrated a second time.
-          milestoneShown: get().milestoneShown,
-          // An excused week is a record of a week that happened, not a switch.
-          // The goal itself IS a target, and goes back to three with the rest.
-          excusedWeeks: get().excusedWeeks,
         }),
 
       importSettings: (raw) =>
@@ -991,20 +692,4 @@ export function onSettingsHydrationFailed(listener: () => void): () => void {
  */
 export function currentSettings(): Settings {
   return sanitizeSettings(useSettings.getState());
-}
-
-/**
- * The plates in force, wherever the user says they are training.
- *
- * THE one read path for plates. Everything that used to reach for
- * `Settings.availablePlatesKg` calls this instead, which is what keeps gyms
- * invisible below this line: `platesFor` still receives one list.
- *
- * A plain function over a settings object rather than a hook, so the two callers
- * that are not components (`currentSettings` consumers) can use it too. Components
- * select `gyms` and `activeGymId` and call it — both are stable references out of
- * the store, which is what keeps `SetRow`'s memo working.
- */
-export function platesInForce(settings: Pick<Settings, 'gyms' | 'activeGymId'>): number[] {
-  return activeGymPlates(settings.gyms, settings.activeGymId);
 }

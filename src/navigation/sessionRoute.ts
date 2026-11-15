@@ -35,3 +35,22 @@ export function reusesSession(
 ): boolean {
   return session != null && (session.startedAt != null || session.routineId === routineId);
 }
+
+/**
+ * HOME'S `START` STARTS (4.0) — and only the session it just opened.
+ *
+ * A routine opened from a row is a preview: nothing is timed until the `Start`
+ * inside it, so "get in, look, get out" leaves no trace. The hero's big `Start`
+ * and each row's `▶ Start` say START, and a button that says Start and then
+ * shows a second Start is a button that lied once. So after opening, the shell
+ * starts the session — but only when what it opened is THIS routine and nobody
+ * has started it: a running workout reached through the same door is resumed,
+ * never re-anchored (`startWorkout` would move its clock), and a routine that
+ * was sent to its editor because it had nothing in it starts nothing.
+ */
+export function startsAfterOpen(
+  session: { startedAt?: unknown; routineId?: string | null } | null | undefined,
+  routineId: string,
+): boolean {
+  return session != null && session.startedAt == null && session.routineId === routineId;
+}

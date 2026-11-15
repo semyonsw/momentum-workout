@@ -1,20 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  UnreadableLogError,
-  applyBackup,
-  currentSnapshot,
-  exportBackupText,
-  exportCsvText,
-} from './dataTransfer';
+import { UnreadableLogError, applyBackup, currentSnapshot, exportBackupText } from './dataTransfer';
 import { useLibrary } from './libraryStore';
 import { DEFAULT_SETTINGS, useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
 import { sanitizeAi, useAi } from './aiStore';
-import { useDebriefs } from './debriefStore';
 import { parseBackup } from '../lib/backup';
 import { buildDraftSession, type DraftSession } from '../lib/draft';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import type { Exercise, ID } from '../types/models';
 
@@ -29,7 +22,6 @@ function loggedDraft(startedAt: string): DraftSession {
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,
@@ -92,7 +84,7 @@ describe('the round trip', () => {
     useWorkoutHistory.getState().clearHistory();
     applyBackup(parsed.envelope);
 
-    // These rows are what every prefill and every overload verdict reads. A
+    // These rows are what every prefill and every record reads. A
     // backup that kept only the pretty summary would restore a history that looks
     // right and teaches the app nothing.
     const [workout] = useWorkoutHistory.getState().workouts;
@@ -271,8 +263,6 @@ describe('the training sequence rides along', () => {
 
 /* ------------------------------------------------------------------ */
 
-/* ------------------------------------------------------------------ */
-
 describe('the pinned workout number rides along', () => {
   it('is exported and restored', () => {
     useWorkoutHistory.getState().saveSession(loggedDraft('2026-08-17T17:00:00.000Z'));
@@ -334,22 +324,6 @@ describe('a backup is refused when the log could not be read', () => {
 });
 
 /* ------------------------------------------------------------------ */
-
-describe('the CSV export reads the stores', () => {
-  it('workouts: one row per logged set, refused on an unreadable log', () => {
-    useWorkoutHistory.getState().saveSession(loggedDraft('2026-08-17T17:00:00.000Z'));
-    useWorkoutHistory.setState({ loadFailed: false });
-    const sets = useWorkoutHistory.getState().workouts[0].sets.length;
-    const lines = exportCsvText()
-      .split('\r\n')
-      .filter((l) => l !== '');
-    expect(lines).toHaveLength(1 + sets);
-
-    useWorkoutHistory.setState({ workouts: [], loadFailed: true });
-    expect(() => exportCsvText()).toThrow(UnreadableLogError);
-    useWorkoutHistory.setState({ loadFailed: false });
-  });
-});
 
 /* ------------------------------------------------------------------ */
 
@@ -417,40 +391,39 @@ describe('what the assistant leaves out of a backup', () => {
   });
 });
 
-describe('the debriefs', () => {
-  const debriefWorkout = {
-    id: 'w_debrief',
-    title: 'Push',
-    startedAt: '2026-09-27T18:00:00.000Z',
-    endedAt: '2026-09-27T19:00:00.000Z',
-    durationMinutes: 60,
-    setCount: 1,
-    totalVolumeKg: 0,
-    volumeIsPartial: false,
-    exercises: [],
-    sets: [],
-  };
-
-  it('travel in a backup and come back', () => {
-    useDebriefs.setState({ debriefs: [], openId: null });
-    useDebriefs.getState().offer(debriefWorkout, false);
-    useDebriefs.getState().saveAnswers('w_debrief', { load: { choices: ['heavy'] } }, true);
-    const text = exportBackupText();
-    useDebriefs.setState({ debriefs: [] });
-    const parsed = parseBackup(text);
+describe('retired features in an old file', () => {
+  it('still import: debriefs and body measurements are read past, not refused', () => {
+    useSettings.getState().setNumber('restSecondsBetweenSets', 70);
+    const old = JSON.stringify({
+      format: 'workout-tracker-backup',
+      version: 2,
+      settings: {
+        restSecondsBetweenSets: 95,
+        bodyMeasurements: { waist: [{ day: '2026-09-01', cm: 82 }] },
+        weeklyWorkoutGoal: 4,
+        shareToHealthConnect: true,
+        workoutReminderEnabled: true,
+      },
+      exercises: [],
+      routines: [],
+      workouts: [],
+      debriefs: [{ workoutId: 'w1', answers: { load: { choices: ['heavy'] } } }],
+    });
+    const parsed = parseBackup(old);
     if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useDebriefs.getState().debriefs).toHaveLength(1);
-    expect(useDebriefs.getState().debriefs[0].answers).toEqual({ load: { choices: ['heavy'] } });
-  });
-
-  it('are left alone by a file from before they existed', () => {
-    useDebriefs.setState({ debriefs: [], openId: null });
-    useDebriefs.getState().offer(debriefWorkout, false);
-    const parsed = parseBackup(JSON.stringify({ exercises: [], routines: [], workouts: [] }));
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useDebriefs.getState().debriefs).toHaveLength(1);
+    const applied = applyBackup(parsed.envelope);
+    expect(applied.settingsApplied).toBe(true);
+    const settings = useSettings.getState() as unknown as Record<string, unknown>;
+    expect(settings.restSecondsBetweenSets).toBe(95);
+    for (const retired of [
+      'bodyMeasurements',
+      'weeklyWorkoutGoal',
+      'shareToHealthConnect',
+      'workoutReminderEnabled',
+    ]) {
+      expect(settings[retired]).toBeUndefined();
+    }
+    expect(JSON.parse(exportBackupText())).not.toHaveProperty('debriefs');
   });
 });
 
@@ -499,143 +472,29 @@ describe('the closed assistant cards', () => {
   });
 });
 
-describe('body measurements (W9)', () => {
-  it('travel in a backup and come back', () => {
-    useSettings.getState().recordMeasurement('waist', '2026-10-05', 82.5);
-    useSettings.getState().recordMeasurement('arm', '2026-09-01', 36.83);
-    const text = exportBackupText();
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    expect(useSettings.getState().bodyMeasurements).toBeUndefined();
-
-    const parsed = parseBackup(text);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useSettings.getState().bodyMeasurements).toEqual({
-      waist: [{ day: '2026-10-05', cm: 82.5 }],
-      arm: [{ day: '2026-09-01', cm: 36.83 }],
-    });
-  });
-
-  it('a 2.2.0 backup, written before the key existed, imports unchanged with none', () => {
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    const v220 = JSON.stringify({
+describe('a 3.x backup with keys of removed features', () => {
+  it('imports, and the old keys are dropped', () => {
+    const v3 = JSON.stringify({
       format: 'workout-tracker-backup',
       version: 1,
       settings: {
         restSecondsBetweenSets: 90,
-        bodyweightKg: 80,
-        bodyweightLog: [{ at: '2026-08-30T08:00:00.000Z', kg: 80 }],
+        engagement: true,
+        milestoneShown: 250,
+        seenSetTypeTip: true,
+        seenLeaveRunningTip: true,
       },
       exercises: [],
       routines: [],
       workouts: [],
     });
-    const parsed = parseBackup(v220);
+    const parsed = parseBackup(v3);
     if (!parsed.ok) throw new Error(parsed.error);
     applyBackup(parsed.envelope);
-
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(90);
-    expect(useSettings.getState().bodyweightKg).toBe(80);
-    expect(useSettings.getState().bodyweightLog).toEqual([
-      { at: '2026-08-30T08:00:00.000Z', kg: 80 },
-    ]);
-    expect(useSettings.getState().bodyMeasurements).toBeUndefined();
-  });
-});
-
-describe('the engagement switch (Wave 3)', () => {
-  it('travels in a backup and comes back on', () => {
-    useSettings.getState().setEngagement(true);
-    const text = exportBackupText();
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    expect(useSettings.getState().engagement).toBeUndefined();
-    const parsed = parseBackup(text);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useSettings.getState().engagement).toBe(true);
-  });
-
-  it('a 2.2.0 backup, written before the key existed, imports unchanged and off', () => {
-    useSettings.getState().setEngagement(true);
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 1,
-      settings: { restSecondsBetweenSets: 90, bodyweightKg: 80 },
-      exercises: [],
-      routines: [],
-      workouts: [],
-    });
-    const parsed = parseBackup(v220);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(90);
-    expect(useSettings.getState().bodyweightKg).toBe(80);
-    expect(useSettings.getState().engagement).toBeUndefined();
-  });
-});
-
-describe('the milestone stamp (E4)', () => {
-  it('travels in a backup, and a 2.2.0 backup has none', () => {
-    useSettings.getState().recordMilestone(250);
-    const text = exportBackupText();
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    expect(useSettings.getState().milestoneShown).toBeUndefined();
-    const parsed = parseBackup(text);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useSettings.getState().milestoneShown).toBe(250);
-
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 1,
-      settings: { restSecondsBetweenSets: 90 },
-      exercises: [],
-      routines: [],
-      workouts: [],
-    });
-    const old = parseBackup(v220);
-    if (!old.ok) throw new Error(old.error);
-    applyBackup(old.envelope);
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(90);
-    expect(useSettings.getState().milestoneShown).toBeUndefined();
-  });
-});
-
-describe('the weekly training goal (W8)', () => {
-  it('the goal and the excused weeks travel in a backup and come back', () => {
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    useSettings.getState().stepWeeklyWorkoutGoal(1);
-    useSettings.getState().setWeekExcused('2026-10-08', true, '2026-10-08');
-    const text = exportBackupText();
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    expect(useSettings.getState().weeklyWorkoutGoal).toBeUndefined();
-    expect(useSettings.getState().excusedWeeks).toBeUndefined();
-
-    const parsed = parseBackup(text);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-    expect(useSettings.getState().weeklyWorkoutGoal).toBe(4);
-    expect(useSettings.getState().excusedWeeks).toEqual(['2026-10-05']);
-  });
-
-  it('a 2.2.0 backup, written before the keys existed, imports unchanged with none', () => {
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    const v220 = JSON.stringify({
-      format: 'workout-tracker-backup',
-      version: 1,
-      settings: { restSecondsBetweenSets: 90, bodyweightKg: 80 },
-      exercises: [],
-      routines: [],
-      workouts: [],
-    });
-    const parsed = parseBackup(v220);
-    if (!parsed.ok) throw new Error(parsed.error);
-    applyBackup(parsed.envelope);
-
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(90);
-    expect(useSettings.getState().bodyweightKg).toBe(80);
-    expect(useSettings.getState().weeklyWorkoutGoal).toBeUndefined();
-    expect(useSettings.getState().excusedWeeks).toBeUndefined();
+    const state = useSettings.getState() as unknown as Record<string, unknown>;
+    expect(state.restSecondsBetweenSets).toBe(90);
+    expect(state.engagement).toBeUndefined();
+    expect(state.milestoneShown).toBeUndefined();
   });
 });
 
@@ -823,5 +682,62 @@ describe('backups from Momentum 2.x and 3.0.0', () => {
     expect(file).not.toHaveProperty('money');
     const chats = file.aiChats as { chats: Record<string, unknown> };
     expect(Object.keys(chats.chats)).toEqual(['Workout']);
+  });
+});
+
+/*
+ * THE WEIGH-IN REMINDER (4.0). Every backup written before it has no such keys —
+ * and a v2 file carries the retired workout reminder and the debrief switch
+ * instead. It must import, and the new fields must come up on their defaults
+ * rather than inheriting anything from the old reminder.
+ */
+describe('the weigh-in reminder in a backup', () => {
+  const v2 = (settings: Record<string, unknown>) =>
+    JSON.stringify({
+      format: 'workout-tracker-backup',
+      version: 2,
+      settings,
+      exercises: [],
+      routines: [],
+      workouts: [],
+    });
+
+  it('an old v2 file without it imports cleanly and gets the defaults', () => {
+    useSettings.getState().setWeighInReminderEnabled(false);
+    const parsed = parseBackup(
+      v2({
+        restSecondsBetweenSets: 75,
+        askAfterWorkout: true,
+        workoutReminderEnabled: true,
+        workoutReminderDays: [0, 2, 4],
+        workoutReminderTime: '18:00',
+      }),
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(applyBackup(parsed.envelope).settingsApplied).toBe(true);
+
+    const state = useSettings.getState() as unknown as Record<string, unknown>;
+    expect(state.restSecondsBetweenSets).toBe(75);
+    expect(state.weighInReminderEnabled).toBe(true);
+    expect(state.weighInReminderDays).toEqual([2, 6]);
+    expect(state.weighInReminderTime).toBe('06:00');
+    expect(state.askAfterWorkout).toBeUndefined();
+    expect(state.workoutReminderEnabled).toBeUndefined();
+  });
+
+  it('travels in a backup and comes back', () => {
+    const s = useSettings.getState();
+    s.setWeighInReminderEnabled(false);
+    s.toggleWeighInReminderDay(0);
+    s.setWeighInReminderTime(7, 30);
+    const text = exportBackupText();
+    useSettings.getState().importSettings(DEFAULT_SETTINGS);
+
+    const parsed = parseBackup(text);
+    if (!parsed.ok) throw new Error(parsed.error);
+    applyBackup(parsed.envelope);
+    expect(useSettings.getState().weighInReminderEnabled).toBe(false);
+    expect(useSettings.getState().weighInReminderDays).toEqual([0, 2, 6]);
+    expect(useSettings.getState().weighInReminderTime).toBe('07:30');
   });
 });

@@ -547,7 +547,7 @@ function Lift({
   const insets = useSafeAreaInsets();
   const { exercise } = target.entry;
   const lines = workLines(target, unitSystem, lang);
-  const countsMax = showsMaxLabel(exercise, target.set);
+  const countsMax = showsMaxLabel(exercise, target.set, target.isMaxTest);
 
   /* The width a number has: the gutters, the two circles and their gaps, and —
      on the count line — the `×` in front of it. */

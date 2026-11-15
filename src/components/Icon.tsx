@@ -7,9 +7,6 @@
  * `trending-down` is `trending-up` reflected, at the same weight, for the same
  * reason `minus` is the middle bar of `plus`: they are one idea and its opposite,
  * and two marks that differ only by a reflection are two marks nobody has to learn.
- * It marks the ONE thing in the app that suggests doing less — a stalled lift's
- * back-off session (`lib/deload.ts`) — and it is drawn in `ink-muted` rather than
- * green, because green in this app means progressive overload and this is not that.
  *
  * `play` and `pause` are in the same weight class as `check` and `plus` (2.5)
  * because they are the same kind of mark: on a timed set — a plank, a hang — ▶ IS
@@ -104,12 +101,6 @@ export type IconName =
    */
   | 'ban'
   /**
-   * ❄ — a streak freeze (E3, Wave 3). Three strokes through the centre and a
-   * notch at each end of the upright, so it reads as frost and not as an
-   * asterisk at 13 px beside the flame.
-   */
-  | 'snowflake'
-  /**
    * FOCUS — a viewfinder: four corner brackets and a small centre circle (the
    * redesign's #5). It used to be `center_focus_strong` on the dock and ▶ on the
    * card chip; ▶ now means start/play and nothing else.
@@ -155,7 +146,6 @@ const STROKE: Record<IconName, number> = {
   more: 2,
   'more-horizontal': 2,
   ban: 2.5,
-  snowflake: 2,
   focus: 2,
   timer: 2,
   calendar: 2,
@@ -292,13 +282,6 @@ const PATHS: Record<IconName, string[]> = {
   more: [],
   'more-horizontal': [],
   ban: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M5.6 5.6l12.8 12.8'],
-  snowflake: [
-    'M12 3v18',
-    'M4.2 7.5l15.6 9',
-    'M4.2 16.5l15.6-9',
-    'M9.5 4.6L12 6.6l2.5-2',
-    'M9.5 19.4L12 17.4l2.5 2',
-  ],
 };
 
 /* Memoised: three primitive props, drawn inside rows and bars that re-render

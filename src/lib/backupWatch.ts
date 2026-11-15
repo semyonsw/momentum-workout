@@ -30,7 +30,6 @@
 export const BACKED_UP_FIELDS = {
   library: ['exercises', 'routines', 'sequence'],
   workoutHistory: ['workouts', 'numbering'],
-  debriefs: ['debriefs'],
   ai: ['chats', 'archive', 'proposals'],
 } as const;
 
@@ -41,7 +40,6 @@ export const WATCHED_STORES: readonly WatchedStore[] = [
   'settings',
   'library',
   'workoutHistory',
-  'debriefs',
   'ai',
 ];
 

@@ -40,11 +40,10 @@
  *     is a bar that visibly jumps; it is a linear animation now, from where it
  *     stands to empty over exactly the time that is left, restarted whenever
  *     that time changes (±15, pause, resume). Native-driven, as a `scaleX`.
- *   • THE DIGITS ROLL (`RollingNumber`, 320 ms), so a `+15` is seen to add fifteen
- *     seconds rather than the clock redrawing.
- *   • IN THE FINAL TEN SECONDS IT ALSO PULSES — scale 1 → 1.03 → 1 each second
- *     (`SecondPulse`) — the change you notice without reading anything, on top of
- *     the inversion that says it in colour.
+ *   • THE DIGITS CHANGE IN PLACE (`RollingNumber`), tabular, so nothing shifts.
+ *   • IT DOES NOT PULSE. It used to throb 1 → 1.03 each second of the final ten;
+ *     the calm pass cut that — the green inversion already says "final ten"
+ *     without anything moving.
  *   • Only one pill exists at a time. You cannot be resting and holding.
  *
  * ── WHY THE COLOURS ARE INLINE STYLES AND NOT `className` ──────────────────
@@ -100,8 +99,8 @@
  *
  * THE INVERSION STAYS. The last ten seconds are read from across a room, and a
  * slab does that where a glow never did: the running final ten is the slab,
- * pulsing. Near-black on `acc` holds contrast in every preset
- * because `acc` is c2 lifted toward white.
+ * pulsing. Near-black on `acc` holds contrast because `acc` is c2 lifted
+ * toward white.
  */
 
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
@@ -112,7 +111,7 @@ import Svg, { Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 import { useMotionScale } from '../hooks/useMotionScale';
 import { gradientBar, palette, tint } from '../theme/tokens';
 import { SpecularEdge } from './glass';
-import { SecondPulse, usePressScale } from './motion';
+import { usePressScale } from './motion';
 import { RollingNumber } from './RollingNumber';
 
 /** Below this a countdown inverts. Ten seconds is one deep breath and a re-grip. */
@@ -160,8 +159,8 @@ const FINAL: PillTone = {
     return palette.greenBright;
   },
   border: 'transparent',
-  // Near-black on `acc`: `acc` is c2 lifted toward white in every preset, so
-  // this is the pairing that holds contrast on the slab whatever the theme.
+  // Near-black on `acc`: `acc` is c2 lifted toward white, so this is the
+  // pairing that holds contrast on the slab.
   clock: palette.bg,
   get label(): string {
     return palette.greenWash;
@@ -355,13 +354,14 @@ export function PillKicker({
  * `count` is the get-ready number: a bare 5 · 4 · 3 · 2 · 1 you should be able to
  * read from the floor while you get into position, so it is bigger still.
  *
- * `breathe` is the 1 s pulse of the final ten.
+ * `breathe` is accepted and ignored: the final-ten pulse it switched on is gone
+ * (see the file header).
  */
 export function PillClock({
   value,
   tone,
   variant = 'clock',
-  breathe = false,
+  breathe: _breathe = false,
   accessibilityLabel,
 }: {
   value: string | number;
@@ -380,37 +380,30 @@ export function PillClock({
   );
   return (
     <View style={{ marginTop: 6, marginBottom: 12, alignSelf: 'flex-start' }}>
-      <SecondPulse active={breathe}>
-        {/* The clock ROLLS, 320 ms a column: fast enough to finish inside the
-            second it is showing, slow enough that `+15` reads as fifteen seconds
-            arriving. The get-ready count stays a plain numeral — one digit,
-            replaced, is the count. */}
-        {variant === 'clock' ? (
-          <RollingNumber
-            value={String(value)}
-            lineHeight={lineHeight}
-            duration={320}
-            accessibilityLabel={accessibilityLabel}
-            style={clockStyle}
-          />
-        ) : (
-          <Text
-            accessibilityLabel={accessibilityLabel}
-            allowFontScaling={false}
-            numberOfLines={1}
-            style={{
-              fontSize,
-              lineHeight,
-              letterSpacing: -2.5,
-              fontWeight: '600',
-              fontVariant: ['tabular-nums'],
-              color: tone.clock,
-            }}
-          >
-            {value}
-          </Text>
-        )}
-      </SecondPulse>
+      {variant === 'clock' ? (
+        <RollingNumber
+          value={String(value)}
+          lineHeight={lineHeight}
+          accessibilityLabel={accessibilityLabel}
+          style={clockStyle}
+        />
+      ) : (
+        <Text
+          accessibilityLabel={accessibilityLabel}
+          allowFontScaling={false}
+          numberOfLines={1}
+          style={{
+            fontSize,
+            lineHeight,
+            letterSpacing: -2.5,
+            fontWeight: '600',
+            fontVariant: ['tabular-nums'],
+            color: tone.clock,
+          }}
+        >
+          {value}
+        </Text>
+      )}
     </View>
   );
 }

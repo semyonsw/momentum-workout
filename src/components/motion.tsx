@@ -2,42 +2,49 @@
  * Motion — the app's shared entrance and press feedback, so five screens don't
  * each invent their own timing.
  *
- *   PanelEnter    a tab root arriving — fade + rise 10dp, 300ms. Keyed by the
- *                 caller (`AppShell` keys it on the active tab), so switching
- *                 tabs remounts it and the entrance replays.
- *   Reveal        a disclosure opening — fade + rise 6dp, 220ms. For content
+ *   Reveal        a disclosure opening — fade + rise 4dp, 150ms. For content
  *                 that was not there a moment ago: an expanded library group, a
  *                 workout's detail, a set's history.
- *   pressedStyle  a `Pressable`'s `style` prop — dim plus a hair of scale on
- *                 contact, the same feedback `FocusRest`'s rest controls already
- *                 give, now everywhere a row or button in the app is tappable.
+ *   pressedStyle  a `Pressable`'s `style` prop — dim plus 0.97 scale on contact.
+ *   Pop           a ✓, the Done pill, an edit-mode `−` landing: fade + settle.
+ *   Stagger       Reveal with a caller's rise and duration (no delay any more).
+ *   Flash         a logged set's faint green wash, gone in 180ms.
+ *   Ripple        retired — draws nothing.
+ *   SecondPulse   retired — a plain wrapper.
+ *   GrowIn        a row arriving by opening its own height, or leaving by
+ *                 closing it — `Add set`, `Warm-up`, Undo, and the `−`.
+ *   usePressScale a shallow sink under a finger, straight back on release.
  *
  * The curve is `FocusMode.tsx`'s `EASING` — the app already shipped one bezier
  * for "something arriving", and a second one here would be a second thing to
  * keep in sync for no reason anybody could see on screen.
  *
- * Both entrances animate once, on mount, and never again: they read `Animated
- * .Value` off a ref rather than state, so a parent re-render (a set logged
- * elsewhere, a clock ticking) cannot replay them. An entrance that replays on
- * every unrelated render is a flicker, not an arrival.
+ * Entrances animate once, on mount, and never again: they read `Animated.Value`
+ * off a ref rather than state, so a parent re-render (a set logged elsewhere, a
+ * clock ticking) cannot replay them. An entrance that replays on every unrelated
+ * render is a flicker, not an arrival.
  *
- * ── THE MOTION PASS ADDED SIX MORE, AND ONE RULE FOR ALL OF THEM ──────────
+ * Every duration is multiplied by `useMotionScale()`, so with "Remove
+ * animations" on each of these renders its END STATE on the first frame. None of
+ * them owns a fact: the store is written first and the animation follows it, so
+ * a slow frame can never delay a commit.
  *
- *   Pop           scale 0 → 1 on the overshoot curve: a ✓, the Done pill, an
- *                 edit-mode `−`. Something CAUGHT.
- *   Stagger       Reveal with a delay, for lists that arrive one after another.
- *   Flash         a logged set's green wash, 0.30 → 0.
- *   Ripple        focus mode's DONE ring leaving the button.
- *   SecondPulse   the final ten seconds, once per second.
- *   GrowIn        a row arriving by opening its own height, or leaving by
- *                 closing it — `Add set`, `Warm-up`, Undo, and the `−`.
- *   usePressScale the sink under a finger, released past full size and back.
- *   Sheen         a band of light sweeping across a pill or a button.
+ * ── AND THEN THE CALM PASS TOOK MOST OF IT BACK ────────────────────────────
  *
- * Every duration comes from `motion` in `theme/tokens.ts` and is multiplied by
- * `useMotionScale()`, so with "Remove animations" on each of these renders its
- * END STATE on the first frame. None of them owns a fact: the store is written
- * first and the animation follows it, so a slow frame can never delay a commit.
+ * The owner's call: keep motion, but MINIMAL — the app should feel fast and
+ * calm, and anything purely decorative goes. So, keeping every export so no
+ * caller had to change:
+ *
+ *   • every duration is capped at `BRIEF_MS` (180), whatever a caller passes;
+ *   • no delays — `Stagger` ignores its `delay`, so a list arrives at once
+ *     instead of as a cascade;
+ *   • no overshoot — `Pop` is a short fade-and-settle from 0.9, `usePressScale`
+ *     sinks a little and comes straight back, and the ✎ tilt is gone;
+ *   • rises are 4 dp, not 6–24;
+ *   • `Ripple` draws nothing and `SecondPulse` no longer pulses (the timer's
+ *     green inversion already says "final ten" in colour);
+ *   • `GrowIn` keeps opening and closing its height, because a row arriving or
+ *     leaving is information — but quickly, and without the sideways slide.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -46,13 +53,27 @@ import { Animated, Easing, View, type StyleProp, type ViewStyle } from 'react-na
 import { useArrived } from '../hooks/useArrived';
 import { growInDeadline, leaveLatch } from '../lib/growIn';
 import { useMotionScale } from '../hooks/useMotionScale';
-import { curve, motion, palette, tint } from '../theme/tokens';
+import { curve, motion, tint } from '../theme/tokens';
 
 /** Matches `FocusMode.tsx`'s `EASING`. */
 const EASING = curve(motion.ease);
-const POP = curve(motion.pop);
 
-function useEnter(duration: number, riseFrom: number, delay = 0) {
+/** The longest anything in this file runs. See the header's calm pass. */
+const BRIEF_MS = 180;
+/** How far anything rises on arrival, whatever a caller asks for. */
+const RISE_DP = 4;
+
+/** A caller's duration, held to `BRIEF_MS`. */
+function brief(ms: number): number {
+  return Math.min(BRIEF_MS, Math.max(0, ms));
+}
+
+/** A caller's rise, held to `RISE_DP` in the direction it asked for. */
+function nudge(dp: number): number {
+  return Math.sign(dp) * Math.min(RISE_DP, Math.abs(dp));
+}
+
+function useEnter(duration: number, riseFrom: number) {
   const scale = useMotionScale();
   const arrived = useArrived();
   const enter = useRef(new Animated.Value(scale === 0 ? 1 : 0)).current;
@@ -60,8 +81,7 @@ function useEnter(duration: number, riseFrom: number, delay = 0) {
     if (!arrived) return;
     Animated.timing(enter, {
       toValue: 1,
-      duration: duration * scale,
-      delay: delay * scale,
+      duration: brief(duration) * scale,
       easing: EASING,
       useNativeDriver: true,
     }).start();
@@ -77,7 +97,9 @@ function useEnter(duration: number, riseFrom: number, delay = 0) {
     () => ({
       opacity: enter,
       transform: [
-        { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [riseFrom, 0] }) },
+        {
+          translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [nudge(riseFrom), 0] }),
+        },
       ],
     }),
     [enter, riseFrom],
@@ -85,7 +107,7 @@ function useEnter(duration: number, riseFrom: number, delay = 0) {
 }
 
 export function Reveal({ children }: { children: ReactNode }) {
-  const enterStyle = useEnter(220, -6);
+  const enterStyle = useEnter(150, -RISE_DP);
   return <Animated.View style={enterStyle}>{children}</Animated.View>;
 }
 
@@ -94,7 +116,7 @@ export function Reveal({ children }: { children: ReactNode }) {
  * through its `style` callback.
  */
 export function pressedStyle({ pressed }: { pressed: boolean }): ViewStyle | undefined {
-  return pressed ? { opacity: 0.62, transform: [{ scale: 0.994 }] } : undefined;
+  return pressed ? { opacity: 0.7, transform: [{ scale: 0.97 }] } : undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -102,13 +124,13 @@ export function pressedStyle({ pressed }: { pressed: boolean }): ViewStyle | und
 /* ------------------------------------------------------------------ */
 
 /**
- * Scale 0 → 1 on the overshoot curve, on mount. The overshoot is the point: at
- * `pop` a mark swells past its size by about a fifth and settles, which is what
- * reads as "caught" rather than "appeared".
+ * A mark arriving: fade in and settle from 0.9 to full size, on mount. It used
+ * to scale from nothing on an overshoot curve; the calm pass keeps the "it just
+ * landed" and drops the bounce.
  */
 export function Pop({
   children,
-  duration = 320,
+  duration = 150,
   style,
 }: {
   children: ReactNode;
@@ -120,24 +142,32 @@ export function Pop({
   useEffect(() => {
     Animated.timing(v, {
       toValue: 1,
-      duration: duration * scale,
-      easing: POP,
+      duration: brief(duration) * scale,
+      easing: EASING,
       useNativeDriver: true,
     }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v]);
-  return <Animated.View style={[style, { transform: [{ scale: v }] }]}>{children}</Animated.View>;
+  const settle = useMemo(
+    () => ({
+      opacity: v,
+      transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }],
+    }),
+    [v],
+  );
+  return <Animated.View style={[style, settle]}>{children}</Animated.View>;
 }
 
 /**
- * Fade and rise after a delay — `Reveal`, for a list. Routine rows stagger by 70,
- * category tiles by 40: the list arrives in reading order instead of as a slab.
+ * `Reveal` with a caller's rise and duration, both held to the calm-pass caps.
+ * It used to delay each row so a list arrived as a cascade; `delay` is still
+ * accepted and now ignored — a list arrives at once, which is what reads as fast.
  */
 export function Stagger({
   children,
-  delay = 0,
-  rise = 10,
-  duration = 380,
+  delay: _delay = 0,
+  rise = RISE_DP,
+  duration = BRIEF_MS,
   style,
 }: {
   children: ReactNode;
@@ -146,13 +176,14 @@ export function Stagger({
   duration?: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  const enterStyle = useEnter(duration, rise, delay);
+  const enterStyle = useEnter(duration, rise);
   return <Animated.View style={[style, enterStyle]}>{children}</Animated.View>;
 }
 
 /**
- * A logged set's flash: a green wash over the row, 0.30 → 0 over `motion.flash`.
- * Mounted with a fresh key per ✓ so every log replays it. It takes no touches.
+ * A logged set's flash: a faint green wash over the row, 0.18 → 0 in `BRIEF_MS`
+ * — the "that registered" a ✓ needs, gone before the next glance. Mounted with a
+ * fresh key per ✓ so every log replays it. It takes no touches.
  */
 export function Flash({ radius = 0 }: { radius?: number }) {
   const scale = useMotionScale();
@@ -160,7 +191,7 @@ export function Flash({ radius = 0 }: { radius?: number }) {
   useEffect(() => {
     Animated.timing(v, {
       toValue: 0,
-      duration: motion.flash * scale,
+      duration: BRIEF_MS * scale,
       easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
@@ -176,7 +207,7 @@ export function Flash({ radius = 0 }: { radius?: number }) {
         right: 0,
         bottom: 0,
         borderRadius: radius,
-        backgroundColor: tint(0.3),
+        backgroundColor: tint(0.18),
         opacity: v,
       }}
     />
@@ -184,106 +215,39 @@ export function Flash({ radius = 0 }: { radius?: number }) {
 }
 
 /**
- * Focus mode's DONE ripple: a 3 dp ring that grows 1 → 1.9 while it fades
- * 0.7 → 0. Mount it with a fresh key per press. Nothing at all with reduced
- * motion — a ring frozen at its end state is an invisible ring anyway.
+ * Focus mode's DONE ripple — retired by the calm pass. A ring leaving the button
+ * said nothing the haptic and the set being logged do not already say, so it
+ * draws nothing. The export stays so `FocusControls` compiles unchanged.
  */
-export function Ripple({ size }: { size: number }) {
-  const scale = useMotionScale();
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (scale === 0) return;
-    Animated.timing(v, {
-      toValue: 1,
-      duration: motion.ripple * scale,
-      easing: Easing.out(Easing.quad),
-      useNativeDriver: true,
-    }).start();
-  }, [scale, v]);
-  const ring = useMemo(
-    () => ({
-      opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] }),
-      transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.9] }) }],
-    }),
-    [v],
-  );
-  if (scale === 0) return null;
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        {
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          borderWidth: 3,
-          borderColor: palette.greenBright,
-        },
-        ring,
-      ]}
-    />
-  );
+export function Ripple(_props: { size: number }) {
+  return null;
 }
 
 /**
- * The final ten seconds: scale 1 → 1.03 → 1 once per second while `active`.
- *
- * Out to 1.03 in the first quarter of the beat and back over the rest, ease-out —
- * a tick, not a throb. It is the change you notice without reading anything,
- * which is the job the inversion already does in colour.
+ * The final ten seconds used to pulse here, 1 → 1.03 once a second. The calm
+ * pass stopped it: the timer's green inversion already says "final ten" without
+ * anything moving, and a once-a-second throb is exactly the restlessness the
+ * owner asked to lose. It is a plain wrapper now, kept for its callers.
  */
 export function SecondPulse({
-  active,
   children,
   style,
 }: {
-  active: boolean;
+  active?: boolean;
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
 }) {
-  const scale = useMotionScale();
-  const v = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!active || scale === 0) {
-      v.setValue(0);
-      return undefined;
-    }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(v, {
-          toValue: 1,
-          duration: motion.pulseMs * 0.25,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(v, {
-          toValue: 0,
-          duration: motion.pulseMs * 0.75,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [active, scale, v]);
-  const pulse = useMemo(
-    () => ({
-      transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] }) }],
-    }),
-    [v],
-  );
-  return <Animated.View style={[style, pulse]}>{children}</Animated.View>;
+  return <View style={style}>{children}</View>;
 }
 
 /**
  * A row that arrives by opening its own height, and leaves by closing it.
  *
- *   in    height 0 → natural, opacity 0 → 1, translateY −6 → 0      `motion.enter`
- *   out   height → 0,         opacity → 0,   translateX 0 → 28      280 ms
+ *   in    height 0 → natural, opacity 0 → 1     `BRIEF_MS` at most
+ *   out   height → 0,         opacity → 0       `LEAVE_MS`
+ *
+ * No slide or rise any more (the calm pass): the height opening is the
+ * information — "a row is here now" — and everything else on top was garnish.
  *
  * ── WHY TWO NODES ─────────────────────────────────────────────────────────
  *
@@ -302,12 +266,15 @@ export function SecondPulse({
  * data, which is the order the design asks for; with reduced motion `onLeft`
  * fires on the next frame.
  */
+/** A removed row closes this fast — quick enough to read as "gone", not as a show. */
+const LEAVE_MS = 160;
+
 export function GrowIn({
   children,
   appear = true,
   leaving = false,
   onLeft,
-  duration = motion.enter,
+  duration = BRIEF_MS,
 }: {
   children: ReactNode;
   /** False for a row that was already there — it renders at rest. */
@@ -324,38 +291,28 @@ export function GrowIn({
   const [settled, setSettled] = useState(!animateIn);
   const height = useRef(new Animated.Value(0)).current;
   const fade = useRef(new Animated.Value(animateIn ? 0 : 1)).current;
-  const slide = useRef(new Animated.Value(0)).current;
   const onLeftRef = useRef(onLeft);
   onLeftRef.current = onLeft;
   /* `onLeft` once, whether the close animation ends or the row is unmounted
      first (`leaveLatch` has the collapsed-card bug this closes). */
   const [latch] = useState(leaveLatch);
-  const rise = useMemo(
-    () => fade.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }),
-    [fade],
-  );
-  const drift = useMemo(
-    () => slide.interpolate({ inputRange: [0, 1], outputRange: [0, 28] }),
-    [slide],
-  );
+  const run = brief(duration) * scale;
 
   /* In: once the content has a height to open to. */
   useEffect(() => {
     if (!animateIn || natural == null || settled) return;
     height.setValue(0);
-    Animated.parallel([
-      Animated.timing(height, {
-        toValue: natural,
-        duration: duration * scale,
-        easing: EASING,
-        useNativeDriver: false,
-      }),
-    ]).start(({ finished }) => {
+    Animated.timing(height, {
+      toValue: natural,
+      duration: run,
+      easing: EASING,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
       if (finished) setSettled(true);
     });
     Animated.timing(fade, {
       toValue: 1,
-      duration: duration * scale,
+      duration: run,
       easing: EASING,
       useNativeDriver: true,
     }).start();
@@ -378,7 +335,7 @@ export function GrowIn({
         fade.setValue(1);
         setSettled(true);
       },
-      growInDeadline(duration, scale),
+      growInDeadline(brief(duration), scale),
     );
     return () => clearTimeout(timer);
     // Mount only: the deadline is counted from the row's arrival.
@@ -394,24 +351,26 @@ export function GrowIn({
     }
     height.setValue(natural ?? 0);
     setSettled(false);
-    const out = 280 * scale;
+    const out = LEAVE_MS * scale;
     Animated.timing(height, {
       toValue: 0,
       duration: out,
       easing: EASING,
       useNativeDriver: false,
     }).start();
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 0, duration: out, easing: EASING, useNativeDriver: true }),
-      Animated.timing(slide, { toValue: 1, duration: out, easing: EASING, useNativeDriver: true }),
-    ]).start(({ finished }) => {
+    Animated.timing(fade, {
+      toValue: 0,
+      duration: out,
+      easing: EASING,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
       if (finished) latch.fire(onLeftRef.current);
     });
     return undefined;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leaving]);
 
-  /* Unmounted mid-leave (the card collapsed inside the 280 ms): the animation
+  /* Unmounted mid-leave (the card collapsed inside `LEAVE_MS`): the animation
      will never report `finished`, so the removal is delivered here instead. */
   useEffect(
     () => () => {
@@ -433,12 +392,7 @@ export function GrowIn({
       style={settled && !leaving ? undefined : { height, overflow: 'hidden' }}
       pointerEvents={leaving ? 'none' : 'auto'}
     >
-      <Animated.View
-        style={{
-          opacity: fade,
-          transform: [{ translateY: leaving ? 0 : rise }, { translateX: drift }],
-        }}
-      >
+      <Animated.View style={{ opacity: fade }}>
         <View onLayout={onLayout}>{children}</View>
       </Animated.View>
     </Animated.View>
@@ -446,33 +400,23 @@ export function GrowIn({
 }
 
 /**
- * The sink under a finger, and the release that overshoots.
+ * The sink under a finger: down to `to` in `PRESS_IN_MS`, straight back up in
+ * `RELEASE_MS`. Returns the handlers to put on the `Pressable` and the style to
+ * put on an `Animated.View` inside it.
  *
- * Returns the handlers to put on the `Pressable` and the style to put on an
- * `Animated.View` inside it. Down: to `to` in 130 ms on the base curve. Up: the
- * v3 spec's `.94 → 1.035 → 1` over 460 ms — PAST full size and back, the same
- * acknowledgement a ✓ gives.
- *
- * ── WHY TWO LEGS AND NOT ONE OVERSHOOTING CURVE ───────────────────────────
- *
- * `bezier(.34,1.56,.64,1)` over the 0.06 of travel a press has overshoots by a
- * few thousandths — a 1.004 nobody can see. The spec's 1.035 is more than half
- * the depth of the sink again, so the release is drawn as what it is: a rise to
- * the overshoot (45 %, ease-out) and a settle back (55 %, ease-in-out). The
- * overshoot scales with the depth, capped at the spec's 0.035, so a 0.85 sink
- * does not bounce to 1.09.
- *
- * `rotate` is the ✎'s own flourish: a −12° tilt with the sink, as if the pencil
- * were being picked up.
+ * It used to sink as deep as 0.86, overshoot past full size on release over
+ * 460 ms and, for the ✎, tilt −12° as if picked up. The calm pass holds the sink
+ * to `MIN_SINK` whatever a caller asks, drops the overshoot, and ignores
+ * `rotate` — the signature stays so no caller changes.
  */
-const PRESS_IN_MS = 130;
-const RELEASE_MS = 460;
-const RELEASE_RISE = Easing.out(Easing.quad);
-const RELEASE_SETTLE = Easing.inOut(Easing.quad);
+const PRESS_IN_MS = 80;
+const RELEASE_MS = 120;
+/** The deepest a press may sink. */
+const MIN_SINK = 0.96;
 
-export function usePressScale(to = 0.94, rotate = 0) {
+export function usePressScale(to = MIN_SINK, _rotate = 0) {
   const scale = useMotionScale();
-  /** 1 = sunk, 0 = rest, −1 = the overshoot past rest. */
+  /** 1 = sunk, 0 = rest. */
   const v = useRef(new Animated.Value(0)).current;
   const onPressIn = useCallback(() => {
     Animated.timing(v, {
@@ -483,34 +427,18 @@ export function usePressScale(to = 0.94, rotate = 0) {
     }).start();
   }, [scale, v]);
   const onPressOut = useCallback(() => {
-    Animated.sequence([
-      Animated.timing(v, {
-        toValue: -1,
-        duration: RELEASE_MS * 0.45 * scale,
-        easing: RELEASE_RISE,
-        useNativeDriver: true,
-      }),
-      Animated.timing(v, {
-        toValue: 0,
-        duration: RELEASE_MS * 0.55 * scale,
-        easing: RELEASE_SETTLE,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    Animated.timing(v, {
+      toValue: 0,
+      duration: RELEASE_MS * scale,
+      easing: EASING,
+      useNativeDriver: true,
+    }).start();
   }, [scale, v]);
   const style = useMemo(() => {
-    const over = Math.min(0.035, (1 - to) * 0.58);
-    const sink = {
-      scale: v.interpolate({ inputRange: [-1, 0, 1], outputRange: [1 + over, 1, to] }),
+    const depth = Math.max(MIN_SINK, Math.min(1, to));
+    return {
+      transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, depth] }) }],
     };
-    if (rotate === 0) return { transform: [sink] };
-    const tilt = {
-      rotate: v.interpolate({
-        inputRange: [-1, 0, 1],
-        outputRange: ['0deg', '0deg', `${rotate}deg`],
-      }),
-    };
-    return { transform: [sink, tilt] };
-  }, [rotate, to, v]);
+  }, [to, v]);
   return { onPressIn, onPressOut, style };
 }

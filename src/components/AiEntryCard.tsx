@@ -29,7 +29,7 @@
  * sparkle at 44 dp, without its sheen and stars (two copies of the full show on
  * one screen, 60 dp apart, is noise) — and the subline is written in the
  * assistant's own gradient, violet → pink → cyan. Both are fixed colours: the
- * card is the assistant's door, and it looks like the assistant on every theme.
+ * card is the assistant's door, and it looks like the assistant, not the app.
  *
  * The gradient text is an SVG `<Text>` with a gradient fill, because React
  * Native cannot clip a gradient to glyphs and `MaskedView` is not in this build.

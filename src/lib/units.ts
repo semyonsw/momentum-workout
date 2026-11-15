@@ -15,8 +15,8 @@ const KG_PER_LB = 0.45359237;
  * THE ± STEPS ON EVERY WEIGHT CONTROL IN THE APP: one fine, one coarse.
  *
  * Deliberately NOT the exercise's own `incrementKg`. The two numbers answer
- * different questions and used to be the same one: an increment is what the
- * overload engine is allowed to ADD to a working weight (a plate, a pin), while
+ * different questions and used to be the same one: an increment is the plate or
+ * pin a working weight goes up by (the editor's ± step), while
  * these are what a thumb nudges a set row by mid-workout — and mid-workout the
  * useful moves are "half a kilo more" (the smallest disc on a dumbbell, the
  * change plate on a bar) and "one step up" (2 kg). Deriving the chips from a
@@ -143,7 +143,7 @@ export function formatCount(count: number, countUnit: CountUnit): string {
  * `3` is three minutes, `1.5` (or `1,5`) is a minute and a half, and `1:30` is
  * read as the clock it looks like. It used to go straight into `count` as
  * seconds, so the `3` meant for a three-minute plank logged a three-second one —
- * and every prefill and overload verdict after it inherited the three seconds.
+ * and every prefill after it inherited the three seconds.
  * Reps and metres are the plain integer they look like.
  *
  * Null for anything that is not a number, so the caller keeps the old value

@@ -4,7 +4,7 @@
  *
  *  • A SECOND DONE inside the cooldown is the same press bouncing, not a second
  *    set. The 180 ms ripple wait already swallowed one inside the wait; but when
- *    no rest follows the set (mid-superset, auto-rest off) the same DONE stays on
+ *    no rest follows the set (auto-rest off) the same DONE stays on
  *    screen, and a double-tap 250 ms apart logged the NEXT set too. With reduced
  *    motion there was no wait and so no guard at all.
  *  • UNDO WHILE A DONE IS STILL PENDING takes back that DONE, not the set before

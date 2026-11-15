@@ -10,7 +10,7 @@ import {
 import { BODYWEIGHT_LIMITS } from './bodyweightLog';
 
 /**
- * The weigh-in on Body measurements (redesign #14): where the well starts, and
+ * The weigh-in on the Bodyweight screen (redesign #14): where the well starts, and
  * that a nudge or a typed number always lands inside the believable range, in
  * the user's own units.
  */

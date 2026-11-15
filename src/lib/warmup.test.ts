@@ -1,191 +1,98 @@
-import { describe, expect, it } from 'vitest';
-
-import { describeWarmup, loadableAtOrBelow, supportsWarmup, warmupSets } from './warmup';
-import { platesFor } from './plates';
-import type { Exercise } from '../types/models';
-
 /**
- * Warm-up generation.
- *
- * The rule that matters, and the reason this feature belongs in THIS app: a
- * generated weight must be one the equipment can actually make. `SetRow`'s header
- * is explicit that a plate label is never a lie about the equipment — an
- * unreachable target renders no line at all — so a generator that produced 62.5 kg
- * in a gym whose smallest plate is 5 would be printing a plan you cannot load.
+ * The warm-up toggle's arithmetic — the weight it picks, and which way the toggle
+ * goes. The store-level promise (logging one leaves the working sets alone) is in
+ * `state/warmupAndMaxTest.test.ts`.
  */
 
-const barbell: Exercise = {
-  id: 'ex_squat',
-  ownerId: null,
-  name: 'Back squat',
-  muscleGroups: ['quads'],
-  requiresWeight: true,
-  countUnit: 'reps',
-  loadMode: 'external',
-  isUnilateral: false,
-  incrementKg: 2.5,
-  barWeightKg: 20,
-  isArchived: false,
-  createdAt: '2026-01-01T00:00:00.000Z',
-};
+import { describe, expect, it } from 'vitest';
 
-const machine: Exercise = { ...barbell, id: 'ex_machine', barWeightKg: undefined, incrementKg: 5 };
-const pushups: Exercise = {
-  ...barbell,
-  id: 'ex_pushups',
-  requiresWeight: false,
-  loadMode: 'none',
-  barWeightKg: undefined,
-};
-const plank: Exercise = { ...pushups, id: 'ex_plank', countUnit: 'seconds' };
+import type { DraftSet } from './draft';
+import { toggleWarmupSets, warmupToggleState, warmupWeight } from './warmup';
 
-const FULL = [25, 20, 15, 10, 5, 2.5, 1.25];
+function row(localId: string, extra: Partial<DraftSet> = {}): DraftSet {
+  return {
+    localId,
+    weightKg: 80,
+    count: 8,
+    isWarmup: false,
+    isCompleted: false,
+    completedAt: null,
+    isPrefilled: true,
+    ...extra,
+  };
+}
 
-describe('which exercises get a warm-up at all', () => {
-  it('is weighted rep work, and nothing else', () => {
-    expect(supportsWarmup(barbell)).toBe(true);
-    expect(supportsWarmup(machine)).toBe(true);
-    // There is no 40% of a push-up, and 40% of a 2:00 plank is a shorter plank.
-    expect(supportsWarmup(pushups)).toBe(false);
-    expect(supportsWarmup(plank)).toBe(false);
+const external = { requiresWeight: true, loadMode: 'external' } as const;
+let n = 0;
+const makeId = () => `w${(n += 1)}`;
+
+describe('warmupWeight', () => {
+  it('is half the working weight, rounded to 2.5 kg', () => {
+    expect(warmupWeight(external, 80)).toBe(40);
+    expect(warmupWeight(external, 85)).toBe(42.5);
+    expect(warmupWeight(external, 47.5)).toBe(25); // 23.75 → 25
+    expect(warmupWeight(external, 2.5)).toBe(2.5);
   });
 
-  it('generates nothing for the shapes it does not support', () => {
-    expect(warmupSets({ workingWeightKg: 100, exercise: pushups })).toEqual([]);
-    expect(warmupSets({ workingWeightKg: 120, exercise: plank })).toEqual([]);
+  it('keeps an assisted machine’s help as it is — halving help is harder', () => {
+    expect(warmupWeight({ requiresWeight: true, loadMode: 'assisted' }, 30)).toBe(30);
   });
 
-  it('generates nothing without a working weight to be a fraction of', () => {
-    for (const bad of [null, undefined, 0, -20, NaN]) {
-      expect(warmupSets({ workingWeightKg: bad as number, exercise: barbell })).toEqual([]);
-    }
+  it('halves a belt, down to bodyweight alone', () => {
+    expect(warmupWeight({ requiresWeight: true, loadMode: 'added_bodyweight' }, 20)).toBe(10);
+    expect(warmupWeight({ requiresWeight: true, loadMode: 'added_bodyweight' }, 0)).toBe(0);
+  });
+
+  it('has no number for an unweighted movement, and keeps a blank blank', () => {
+    expect(warmupWeight({ requiresWeight: false, loadMode: 'none' }, 80)).toBeNull();
+    expect(warmupWeight(external, null)).toBeNull();
   });
 });
 
-describe('a barbell lift', () => {
-  it('produces the ordinary three rungs, lightest first', () => {
-    const sets = warmupSets({
-      workingWeightKg: 100,
-      exercise: barbell,
-      availablePlatesKg: FULL,
-    });
-    expect(sets).toEqual([
-      { weightKg: 40, count: 5 },
-      { weightKg: 60, count: 5 },
-      { weightKg: 80, count: 3 },
-    ]);
+describe('warmupToggleState', () => {
+  it('offers to add while nothing is warmed up and set 1 is not done', () => {
+    expect(warmupToggleState([row('a'), row('b')])).toBe('add');
   });
 
-  it('only ever produces weights these plates can load', () => {
-    /*
-     * The whole point. A gym with nothing below 5 kg cannot make 42.5, and the
-     * generator must snap rather than print it — every rung is checked against the
-     * same function that draws the plate label.
-     */
-    const coarse = [20, 10, 5];
-    const sets = warmupSets({
-      workingWeightKg: 107.5,
-      exercise: barbell,
-      availablePlatesKg: coarse,
-    });
-    expect(sets.length).toBeGreaterThan(0);
-    for (const set of sets) {
-      expect(platesFor(set.weightKg, 20, coarse)).not.toBeNull();
-    }
+  it('offers to remove an unlogged warm-up on top', () => {
+    expect(warmupToggleState([row('w', { isWarmup: true }), row('a')])).toBe('remove');
   });
 
-  it('rounds DOWN, never up', () => {
-    // Heavier than intended is the one direction that costs you the working set.
-    const sets = warmupSets({
-      workingWeightKg: 107.5,
-      exercise: barbell,
-      availablePlatesKg: [20, 10, 5],
-    });
-    for (const [i, set] of sets.entries()) {
-      const intended = 107.5 * [0.4, 0.6, 0.8][i];
-      expect(set.weightKg).toBeLessThanOrEqual(intended);
-    }
+  it('offers nothing once the warm-up or set 1 is logged, or for no rows', () => {
+    expect(warmupToggleState([row('w', { isWarmup: true, isCompleted: true }), row('a')])).toBe(
+      null,
+    );
+    expect(warmupToggleState([row('a', { isCompleted: true }), row('b')])).toBe(null);
+    expect(warmupToggleState([])).toBe(null);
   });
 
-  it('drops a rung that collapses onto another one', () => {
-    /*
-     * A light working weight on a 20 kg bar with only 20s: 40% and 60% both snap to
-     * the bare bar. Two identical warm-up sets is one warm-up set and a mistake.
-     */
-    const sets = warmupSets({ workingWeightKg: 60, exercise: barbell, availablePlatesKg: [20] });
-    const weights = sets.map((s) => s.weightKg);
-    expect(new Set(weights).size).toBe(weights.length);
-  });
-
-  it('never offers a rung at or above the working weight', () => {
-    const sets = warmupSets({ workingWeightKg: 25, exercise: barbell, availablePlatesKg: FULL });
-    for (const set of sets) expect(set.weightKg).toBeLessThan(25);
-  });
-
-  it('offers nothing at all when the bar already outweighs every rung', () => {
-    // 80% of 22.5 kg is 18 — under the bar. There is nothing to warm up with.
-    expect(
-      warmupSets({ workingWeightKg: 22.5, exercise: barbell, availablePlatesKg: FULL }),
-    ).toEqual([]);
+  it('offers nothing when a warm-up was moved below set 1 by hand', () => {
+    expect(warmupToggleState([row('a'), row('w', { isWarmup: true })])).toBe(null);
   });
 });
 
-describe('a machine or a dumbbell', () => {
-  it('rounds down onto the movement’s own increment instead of onto plates', () => {
-    // A pin stack that steps by 5 cannot be set to 32.
-    const sets = warmupSets({ workingWeightKg: 80, exercise: machine });
-    expect(sets).toEqual([
-      { weightKg: 30, count: 5 },
-      { weightKg: 45, count: 5 },
-      { weightKg: 60, count: 3 },
-    ]);
+describe('toggleWarmupSets', () => {
+  it('splices one warm-up on top with set 1’s reps and leaves every working row as it was', () => {
+    const sets = [row('a', { count: 6 }), row('b'), row('c'), row('d')];
+    const next = toggleWarmupSets(sets, external, makeId);
+    expect(next).toHaveLength(5);
+    expect(next[0]).toMatchObject({ isWarmup: true, weightKg: 40, count: 6, isPrefilled: true });
+    for (let i = 0; i < sets.length; i += 1) expect(next[i + 1]).toBe(sets[i]);
   });
 
-  it('falls back to a 2.5 step when the exercise declares no increment', () => {
-    const sets = warmupSets({
-      workingWeightKg: 100,
-      exercise: { ...machine, incrementKg: undefined },
-    });
-    for (const set of sets) expect(set.weightKg % 2.5).toBeCloseTo(0, 5);
-  });
-});
-
-describe('the heaviest loadable weight at or below a target', () => {
-  it('is the target itself when the plates can make it', () => {
-    expect(loadableAtOrBelow(100, 20, FULL)).toBe(100);
+  it('removes every unlogged warm-up on top', () => {
+    const sets = [row('w1', { isWarmup: true }), row('w2', { isWarmup: true }), row('a')];
+    expect(toggleWarmupSets(sets, external, makeId)).toEqual([sets[2]]);
   });
 
-  it('walks down to the nearest thing these plates can make', () => {
-    expect(loadableAtOrBelow(42.5, 20, [20, 10, 5])).toBe(40);
+  it('returns the same array when there is nothing to do', () => {
+    const sets = [row('a', { isCompleted: true })];
+    expect(toggleWarmupSets(sets, external, makeId)).toBe(sets);
   });
 
-  it('is the bare bar when nothing lighter fits', () => {
-    expect(loadableAtOrBelow(24, 20, [20, 10, 5])).toBe(20);
-  });
-
-  it('is null below the bar, and for inputs that are not numbers', () => {
-    expect(loadableAtOrBelow(15, 20, FULL)).toBeNull();
-    expect(loadableAtOrBelow(NaN, 20, FULL)).toBeNull();
-    expect(loadableAtOrBelow(100, NaN, FULL)).toBeNull();
-  });
-
-  it('terminates on a plate list that cannot make anything', () => {
-    // A corrupt list must not spin: the walk is bounded.
-    expect(loadableAtOrBelow(1000, 20, [])).not.toBeUndefined();
-  });
-});
-
-describe('the summary on the button', () => {
-  it('reads like the shorthand everywhere else in the app', () => {
-    const sets = warmupSets({ workingWeightKg: 100, exercise: barbell, availablePlatesKg: FULL });
-    expect(describeWarmup(sets)).toBe('40 × 5 · 60 × 5 · 80 × 3');
-  });
-
-  it('is null when there is nothing to add, so the row can be hidden', () => {
-    expect(describeWarmup([])).toBeNull();
-  });
-
-  it('trims a half-kilo without printing 42.50', () => {
-    expect(describeWarmup([{ weightKg: 42.5, count: 5 }])).toBe('42.5 × 5');
+  it('never removes the last row — a card with no sets is not a card', () => {
+    const sets = [row('w', { isWarmup: true })];
+    expect(warmupToggleState(sets)).toBe(null);
+    expect(toggleWarmupSets(sets, external, makeId)).toBe(sets);
   });
 });

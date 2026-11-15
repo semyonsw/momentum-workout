@@ -1,31 +1,28 @@
 /**
- * The set row's grid and the quick RIR scale — the numbers the 2.9 redesign (#1,
- * #2) fixed, kept here so a test can hold them to the 360 dp promise.
+ * The set row's grid — the numbers the 2.9 redesign (#1, #2) fixed, kept here so
+ * a test can hold them to the 360 dp promise.
  *
  *   ┌ 12 ┬──── 80 ────┬─ 6 ─┬── 1fr ──┬─ 6 ─┬── 1fr ──┬─ 6 ─┬ 48 ┬ 12 ┐
- *   │    │ [W] 6 [1▾] │     │ 102.5 kg│     │ 12 RIR 2│     │ (✓)│    │
+ *   │    │    6 [1]   │     │ 102.5 kg│     │ 12 reps │     │ (✓)│    │
  *   └────┴────────────┴─────┴─────────┴─────┴─────────┴─────┴────┴────┘
  *
  * ── WHY A FIXED LEAD COLUMN ─────────────────────────────────────────────────
  *
- * The `W` toggle comes and goes (it is only offered while a row can still be a
- * warm-up, `warmupToggleRows`), and edit mode puts a ⋮⋮ grip in the same slot. A
- * column that sized to its contents moved the weight under the thumb every time
- * either happened; 80 dp whatever is in it means the weight well's left edge is
- * the same on every row of every card, toggle or spacer, grip or not.
+ * Edit mode puts a ⋮⋮ grip in the lead slot. A column that sized to its contents
+ * moved the weight under the thumb every time that happened; 80 dp whatever is in
+ * it means the weight well's left edge is the same on every row of every card,
+ * grip or not.
  *
  * ── WHY A WIDTH MODEL AT ALL ────────────────────────────────────────────────
  *
- * At 360 dp each value well is 79 dp, and `102.5 kg` or `12` + `RIR 2` is most of
- * that. There is no renderer in the test suite, so the check is an estimate off
+ * At 360 dp each value well is 79 dp, and `102.5 kg` is most of that. There is no renderer in the test suite, so the check is an estimate off
  * Roboto's advance widths — deliberately on the generous side — and the row also
  * lets the numeral shrink to fit (`adjustsFontSizeToFit`) as the last resort. The
- * estimate is what stops a padding or a chip margin creeping up unnoticed until
+ * estimate is what stops a padding or a margin creeping up unnoticed until
  * the first real phone crops a weight.
  */
 
 import type { CountUnit, UnitSystem } from '../types/models';
-import { DEFAULT_OVERLOAD_POLICY } from './progressiveOverload';
 import { countStep, kgToLb, resolveIncrementKg, roundToStep, weightSteps } from './units';
 
 /** The grid, in dp. `log` is the column; the circle inside it is `logCircle`. */
@@ -44,10 +41,8 @@ export const SET_ROW = {
    * because at 360 dp those 8 were the difference between `102.5 kg` and `102.…`.
    */
   wellPadding: 4,
-  /** Between a numeral and its unit or chip. */
+  /** Between a numeral and its unit. */
   unitGap: 3,
-  /** The `RIR 2` chip's inner padding, each side. */
-  chipPadding: 5,
 } as const;
 
 /** The session list's side gutter, each side, around the cards. */
@@ -88,7 +83,7 @@ const ADVANCE: Record<string, number> = {
   '+': 0.58,
   '−': 0.58,
   '—': 0.8,
-  // The letters the row actually draws beside a number: `kg`, `lb`, `RIR`.
+  // The letters the row actually draws beside a number: `kg`, `lb`.
   I: 0.28,
   R: 0.64,
   k: 0.53,
@@ -113,14 +108,9 @@ export function valueFontSize(isWarmup: boolean): number {
 /** The unit beside a value: 12.5 px, the type floor. */
 export const UNIT_FONT_SIZE = 12.5;
 
-/** The `RIR 2` chip's width. */
-export function rirChipWidth(label: string): number {
-  return textWidth(label, UNIT_FONT_SIZE) + 2 * SET_ROW.chipPadding;
-}
-
 /**
  * Does a well of `wellWidth` hold `value` at full size with `trailing` beside it
- * (a unit's text width, or a chip's)?
+ * (a unit's text width)?
  */
 export function fitsWell(
   value: string,
@@ -136,31 +126,6 @@ export function fitsWell(
 }
 
 /* ------------------------------------------------------------------ */
-/* Reps left (RIR), the quick scale                                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * The five chips the inline editor and the sheet offer: 0 1 2 3 4+.
- *
- * Whole reps only. The stored scale (`lib/effort.ts`) still runs 0–5 in halves,
- * and a half grade from an older version or a backup stays exactly as it was —
- * it simply lights no chip. `4+` stores 4: past four reps left the answer stops
- * changing anything the nudge does (`RIR_LIMIT` is 0.5), so the scale stops too.
- */
-export const RIR_QUICK: readonly number[] = [0, 1, 2, 3, 4];
-
-export function rirQuickLabel(value: number): string {
-  return value >= 4 ? '4+' : String(value);
-}
-
-/** The chip a stored grade lights, or null (ungraded, or a half step). */
-export function rirQuickSelected(rir: number | undefined | null): number | null {
-  if (rir == null) return null;
-  if (rir >= 4) return 4;
-  return Number.isInteger(rir) ? rir : null;
-}
-
-/* ------------------------------------------------------------------ */
 /* The inline editor's steppers                                        */
 /* ------------------------------------------------------------------ */
 
@@ -168,8 +133,7 @@ export function rirQuickSelected(rir: number | undefined | null): number | null 
  * One stepper's step, in the user's own units: `−2.5 | 80 | +2.5`, `−1 | 8 | +1`.
  *
  * WEIGHT STEPS BY THE INCREMENT (redesign #2): the exercise's own, else the app's
- * (2.5 kg, 5 lb) — the same number the overload nudge adds, so `+2.5` here and
- * "try 82.5" there are one plate. The ±0.5 / ±2 pair this replaced is still focus
+ * (2.5 kg, 5 lb), so `+2.5` is one plate. The ±0.5 / ±2 pair this replaced is still focus
  * mode's (`nudgeSteps`), where four chips have the room; the inline editor has one
  * button each side, and the one that is worth a button is the plate you own.
  * A count steps by its unit's natural step: a rep, fifteen seconds, 25 m.
@@ -186,14 +150,17 @@ export function stepperStep(
   field: 'weight' | 'count',
   exercise: { incrementKg?: number; countUnit: CountUnit },
   unitSystem: UnitSystem,
-  policyIncrementKg: number = DEFAULT_OVERLOAD_POLICY.incrementKg,
+  defaultIncrementKg: number = DEFAULT_INCREMENT_KG,
 ): number {
   if (field === 'count') return countStep(exercise.countUnit);
-  const kg = resolveIncrementKg(exercise.incrementKg, policyIncrementKg, unitSystem);
+  const kg = resolveIncrementKg(exercise.incrementKg, defaultIncrementKg, unitSystem);
   if (unitSystem !== 'imperial') return kg;
   const lb = roundToStep(kgToLb(kg), SMALLEST_PLATE_LB);
   return lb > 0 ? lb : weightSteps('imperial').fine;
 }
+
+/** The metric step when the exercise names none: the smallest plate pair. */
+const DEFAULT_INCREMENT_KG = 2.5;
 
 /** The smallest pound plate a gym hangs on a bar. */
 const SMALLEST_PLATE_LB = 2.5;

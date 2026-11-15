@@ -30,7 +30,7 @@ import { useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
 import { buildDraftSession, type DraftSession } from '../lib/draft';
 import type { CompletedWorkout } from '../lib/completedWorkout';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import { __resetDatabases } from '../../test/expoSqliteStub';
 import type { Exercise, ID } from '../types/models';
@@ -50,7 +50,6 @@ function loggedDraft(startedAt: string): DraftSession {
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,
@@ -312,7 +311,7 @@ describe('a set correction on a Workout card', () => {
           id: saved.id,
           exerciseId,
           number: 3,
-          text: 'failure',
+          text: 'warmup',
         },
       ]),
     );
@@ -320,7 +319,7 @@ describe('a set correction on a Workout card', () => {
     expect(applied.message).toBe('2 changes applied');
     const w = workout(saved.id);
     expect(w.sets.find((s) => s.id === sets[0].id)?.isWarmup).toBe(true);
-    expect(w.sets.find((s) => s.id === sets[2].id)?.setType).toBe('failure');
+    expect(w.sets.find((s) => s.id === sets[2].id)?.isWarmup).toBe(true);
 
     applied.undo();
     expect(snapshot()).toEqual(before);
@@ -339,7 +338,7 @@ describe('a set correction on a Workout card', () => {
           id: keep.id,
           exerciseId: k.exerciseId,
           number: 1,
-          text: 'drop',
+          text: 'warmup',
         },
         {
           target: 'workout_set',
@@ -347,7 +346,7 @@ describe('a set correction on a Workout card', () => {
           id: gone.id,
           exerciseId: g.exerciseId,
           number: 1,
-          text: 'drop',
+          text: 'warmup',
         },
       ]),
     );
@@ -365,7 +364,7 @@ describe('a set correction on a Workout card', () => {
           id: keep.id,
           exerciseId: k.exerciseId,
           number: 1,
-          text: 'amrap',
+          text: 'warmup',
         },
       ]),
     );

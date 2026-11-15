@@ -49,7 +49,14 @@ import { Linking, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 import { t, type Language } from './i18n';
-import type { PlannedReminder } from './reminders';
+import {
+  WEIGH_IN_SCREEN,
+  WEIGH_IN_SNOOZE_ID,
+  WEIGH_IN_WEEKLY_PREFIX,
+  isWeighInNotification,
+  weighInCopy,
+  type PlannedWeighIn,
+} from './weighInReminder';
 
 /**
  * Bumped when a channel's SOUND or IMPORTANCE changes — Android freezes both.
@@ -68,13 +75,13 @@ const CHANNEL_GO = `timer-go-v${CHANNEL_VERSION}`;
 const CHANNEL_GETSET = `timer-getset-v${CHANNEL_VERSION}`;
 
 /**
- * REMINDERS — the workout schedule (`lib/reminders.ts`).
+ * REMINDERS — anything the app schedules for later in the day or week.
  *
  * Its own channel and not the timer's, which is the whole point of channels: the
  * two are different events with different urgencies and the user has to be able
  * to tune them apart. A rest timer ending is a thing you need THIS SECOND and it
- * gets `MAX` with the app's loud tone; "time to train" at 18:00 is a thing
- * you need today, and a reminder that sounds like a set ending is a reminder
+ * gets `MAX` with the app's loud tone; "time to weigh in" at 06:00 is a thing
+ * you need this morning, and a reminder that sounds like a set ending is a reminder
  * that gets the whole app silenced.
  *
  * So this one is `DEFAULT` importance and carries NO custom sound: it uses
@@ -111,9 +118,8 @@ const TIMER_KIND = 'timer';
  *
  * A PROMISE rather than a flag, because the flag this replaced was set before the
  * three `setNotificationChannelAsync` calls had finished: launch fires
- * `ensureTimerChannels()` and, half a second later, the reminder sync calls it
- * again, sees `true`, and schedules straight onto a channel Android has not created
- * yet — and a notification posted to a channel that does not exist is DROPPED on
+ * `ensureTimerChannels()` and a rest starting a moment later calls it again,
+ * sees `true`, and schedules straight onto a channel Android has not created yet — and a notification posted to a channel that does not exist is DROPPED on
  * Android 8+, silently. Every caller now awaits the same write.
  *
  * Keyed by language because a channel's NAME and DESCRIPTION can be updated in
@@ -154,7 +160,7 @@ async function writeChannels(lang: Language): Promise<boolean> {
 
     await Notifications.setNotificationChannelAsync(CHANNEL_REMINDER, {
       name: t('Reminders', lang),
-      description: t('A workout, at the time you asked to be reminded.', lang),
+      description: t('A weigh-in, at the time you asked to be reminded.', lang),
       importance: Notifications.AndroidImportance.DEFAULT,
       vibrationPattern: [0, 200],
       enableVibrate: true,
@@ -218,10 +224,10 @@ export async function requestNotificationPermission(): Promise<void> {
  *   blocked  refused for good — only the phone's Settings can turn it back on,
  *            which is what `openNotificationSettings` is for
  *
- * Asked at the moment a reminder is switched ON, not only at launch: a switch
- * that arms a reminder behind a permission nobody was ever asked for is the
- * "everything looks right and nothing arrives" state `WorkoutReminder` warns
- * about, and the switch is the one moment the user knows why we are asking.
+ * Asked at the moment an alert is switched ON, not only at launch: a switch that
+ * arms something behind a permission nobody was ever asked for is the
+ * "everything looks right and nothing arrives" state, and the switch is the one
+ * moment the user knows why we are asking.
  */
 export async function ensureNotificationPermission(): Promise<'granted' | 'denied' | 'blocked'> {
   try {
@@ -395,15 +401,13 @@ export async function cancelTimerAlerts(ids: readonly (string | null)[]): Promis
 /**
  * The marker that separates THIS app's reminders from its timer alerts.
  *
- * Everything scheduled here carries `data.kind = 'reminder'`, and `syncReminders`
- * cancels by reading it back off the queue. The queue is this app's alone —
- * Android keeps each package's scheduled notifications apart, so the Tasks and
- * Expenses apps can neither see nor cancel these — and the marker is what
- * separates the two kinds WITHIN this app. That matters: the obvious
- * implementation is `cancelAllScheduledNotificationsAsync`, and it would silently
- * cancel the rest-timer alert of a workout that is running while the user edits
- * the workout reminder — a rest that then ends in complete silence with the phone
- * in a pocket.
+ * A reminder carries `data.kind = 'reminder'`, which is how the foreground
+ * handler in `App.tsx` tells it from a timer alert and lets it show. The queue is
+ * this app's alone — Android keeps each package's scheduled notifications apart —
+ * and the marker is what separates the two kinds WITHIN this app. That matters:
+ * the obvious way to clear reminders is `cancelAllScheduledNotificationsAsync`,
+ * and it would silently cancel the rest-timer alert of a running workout — a rest
+ * that then ends in complete silence with the phone in a pocket.
  */
 export const REMINDER_KIND = 'reminder';
 
@@ -429,92 +433,98 @@ export function notificationKind(data: unknown): string | null {
 }
 
 /**
- * A reminder's identifier, as `planReminders` writes it. The fallback marker.
- * `task:` too: Momentum 2.x armed its daily tasks from this package, and any
- * left in the queue are reminders this app must still be able to cancel.
+ * Cancel the workout reminders an earlier version armed.
+ *
+ * The workout reminder is gone (4.0), but the weekly alerts it scheduled live in
+ * Android's queue, not in the app, so deleting the code that armed them would
+ * leave "Time to train" firing every week with no setting left to turn it off.
+ * Run on every launch: it costs one read of a short queue, and it is the only way
+ * to reach a phone that skips an upgrade or two.
+ *
+ * Matched by IDENTIFIER, not by `REMINDER_KIND`, so a future reminder carrying the
+ * same kind survives it: the old plan named every alert `workout:w<day>`, and
+ * `task:` is Momentum 2.x's daily tasks, armed from this same package.
  */
-function isReminderId(identifier: string): boolean {
-  return identifier.startsWith('task:') || identifier.startsWith('workout:');
+export async function cancelRetiredReminders(): Promise<void> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const entry of scheduled) {
+      const retired =
+        entry.identifier.startsWith('workout:') || entry.identifier.startsWith('task:');
+      if (!retired) continue;
+      await Notifications.cancelScheduledNotificationAsync(entry.identifier).catch(() => {});
+    }
+  } catch {
+    // Nothing scheduled, or the module is unavailable. Either way, nothing to do.
+  }
 }
 
-/**
- * Monday = 0 … Sunday = 6  →  Android's 1 = Sunday … 7 = Saturday.
- *
- * The app counts weeks from Monday everywhere (`weekdayIndex`), and the platform
- * counts them from Sunday. One conversion, in one place, so a Friday reminder
- * cannot arrive on a Thursday because two files disagreed about what 4 means.
- */
+/* ------------------------------------------------------------------ */
+/* The weigh-in reminder — see `lib/weighInReminder.ts`                */
+/* ------------------------------------------------------------------ */
+
+/** Android's weekday for a Monday-first one: expo counts Sunday = 1 … Saturday = 7. */
 function expoWeekday(weekday: number): number {
   return ((weekday + 1) % 7) + 1;
 }
 
-function triggerFor(reminder: PlannedReminder): Notifications.NotificationTriggerInput | null {
-  const channel = Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {};
-  const { trigger } = reminder;
+/** What every weigh-in alert carries: the reminder kind, and where a tap lands. */
+const WEIGH_IN_DATA = { kind: REMINDER_KIND, screen: WEIGH_IN_SCREEN };
 
-  return {
-    type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-    weekday: expoWeekday(trigger.weekday),
-    hour: trigger.hour,
-    minute: trigger.minute,
-    ...channel,
-  };
-}
+let weighInQueue: Promise<unknown> = Promise.resolve();
 
 /**
- * Make Android's queue match the plan. Returns how many alerts are armed.
+ * Make Android hold exactly `plan`'s weekly weigh-in alerts.
  *
- * Cancel-then-schedule rather than a diff, and deliberately: the queue is a
- * dozen entries, re-scheduling one is microseconds, and a diff would need to
- * compare triggers across a bridge that hands them back in a different shape
- * from the one they went in as. Two syncs with nothing changed therefore produce
- * the same armed alerts at the same instants, which is the property that matters.
+ * Cancels every `weighin:w*` and schedules the plan — and leaves the snooze and
+ * the timer alerts alone, which is why it matches by prefix rather than by kind.
+ * An empty plan (off, or no permission) is how the alerts are taken away.
  *
- * Never throws. Every failure mode here — no permission, exact alarms refused, a
- * module that is not present in this build — leaves the app working exactly as it
- * did before reminders existed, and the settings screen is what reports that the
- * permission is missing.
+ * ONE AT A TIME, chained: launch, the foreground pass and a settings edit can
+ * all land within a second, and two interleaved cancel-then-schedule passes can
+ * have the second one's cancel land between the first one's schedules. Chained,
+ * the last plan asked for is the one Android ends up holding.
  */
-export function syncReminders(
-  plan: readonly PlannedReminder[],
+export function syncWeighInReminders(
+  plan: readonly PlannedWeighIn[],
   lang: Language = 'en',
 ): Promise<number> {
-  /*
-   * ONE AT A TIME. Launch runs the debounced sync and the foreground sync within
-   * the same second, and two interleaved cancel-then-schedule passes can have the
-   * second one's cancel land between the first one's schedules. Chained, the last
-   * plan asked for is the one Android ends up holding.
-   */
-  const run = syncQueue.then(() => syncNow(plan, lang));
-  syncQueue = run.catch(() => 0);
+  const run = weighInQueue.then(() => syncWeighInNow(plan, lang));
+  weighInQueue = run.catch(() => 0);
   return run;
 }
 
-let syncQueue: Promise<unknown> = Promise.resolve();
-
-async function syncNow(plan: readonly PlannedReminder[], lang: Language): Promise<number> {
+async function syncWeighInNow(plan: readonly PlannedWeighIn[], lang: Language): Promise<number> {
   try {
     await ensureTimerChannels(lang);
-    await cancelAllReminders();
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const entry of scheduled) {
+      if (!entry.identifier.startsWith(WEIGH_IN_WEEKLY_PREFIX)) continue;
+      await Notifications.cancelScheduledNotificationAsync(entry.identifier).catch(() => {});
+    }
 
     let armed = 0;
     for (const reminder of plan) {
-      const trigger = triggerFor(reminder);
-      if (!trigger) continue;
       try {
         await Notifications.scheduleNotificationAsync({
           identifier: reminder.id,
           content: {
             title: reminder.title,
             body: reminder.body,
-            data: { kind: REMINDER_KIND },
+            data: WEIGH_IN_DATA,
             ...(Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {}),
           },
-          trigger,
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+            weekday: expoWeekday(reminder.weekday),
+            hour: reminder.hour,
+            minute: reminder.minute,
+            ...(Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {}),
+          },
         });
         armed += 1;
       } catch {
-        // One bad alert must not take the other eleven down with it.
+        // One bad alert must not take the other day down with it.
       }
     }
     return armed;
@@ -523,17 +533,51 @@ async function syncNow(plan: readonly PlannedReminder[], lang: Language): Promis
   }
 }
 
-/** Drop every reminder this app scheduled, leaving the timer alerts alone. */
-async function cancelAllReminders(): Promise<void> {
+/**
+ * "Remind me tomorrow" — one alert, at `at`, under the fixed snooze id.
+ *
+ * Fixed so a second snooze replaces the first rather than stacking two alerts
+ * for the same morning. Returns whether it was armed; the screen leaves either
+ * way, because the user's answer was "not now", and a refusal here (no
+ * permission, an exact-alarm `SecurityException`) is not theirs to fix.
+ */
+export async function scheduleWeighInSnooze(at: Date, lang: Language): Promise<boolean> {
+  if (!Number.isFinite(at.getTime()) || at.getTime() - Date.now() < 1000) return false;
   try {
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    for (const entry of scheduled) {
-      const ours =
-        notificationKind(entry.content?.data) === REMINDER_KIND || isReminderId(entry.identifier);
-      if (!ours) continue;
-      await Notifications.cancelScheduledNotificationAsync(entry.identifier).catch(() => {});
+    await ensureTimerChannels(lang);
+    await Notifications.scheduleNotificationAsync({
+      identifier: WEIGH_IN_SNOOZE_ID,
+      content: {
+        ...weighInCopy(lang),
+        data: WEIGH_IN_DATA,
+        ...(Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {}),
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: at,
+        ...(Platform.OS === 'android' ? { channelId: CHANNEL_REMINDER } : {}),
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clear weigh-in alerts still in the shade — the question has been answered.
+ *
+ * Called when a weight is logged, skipped or snoozed: a "Time to weigh in" left
+ * in the shade after somebody weighed in is a reminder for a thing already done.
+ */
+export async function dismissWeighInAlerts(): Promise<void> {
+  try {
+    const shown = await Notifications.getPresentedNotificationsAsync();
+    for (const entry of shown) {
+      if (!isWeighInNotification(entry.request.content.data)) continue;
+      await Notifications.dismissNotificationAsync(entry.request.identifier).catch(() => {});
     }
   } catch {
-    // Nothing scheduled, or the module is unavailable. Either way, nothing to do.
+    // Nothing presented, or the module is unavailable.
   }
 }

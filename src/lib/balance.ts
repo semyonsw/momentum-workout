@@ -25,7 +25,7 @@
  * ── COUNTING RULES ─────────────────────────────────────────────────────────
  *
  *  1. COMPLETED WORKING SETS ONLY. Warm-ups are out, exactly as they are out of
- *     the volume, the shorthand and every overload verdict. A set that does not
+ *     the volume, the shorthand and the records. A set that does not
  *     count towards progress does not count towards balance either.
  *  2. THE PRIMARY MUSCLE DECIDES THE CLUSTER, via `clusterOf`. A face pull is
  *     pull work and a lateral raise is push work, which is the whole point of

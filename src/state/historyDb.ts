@@ -177,16 +177,15 @@ CREATE TABLE IF NOT EXISTS set_history (
   load_mode          TEXT NOT NULL,
   is_warmup          INTEGER NOT NULL,
   rest_taken_seconds INTEGER,
-  -- Reps in reserve (lib/effort.ts), or NULL for a set nobody graded. Added by
-  -- addMissingColumns on a database that predates it, like workouts.effort.
+  -- Reps in reserve and drop / failure / AMRAP set types, 2.3 to 3.x. Nothing
+  -- reads or writes them since 4.0; they stay because a column on a phone is never
+  -- dropped, and an older row's values are simply ignored (a plain working set).
   rir                REAL,
-  -- Drop / failure / AMRAP (lib/setType.ts), or NULL for a plain working set or a
-  -- warm-up, which is is_warmup and never this.
   set_type           TEXT,
   FOREIGN KEY (session_id) REFERENCES workouts(id) ON DELETE CASCADE
 );
 
--- THE index from models.ts. Progressive-overload analysis is one range scan over
+-- THE index from models.ts. One exercise's history is one range scan over
 -- it, which is the entire reason SetHistory is denormalised the way it is.
 CREATE INDEX IF NOT EXISTS set_history_exercise_at
   ON set_history (exercise_id, performed_at);
@@ -300,9 +299,6 @@ interface SetRow {
   load_mode: string;
   is_warmup: number;
   rest_taken_seconds: number | null;
-  /** Absent from the row object entirely on a database `addMissingColumns` could not repair. */
-  rir?: number | null;
-  set_type?: string | null;
 }
 
 /**
@@ -368,9 +364,6 @@ function toSetHistory(row: SetRow): Record<string, unknown> {
     isWarmup: row.is_warmup === 1,
     isCompleted: true,
     ...(row.rest_taken_seconds != null ? { restTakenSeconds: row.rest_taken_seconds } : {}),
-    // NULL reads back as an absent key, like `effort`: absence is "nobody said".
-    ...(row.rir != null ? { rir: row.rir } : {}),
-    ...(row.set_type ? { setType: row.set_type } : {}),
   };
 }
 
@@ -395,8 +388,8 @@ function insertSet(database: Db, sessionId: string, row: SetHistory): void {
   database.runSync(
     `INSERT OR REPLACE INTO set_history
        (id, session_id, exercise_id, performed_at, set_index, weight_kg,
-        count, count_unit, load_mode, is_warmup, rest_taken_seconds, rir, set_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        count, count_unit, load_mode, is_warmup, rest_taken_seconds)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     row.id,
     // The workout's id, not the row's claimed `sessionId`: they are the same thing
     // by construction, and the foreign key has to point at a workout that exists.
@@ -410,8 +403,6 @@ function insertSet(database: Db, sessionId: string, row: SetHistory): void {
     row.loadMode,
     row.isWarmup ? 1 : 0,
     row.restTakenSeconds ?? null,
-    row.rir ?? null,
-    row.setType ?? null,
   );
 }
 

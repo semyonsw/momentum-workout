@@ -37,7 +37,7 @@ export function workLines(target: FocusTarget, unitSystem: UnitSystem, lang: Lan
    * the screen says the only thing that is true about it. The moment a rep is
    * counted it becomes the count, like any other set. See `lib/maxReps.ts`.
    */
-  if (showsMaxLabel(exercise, target.set)) {
+  if (showsMaxLabel(exercise, target.set, target.isMaxTest)) {
     lines.push({ value: maxLabel(lang).toUpperCase(), unit: '' });
     return lines;
   }

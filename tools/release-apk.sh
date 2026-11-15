@@ -3,11 +3,15 @@
 #  Build, verify and ship the release APK — CLAUDE.md's release steps 2–3 as
 #  one command, for WSL.
 #
-#      tools/release-apk.sh            # build, verify, commit, push
+#      tools/release-apk.sh "4.0.0: simpler app"   # check, commit code, build, verify, push
+#      tools/release-apk.sh            # build, verify, commit the APK, push
 #      tools/release-apk.sh --no-push  # build and verify only
 #      PROBE='some new string' tools/release-apk.sh   # bundle check for THIS release
 #
-#  The version comes from app.json, so bump it (and commit the code) first.
+#  The version comes from app.json, so bump it first. Given a commit message,
+#  the script runs the four checks, commits every change in the tree with that
+#  message, then builds — so the one command takes a finished change to the
+#  phone's APK and to main. Without one, the code must already be committed.
 #  Every trap CLAUDE.md documents is handled here rather than rediscovered:
 #  the Linux SDK path, the Windows merger.xml caches, the compressReleaseAssets
 #  race (retried once), and the four checks on the BUILT file.
@@ -17,7 +21,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PUSH=1
-[ "${1:-}" = "--no-push" ] && PUSH=0
+MSG=""
+case "${1:-}" in
+  --no-push) PUSH=0 ;;
+  "") ;;
+  *) MSG="$1" ;;
+esac
 
 VERSION="$(node -p "require('./app.json').expo.version")"
 APK="momentum-workout-$VERSION.apk"
@@ -30,6 +39,19 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 die() { printf '\n\033[31mFAILED: %s\033[0m\n' "$*" >&2; exit 1; }
 
 say "Workout $VERSION"
+
+if [ -n "$MSG" ]; then
+  # Run through node directly: the .bin shims in this shared tree fall through
+  # to the Windows node.exe (CLAUDE.md, "Before committing").
+  say "checks: tsc, vitest, eslint, prettier"
+  node node_modules/typescript/bin/tsc --noEmit || die "tsc"
+  node node_modules/vitest/vitest.mjs run >/dev/null || die "vitest (run it to see the failure)"
+  node node_modules/eslint/bin/eslint.js src || die "eslint"
+  node node_modules/prettier/bin/prettier.cjs --write src >/dev/null
+  say "commit: $MSG"
+  git add -A
+  git diff --cached --quiet || git commit -q -m "$MSG"
+fi
 
 # A Windows-installed tree has no Linux lightningcss and fails six minutes in.
 node -e "require('./metro.config.js'); process.exit(0)" \

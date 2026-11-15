@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  RIR_QUICK,
   SET_ROW,
   UNIT_FONT_SIZE,
   fitsWell,
-  rirChipWidth,
-  rirQuickLabel,
-  rirQuickSelected,
   stepperStep,
   textWidth,
   valueWellWidth,
@@ -15,8 +11,8 @@ import {
 
 /**
  * The set row's grid (redesign #1) and the inline editor's steps (#2). The width
- * checks are the acceptance line "nothing is cropped at 360 dp with 102.5 kg and
- * 12 + RIR 2", held against an estimate of Roboto's advances.
+ * checks are the acceptance line "nothing is cropped at 360 dp with 102.5 kg",
+ * held against an estimate of Roboto's advances.
  */
 
 describe('the grid', () => {
@@ -48,11 +44,6 @@ describe('nothing crops at 360 dp', () => {
       expect(fitsWell('102.5', textWidth('kg', UNIT_FONT_SIZE), well)).toBe(true);
     });
 
-    it(`fits "12" + the RIR 2 chip in a ${well.toFixed(0)} dp well (card padding ${cardPadding})`, () => {
-      expect(fitsWell('12', rirChipWidth('RIR 2'), well)).toBe(true);
-      expect(fitsWell('12', rirChipWidth('RIR 4'), well)).toBe(true);
-    });
-
     it(`fits a warm-up's "102.5 kg" one size down (card padding ${cardPadding})`, () => {
       expect(fitsWell('102.5', textWidth('kg', UNIT_FONT_SIZE), well, true)).toBe(true);
     });
@@ -68,26 +59,6 @@ describe('nothing crops at 360 dp', () => {
 
   it('would catch a well that is too narrow (the model is not vacuous)', () => {
     expect(fitsWell('102.5', textWidth('kg', UNIT_FONT_SIZE), 60)).toBe(false);
-  });
-});
-
-describe('reps left, the quick scale', () => {
-  it('offers 0 1 2 3 4+', () => {
-    expect(RIR_QUICK.map(rirQuickLabel)).toEqual(['0', '1', '2', '3', '4+']);
-  });
-
-  it('lights the chip a whole grade is on, and 4+ for anything from four up', () => {
-    expect(rirQuickSelected(0)).toBe(0);
-    expect(rirQuickSelected(2)).toBe(2);
-    expect(rirQuickSelected(4)).toBe(4);
-    expect(rirQuickSelected(5)).toBe(4);
-    expect(rirQuickSelected(4.5)).toBe(4);
-  });
-
-  it('lights nothing for an ungraded set or an older half-step grade', () => {
-    expect(rirQuickSelected(undefined)).toBeNull();
-    expect(rirQuickSelected(null)).toBeNull();
-    expect(rirQuickSelected(1.5)).toBeNull();
   });
 });
 

@@ -110,9 +110,11 @@ interface ExerciseLibraryScreenProps {
   onDelete: (exercise: Exercise) => void;
   /**
    * Under the header — the `Routines | Exercises` switch when this is the
-   * exercises half of `Routines & exercises` (U23). Absent in the picker.
+   * exercises half of the Routines tab (U23, 4.0). Absent in the picker.
    */
   switcher?: ReactNode;
+  /** The scroll's foot — clear of the nav pill when this is the tab's half. */
+  footInset?: number;
 }
 
 export function ExerciseLibraryScreen({
@@ -129,6 +131,7 @@ export function ExerciseLibraryScreen({
   onCreate,
   onDelete,
   switcher,
+  footInset = 40,
 }: ExerciseLibraryScreenProps) {
   const t = useT();
   /* Local: leaving the screen ends the mode, which is what a mode should do. */
@@ -188,7 +191,7 @@ export function ExerciseLibraryScreen({
 
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: footInset }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeHistory, sessionRows, summarizeSessionSets, topWeightSeries } from './history';
+import {
+  describeHistory,
+  plateauDays,
+  sessionRows,
+  summarizeSessionSets,
+  topWeightSeries,
+} from './history';
 import { seedExercisesById } from '../data/seed';
 import type { SetHistory } from '../types/models';
 
@@ -54,16 +60,15 @@ describe('summarizeSessionSets', () => {
     });
   });
 
-  it('marks set types: F to failure, + AMRAP, D drop', () => {
+  it('reads a set an older build typed (drop, failure, AMRAP) as a plain working set', () => {
     const sets = [
       row('s', MON, 0, 100, 5),
-      row('s', MON, 1, 100, 5, { setType: 'failure' }),
-      row('s', MON, 2, 100, 8, { setType: 'amrap' }),
-      row('s', MON, 3, 60, 10, { setType: 'drop' }),
+      row('s', MON, 1, 100, 5, { setType: 'failure' } as never),
+      row('s', MON, 2, 60, 10, { setType: 'drop' } as never),
     ];
     expect(summarizeSessionSets(sets, deadlift)).toEqual({
-      lead: '100 kg · 5 5F 8+',
-      drops: ' · 60 kg · 10D',
+      lead: '100 kg · 5 5',
+      drops: ' · 60 kg · 10',
       topWeightKg: 100,
     });
   });
@@ -98,7 +103,7 @@ describe('summarizeSessionSets', () => {
 
   it('lists each time-based set as its own duration, with no marks', () => {
     const sets = [
-      row('s', MON, 0, null, 60, { countUnit: 'seconds', setType: 'failure' }),
+      row('s', MON, 0, null, 60, { countUnit: 'seconds' }),
       row('s', MON, 1, null, 90, { countUnit: 'seconds' }),
     ];
     const lead = summarizeSessionSets(sets, plank).lead;
@@ -205,5 +210,28 @@ describe('describeHistory', () => {
     expect(ru(3)).toContain('тренировки');
     expect(ru(5)).not.toContain('тренировки');
     expect(ru(3)).not.toContain('kg');
+  });
+});
+
+describe('plateauDays', () => {
+  const now = new Date('2026-09-20T12:00:00.000Z');
+
+  it('counts days back to the oldest session of the run at the newest top weight', () => {
+    const rows = sessionRows(
+      [row('a', MON, 0, 100, 5), row('b', WED, 0, 110, 5), row('c', FRI, 0, 110, 6)],
+      deadlift,
+    );
+    expect(plateauDays(rows, now)).toBe(4);
+  });
+
+  it('is null while the lift is still climbing', () => {
+    const rows = sessionRows([row('a', MON, 0, 100, 5), row('b', WED, 0, 110, 5)], deadlift);
+    expect(plateauDays(rows, now)).toBeNull();
+  });
+
+  it('is null for unweighted work and for no history', () => {
+    const rows = sessionRows([row('a', MON, 0, null, 12), row('b', WED, 0, null, 12)], deadlift);
+    expect(plateauDays(rows, now)).toBeNull();
+    expect(plateauDays([], now)).toBeNull();
   });
 });

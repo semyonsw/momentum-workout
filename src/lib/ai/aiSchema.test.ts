@@ -343,10 +343,10 @@ describe('a suggested training loop', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Rep ranges and supersets on a proposed row                          */
+/* Rep ranges on a proposed row                                       */
 /* ------------------------------------------------------------------ */
 
-describe('a rep range and a superset on a row', () => {
+describe('a rep range on a row', () => {
   const rowOf = (over: Record<string, unknown>) => {
     const [block] = validateBlocks(
       [proposal({ exercises: [{ name: 'Back squat', sets: 4, weightKg: 80, ...over }] })],
@@ -377,11 +377,8 @@ describe('a rep range and a superset on a row', () => {
     expect(rowOf({ reps: 10, repsMin: 0 })?.repsMin).toBe(1);
   });
 
-  it('keeps superset true AND false, and nothing else', () => {
-    expect(rowOf({ reps: 10, superset: true })?.superset).toBe(true);
-    expect(rowOf({ reps: 10, superset: false })?.superset).toBe(false);
-    expect(rowOf({ reps: 10, superset: 'yes' })?.superset).toBeUndefined();
-    expect(rowOf({ reps: 10 })).not.toHaveProperty('superset');
+  it('drops a superset flag an older prompt taught the model to write', () => {
+    expect(rowOf({ reps: 10, superset: true })).not.toHaveProperty('superset');
   });
 });
 
@@ -413,12 +410,12 @@ describe('a changes_proposal block', () => {
   });
 
   it('drops non-object items and caps the list', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({ ...item, number: i }));
+    const many = Array.from({ length: 30 }, (_, i) => ({ ...item, number: i }));
     const [block] = validateBlocks(
       [{ type: 'changes_proposal', changes: { items: ['x', null, 3, ...many], why: 'y' } }],
       workout,
     );
-    expect(block.type === 'changes_proposal' && block.changes.items).toHaveLength(12);
+    expect(block.type === 'changes_proposal' && block.changes.items).toHaveLength(24);
     expect(block.type === 'changes_proposal' && block.changes.items[0]).toEqual({
       ...item,
       number: 0,

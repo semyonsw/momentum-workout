@@ -40,8 +40,7 @@
  * it. The weight well is removed, not disabled — a greyed input promises it
  * might come back. Turning it off also reveals `COUNTED IN` (reps / time /
  * metres / rounds), because an exercise with no load has to say what it counts
- * instead, and it turns overload nudges off, because something with no load has
- * no plateau to report.
+ * instead.
  *
  * MUSCLES ARE PICKED THROUGH THE HIERARCHY, not from a list of fourteen: tap a
  * cluster, then the muscles inside it. Two rows instead of a wall of chips, and
@@ -56,8 +55,8 @@
  * prescription — the number stays as the prefill for next time.
  *
  * `Increment` lives on the EXERCISE, not on the user: a dumbbell movement offers
- * ±2.5 and a pin stack ±5, so the nudge can never suggest a weight that cannot
- * physically be loaded. It cycles through the steps that exist on real equipment,
+ * ±2.5 and a pin stack ±5, so the ± on a set row never lands on a weight that
+ * cannot physically be loaded. It cycles through the steps that exist on real equipment,
  * for the same reason `Get ready` cycles: four sane answers is a tap, not a keypad.
  *
  * ── EVERY NUMBER ON THIS SCREEN IS ADJUSTABLE, IN PLACE ────────────────────
@@ -114,8 +113,8 @@
  * ── PLAIN WORDS, AND AN `ADVANCED` FOLD (redesign #17) ──────────────────────
  *
  * `Load mode: External / Added / Assisted` is now a radio list titled `Weight`,
- * each choice with an exercise for an example. The rep ladder, `Reps to MAX`, the
- * increment and the overload rows fold under one `Advanced` row whose sub-line
+ * each choice with an exercise for an example. The rep ladder, `Reps to MAX` and
+ * the increment fold under one `Advanced` row whose sub-line
  * names them; name, cue, muscles, the set inputs, sets and rest stay out, because
  * they are what an edit is nearly always about. `lib/exerciseEditor.ts` decides
  * which rows the fold holds. It opens on its own when the exercise already uses
@@ -153,6 +152,7 @@ import {
   Kicker,
   ListCard,
   NumericWell,
+  PrimaryButton,
   Segmented,
   SelectChip,
   Separator,
@@ -163,8 +163,8 @@ import {
 import {
   bumpDraftRest,
   bumpDraftSets,
-  bumpLadderMax,
   exerciseDraftChanged,
+  findMaxNextWorkout,
   followSettingsRest,
   toggleLadder,
   toggleMaxReps,
@@ -236,8 +236,7 @@ const PREPARE_CHOICES = [0, 3, 5, 10] as const;
  * dumbbell jump, 5 a pin stack, 10 a plate per side on a bar. Nothing between them
  * is loadable, which is exactly why this is a cycle and not a keypad.
  *
- * This number is the PROGRESSION step — what the overload nudge is allowed to add,
- * and the ± on a set row mid-workout. It deliberately does not constrain the
+ * This number is the PROGRESSION step — the ± on a set row mid-workout. It deliberately does not constrain the
  * starting weight below, which is a fact about a machine rather than a plan.
  */
 const INCREMENT_CHOICES = [0.5, 1, 1.25, 2, 2.5, 5, 10] as const;
@@ -665,39 +664,42 @@ export function CreateExerciseScreen({
           </Text>
         )}
 
-        {/* ADVANCED — one row, folded, naming what is inside (#17). */}
-        <ListCard className="mx-lg mt-xl">
-          <Pressable
-            onPress={() => {
-              tap();
-              setAdvancedOpen((open) => !open);
-            }}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: advancedOpen }}
-            accessibilityLabel={t('Advanced')}
-            accessibilityHint={advancedLabels(draft)
-              .map((label) => t(label))
-              .join(', ')}
-            style={pressedStyle}
-            className="min-h-[64px] flex-row items-center px-lg py-sm"
-          >
-            <View className="flex-1 pr-md">
-              <Text className="text-body font-medium text-ink">{t('Advanced')}</Text>
-              <Text className="mt-[2px] text-label text-ink-faint">
-                {advancedLabels(draft)
-                  .map((label) => t(label))
-                  .join(' · ')}
-              </Text>
-            </View>
-            <Icon
-              name={advancedOpen ? 'chevron-down' : 'chevron-right'}
-              size={18}
-              color={palette.inkFaint}
-            />
-          </Pressable>
-        </ListCard>
+        {/* ADVANCED — one row, folded, naming what is inside (#17). Unweighted
+            time and distance have nothing to fold, so no row at all. */}
+        {advanced.length > 0 ? (
+          <ListCard className="mx-lg mt-xl">
+            <Pressable
+              onPress={() => {
+                tap();
+                setAdvancedOpen((open) => !open);
+              }}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: advancedOpen }}
+              accessibilityLabel={t('Advanced')}
+              accessibilityHint={advancedLabels(draft)
+                .map((label) => t(label))
+                .join(', ')}
+              style={pressedStyle}
+              className="min-h-[64px] flex-row items-center px-lg py-sm"
+            >
+              <View className="flex-1 pr-md">
+                <Text className="text-body font-medium text-ink">{t('Advanced')}</Text>
+                <Text className="mt-[2px] text-label text-ink-faint">
+                  {advancedLabels(draft)
+                    .map((label) => t(label))
+                    .join(' · ')}
+                </Text>
+              </View>
+              <Icon
+                name={advancedOpen ? 'chevron-down' : 'chevron-right'}
+                size={18}
+                color={palette.inkFaint}
+              />
+            </Pressable>
+          </ListCard>
+        ) : null}
 
-        {advancedOpen ? (
+        {advanced.length > 0 && advancedOpen ? (
           <>
             {/* `MAX`, and the ladder. Both are claims about the rep target and
                 they are opposite ones, so they sit together and switching either
@@ -710,37 +712,16 @@ export function CreateExerciseScreen({
               <LadderSection draft={draft} onChange={setDraft} />
             ) : null}
 
-            {advanced.includes('increment') || advanced.includes('overload') ? (
+            {advanced.includes('increment') ? (
               <ListCard className="mx-lg mt-xl">
-                {advanced.includes('increment') ? (
-                  <SettingRow
-                    label={t('Increment')}
-                    value={`± ${draft.incrementKg} ${term('unit', 'kg', lang)}`}
-                    onPress={() => {
-                      tap();
-                      patch({ incrementKg: nextIncrement(draft.incrementKg) });
-                    }}
-                  />
-                ) : null}
-                {advanced.includes('increment') && advanced.includes('overload') ? (
-                  <Separator />
-                ) : null}
-                {/* Stated, not hidden: the user should know why they'll never see
-                    a nudge here, rather than wonder whether it's broken. A ladder
-                    is the second reason there is nothing to nudge — it prescribes
-                    the reps itself, and two systems answering "what next" is one
-                    of them wrong (see `evaluateOverload`). */}
-                {advanced.includes('overload') ? (
-                  <SettingRow
-                    label={t('Overload nudges')}
-                    value={
-                      draft.ladderOn
-                        ? t('Off · the ladder owns the reps')
-                        : t('Off · no load to add')
-                    }
-                    valueTone="faint"
-                  />
-                ) : null}
+                <SettingRow
+                  label={t('Increment')}
+                  value={`± ${draft.incrementKg} ${term('unit', 'kg', lang)}`}
+                  onPress={() => {
+                    tap();
+                    patch({ incrementKg: nextIncrement(draft.incrementKg) });
+                  }}
+                />
               </ListCard>
             ) : null}
           </>
@@ -1069,7 +1050,7 @@ function MaxRepsSection({
  *   │ │ you meet it                              │ │
  *   │ └──────────────────────────────────────────┘ │
  *   │ ┌──────────────────────────────────────────┐ │
- *   │ │ ( −5 )( −1 )   16 MAX    ( +1 )( +5 )    │ │
+ *   │ │ 16 MAX                                   │ │
  *   │ │ CURRENT MAXIMUM                          │ │
  *   │ └──────────────────────────────────────────┘ │
  *   │ 16 + 10 + 8 + 8 + 6 · 48 reps                │
@@ -1079,15 +1060,16 @@ function MaxRepsSection({
  *
  * Deliberately the same two shapes the rest of this screen already uses: the
  * 64-high toggle row with a helper line that CHANGES with it (that is how the user
- * learns what the toggle does), and `WellStepper`'s ± panel with the live value at
- * Display size in the middle. Nothing new to learn.
+ * learns what the toggle does), and a panel with the max at Display size.
  *
- * ± 1 AND ± 5, not one step. A max is retested in ones, and set up in fives —
- * somebody switching this on for push-ups is typing thirty, not tapping + thirty
- * times.
+ * NO ± ON THE MAX ANY MORE. It is never typed: `Find my max in the next workout`
+ * (`findMaxNextWorkout`) puts the ladder into a waiting state, the next workout's
+ * first set is the all-out test, and the max is what it proved. A switched-on
+ * ladder with no max of its own waits the same way, and says so in place of the
+ * preview — there is no plan to preview until the test has happened.
  *
  * THE PREVIEW IS THE POINT. A max on its own is an abstraction; `16 + 10 + 8 + 8 +
- * 6 · 48 reps` is the session, and it moves as the thumb moves. It previews at
+ * 6 · 48 reps` is the session. It previews at
  * the draft's own set count — the ladder shapes whatever it is asked for.
  */
 function LadderSection({
@@ -1114,7 +1096,9 @@ function LadderSection({
     <>
       <Kicker tone={draft.ladderOn ? 'green' : 'faint'} className="mx-lg mb-sm mt-xl">
         {t('Ladder')}
-        {draft.ladderOn ? ` · ${describeLadder(targets)}` : ''}
+        {draft.ladderOn
+          ? ` · ${draft.ladderAwaitingMax ? t('MAX, then the ladder') : describeLadder(targets)}`
+          : ''}
       </Kicker>
 
       <View className="mx-lg min-h-[64px] flex-row items-center rounded-surface border border-hairline bg-surface-alt px-lg py-sm">
@@ -1136,49 +1120,30 @@ function LadderSection({
         />
       </View>
 
-      {draft.ladderOn ? (
+      {draft.ladderOn && draft.ladderAwaitingMax ? (
+        /* WAITING FOR THE TEST: no plan to preview yet — say what will happen. */
+        <View className="mx-lg mt-sm rounded-surface border border-hairline bg-surface p-md">
+          <Text className="text-body font-medium text-acc">{t('Waiting for your max')}</Text>
+          <Text className="mt-xs text-label text-ink-faint">
+            {t(
+              'In your next workout set 1 is the all-out set: do as many reps as you can and log them. The rest of the sets are then built from that number.',
+            )}
+          </Text>
+        </View>
+      ) : null}
+
+      {draft.ladderOn && !draft.ladderAwaitingMax ? (
         <>
           <View className="mx-lg mt-sm rounded-surface border border-hairline bg-surface p-md">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row">
-                {[-5, -1].map((delta, i) => (
-                  <StepChip
-                    key={delta}
-                    label={String(delta)}
-                    first={i === 0}
-                    onPress={() => {
-                      tap();
-                      onChange((d) => bumpLadderMax(d, delta));
-                    }}
-                  />
-                ))}
-              </View>
-
-              <View className="mx-xs flex-row items-baseline">
-                <Text className="text-display font-semibold tabular-nums text-ink">
-                  {draft.ladderMax}
-                </Text>
-                <Text className="ml-xs text-micro font-semibold uppercase text-ink-faint">
-                  {t('max')}
-                </Text>
-              </View>
-
-              <View className="flex-row">
-                {[1, 5].map((delta, i) => (
-                  <StepChip
-                    key={delta}
-                    label={`+${delta}`}
-                    first={i === 0}
-                    onPress={() => {
-                      tap();
-                      onChange((d) => bumpLadderMax(d, delta));
-                    }}
-                  />
-                ))}
-              </View>
+            <View className="flex-row items-baseline">
+              <Text className="text-display font-semibold tabular-nums text-ink">
+                {draft.ladderMax}
+              </Text>
+              <Text className="ml-xs text-micro font-semibold uppercase text-ink-faint">
+                {t('max')}
+              </Text>
             </View>
-
-            <View className="mt-md">
+            <View className="mt-xs">
               <Kicker>{t('Current maximum')}</Kicker>
             </View>
           </View>
@@ -1203,6 +1168,22 @@ function LadderSection({
             )}
           </Text>
         </>
+      ) : null}
+
+      {/* THE ONE WAY TO SET A MAX: test it. Shown on a ladder that has one (a
+          retest) and on one that is off (switches it on, waiting); not while
+          already waiting — that is what the card above says. */}
+      {supportsLadder(draft.countUnit) && !(draft.ladderOn && draft.ladderAwaitingMax) ? (
+        <View className="mx-lg mt-md">
+          <PrimaryButton
+            label={t('Find my max in the next workout')}
+            variant="ghost"
+            onPress={() => {
+              tap();
+              onChange(findMaxNextWorkout);
+            }}
+          />
+        </View>
       ) : null}
     </>
   );

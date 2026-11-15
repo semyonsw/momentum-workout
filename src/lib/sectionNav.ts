@@ -1,35 +1,44 @@
 /**
- * The two roots — the training and Settings — and the gestures between them.
+ * The four roots — the training, the routines, the past and Settings — and the
+ * gestures between them.
  *
- *   Workout · Settings
+ *   Workout · Routines · History · Settings
+ *
+ * ── WHY FOUR (4.0) ─────────────────────────────────────────────────────────
+ *
+ * From 3.0 to 4.0 there were two roots, and the routines and the history sat
+ * behind captioned glyphs in the Workout corner. Every one of them worked, and
+ * a newcomer still had to be told where "my routines" lived: a glyph in a corner
+ * is a thing you learn, a named slot at the bottom is a thing you see. The four
+ * places a user goes are the four places the bar names. Rejected: a fifth slot
+ * for the exercise library (it is a half of Routines, behind the switch the
+ * routine list already had — what can I train is one question) and keeping the
+ * corner glyphs as well (two doors to one room is the clutter this removed).
  *
  * ── WHY THE ORDER IS A CONSTANT AND NOT A TAB BAR DETAIL ───────────────────
  *
- * The order is more than layout: a slide between the two goes the way the
- * bar's blob does (`navigation/ShellStage.tsx`), and the spare is built along
- * it (`lib/stageBuilds.ts`). Two places deciding which side Settings is on is
- * two places for them to disagree, so the order lives here and all of them
- * read it.
+ * The order is more than layout: a slide between two goes the way the bar's
+ * blob does (`navigation/ShellStage.tsx`), and the spares are built along it
+ * (`lib/stageBuilds.ts`). Two places deciding which side Settings is on is two
+ * places for them to disagree, so the order lives here and all of them read it.
  */
 
-export const SECTIONS = ['Workout', 'Settings'] as const;
+export const SECTIONS = ['Workout', 'Routines', 'History', 'Settings'] as const;
 
 export type SectionTab = (typeof SECTIONS)[number];
 
 /* ══════════════════════════════════════════════════════════════════════════
-   THE TRAINING AND SETTINGS — and the gestures between them.
+   THE ROOTS — and the gestures between them.
 
-     Section ◀──tap nav / back──▶ Settings
-        │  ▲
-        push  back / edge
-        ▼  │
+     Root ◀──tap nav / back──▶ Workout
+       │  ▲
+       push  back / edge
+       ▼  │
      Inner screen
 
-   There used to be a landing above the sections (2.0–2.10): tiles and a raised
-   Home button in the middle of the bar, which only made sense while the app
-   held more than one log. The training IS the landing — the thing you open the
-   app to see — so it is the root, Back on it arms the exit, and a route is
-   exactly a section.
+   The training IS the landing — the thing you open the app to see — so it is
+   the root Back returns to from the other three, Back on it arms the exit, and
+   a route is exactly a section.
    ══════════════════════════════════════════════════════════════════════════ */
 
 export type ShellRoute = SectionTab;
@@ -41,12 +50,10 @@ export const SHELL_ROOT: SectionTab = 'Workout';
  * The nav bar's slot centres for the sections it shows, as fractions of the
  * bar's width: evenly spaced, each in the middle of its own share.
  *
- * Two slots land at 1/4 and 3/4 — the halves of the bar, each glyph centred in
- * the half it owns. The 2.x layout drew four at 44 · 110 | 258 · 324 of 368 dp
- * around a raised Home button; reusing two of those positions would leave a
- * hole in the middle where a button used to be, which reads as something
- * missing rather than as a two-item bar. Fractions, so a 340 dp bar keeps its
- * proportions.
+ * Four slots land at 1/8, 3/8, 5/8 and 7/8 — each glyph centred in the quarter
+ * it owns, with no gap left for the raised Home button the 2.x bar had (a hole
+ * in the middle reads as something missing). Fractions, so a 340 dp bar keeps
+ * its proportions.
  */
 export function navSlots(sections: readonly SectionTab[]): Partial<Record<SectionTab, number>> {
   const slots: Partial<Record<SectionTab, number>> = {};
@@ -86,9 +93,10 @@ export type BackAction = 'closeSheet' | 'pop' | 'root' | 'armExit' | 'exit';
 
 /**
  * Android back, in the design's order: a sheet closes first, then a pushed
- * screen pops, then Settings goes back to the training (`root`), and there the
- * first press arms an exit (a toast says so) and a second within two seconds
- * leaves.
+ * screen pops, then any root but the training goes back to it (`root`) — not
+ * to the tab before, since a back that walks the tab history is a back nobody
+ * can predict — and there the first press arms an exit (a toast says so) and a
+ * second within two seconds leaves.
  *
  * `root` is `SHELL_ROOT`, passed in so the rule reads the same whichever root
  * a test stands in. `exitArmedAt` is when the last press armed it, or null.

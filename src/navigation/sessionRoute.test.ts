@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pushRoute, reusesSession } from './sessionRoute';
+import { pushRoute, reusesSession, startsAfterOpen } from './sessionRoute';
 
 /**
  * A double-tap on Start pushed the logging screen twice (once from the handler,
@@ -9,7 +9,7 @@ import { pushRoute, reusesSession } from './sessionRoute';
  */
 describe('pushRoute', () => {
   type R = { name: string };
-  const home: R = { name: 'routines' };
+  const home: R = { name: 'routineEditor' };
   const session: R = { name: 'session' };
 
   it('does not stack the logging screen on itself', () => {
@@ -47,5 +47,25 @@ describe('reusesSession', () => {
   it('replaces an unstarted preview of a different routine', () => {
     expect(reusesSession({ startedAt: null, routineId: 'r1' }, 'r2')).toBe(false);
     expect(reusesSession({ startedAt: null, routineId: 'r1' }, '')).toBe(false);
+  });
+});
+
+describe('startsAfterOpen (4.0)', () => {
+  it('starts the unstarted session it just opened for this routine', () => {
+    expect(startsAfterOpen({ startedAt: null, routineId: 'push' }, 'push')).toBe(true);
+  });
+
+  it('never re-anchors a running workout, even of the same routine', () => {
+    expect(startsAfterOpen({ startedAt: '2026-11-15T08:00:00Z', routineId: 'push' }, 'push')).toBe(
+      false,
+    );
+    expect(startsAfterOpen({ startedAt: '2026-11-15T08:00:00Z', routineId: 'pull' }, 'push')).toBe(
+      false,
+    );
+  });
+
+  it('starts nothing when no session was built (an empty routine goes to its editor)', () => {
+    expect(startsAfterOpen(null, 'push')).toBe(false);
+    expect(startsAfterOpen({ startedAt: null, routineId: 'pull' }, 'push')).toBe(false);
   });
 });

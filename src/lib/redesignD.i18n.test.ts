@@ -4,7 +4,7 @@ import { translatedKeys } from './i18n';
 
 /**
  * Group D of the 2.9 redesign — training history's Calendar, the past-workout
- * editor and the weigh-in on Body measurements. Every string it added reaches a
+ * editor and the weigh-in on the Bodyweight screen. Every string it added reaches a
  * Russian phone in Russian.
  */
 describe('2.9 redesign: D strings', () => {

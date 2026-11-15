@@ -1,42 +1,27 @@
 /**
- * RollingNumber — each digit is a column of 0–9 that slides to its value.
+ * RollingNumber — a number that changes in place, instantly.
  *
- *     ┌─┐┌─┐ ┌─┐┌─┐
- *     │9││,│ │0││2│ …     one clipped column per digit, translated to
- *     └─┘└─┘ └─┘└─┘       −digit × lineHeight; separators are plain text
+ * The name is historical. It used to be an odometer: each digit a clipped column
+ * of 0–9 that slid to its value over 320–900 ms. The calm pass (the owner wants
+ * the app fast and calm, decorative motion out) replaced the roll with a plain
+ * swap — the new value is on screen the frame it exists, which is also the
+ * fastest a number can be read. The export, its props and `RollingPhrase` stay,
+ * so no caller changed; `duration` is accepted and ignored.
  *
- * A number that changes by rolling is a number you can SEE change: `+15` on the
- * rest pill, a set count in the header, the balance after an amount is saved.
- * Snapping reads as the screen redrawing; rolling reads as the value moving, and
- * the direction it rolls is itself information — up is more.
+ * What it still guarantees:
  *
- * ── THE FOUR RULES ────────────────────────────────────────────────────────
- *
- *  • `lineHeight` IS REQUIRED and must equal the text's own line height at the
- *    call site. It is the height of one cell in the column and of the clip box, so
- *    a mismatch shows half of the digit above.
- *  • COLUMNS ARE KEYED FROM THE RIGHT (`lib/rollingDigits.ts`), so 9 → 10 rolls
- *    the ones column in place and the new tens digit appears on the left.
- *  • ALWAYS TABULAR. A column is as wide as its widest digit, so the number can
- *    never shift sideways by a pixel as a digit changes — the difference between
- *    an app and an instrument, as `theme/tokens.ts` puts it.
- *  • NATIVE DRIVER, translate only. A clock rolling four columns every second is
- *    four native animations and no JS work per frame.
- *
- * The first render lands on the value without rolling: a number is not news the
- * moment it appears. A caller that WANTS a roll-up from zero (the Finish sheet)
- * renders `0` first and the real value a beat later.
+ *  • ALWAYS TABULAR, so the number never shifts sideways by a pixel as a digit
+ *    changes — the difference between an app and an instrument.
+ *  • `lineHeight` sets the box, as before, so a caller's layout is unchanged.
+ *  • NO HALF-DIGITS, by construction. The roll's long tail of bugs — a column
+ *    parked between two cells after a fast ± or a size change (`lib/
+ *    rollingDigits.ts` still documents and tests them) — cannot happen to text
+ *    that has no columns.
  */
 
-import { memo, useEffect, useMemo, useRef } from 'react';
-import { Animated, Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { memo } from 'react';
+import { Text, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
-import { useMotionScale } from '../hooks/useMotionScale';
-import { columnMove, columnOffset, digitCells, mayPin } from '../lib/rollingDigits';
-import { curve, motion } from '../theme/tokens';
-
-const EASE = curve(motion.ease);
-const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 const TABULAR: TextStyle = { fontVariant: ['tabular-nums'] };
 
 function RollingNumberComponent({
@@ -44,7 +29,6 @@ function RollingNumberComponent({
   lineHeight,
   style,
   className,
-  duration = motion.roll,
   containerStyle,
   accessibilityLabel,
   allowFontScaling = false,
@@ -53,143 +37,47 @@ function RollingNumberComponent({
   lineHeight: number;
   style?: StyleProp<TextStyle>;
   className?: string;
-  /** `motion.roll` by default; 320 on the clocks, 700–900 on money. */
+  /** Accepted and ignored since the calm pass — numbers no longer roll. */
   duration?: number;
   containerStyle?: StyleProp<ViewStyle>;
   /** Defaults to the value itself. */
   accessibilityLabel?: string;
   /**
-   * Off by default: the column height is `lineHeight` in dp, and an OS font scale
-   * on top of it would draw digits taller than the box that clips them.
+   * Off by default: the box height is `lineHeight` in dp, and an OS font scale on
+   * top of it would draw digits taller than the box.
    */
   allowFontScaling?: boolean;
 }) {
-  const cells = digitCells(value);
   return (
     <View
       accessible
       accessibilityLabel={accessibilityLabel ?? value}
       style={[{ flexDirection: 'row', height: lineHeight, overflow: 'hidden' }, containerStyle]}
     >
-      {cells.map((cell) =>
-        cell.kind === 'glyph' ? (
-          <Text
-            key={cell.key}
-            style={[style, TABULAR, { lineHeight, height: lineHeight }]}
-            className={className}
-            allowFontScaling={allowFontScaling}
-          >
-            {cell.char}
-          </Text>
-        ) : (
-          /*
-           * Keyed by size as well as position: a new line height (`9 → 10` reps
-           * shrinks every focus numeral) remounts the column on a fresh value at
-           * the right offset, instead of re-pointing one a native roll may still
-           * be driving in the old cell height.
-           */
-          <DigitColumn
-            key={`${cell.key}@${lineHeight}`}
-            digit={cell.digit}
-            lineHeight={lineHeight}
-            style={style}
-            className={className}
-            duration={duration}
-            allowFontScaling={allowFontScaling}
-          />
-        ),
-      )}
+      <Text
+        style={[style, TABULAR, { lineHeight, height: lineHeight }]}
+        className={className}
+        allowFontScaling={allowFontScaling}
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
     </View>
   );
 }
 
-/*
- * Memoized too, on primitives and the caller's style: a clock going 1:05 → 1:04
- * moves one column, and the other columns' ten `Text` nodes each must not
- * re-render to stay where they are.
- */
-const DigitColumn = memo(function DigitColumn({
-  digit,
-  lineHeight,
-  style,
-  className,
-  duration,
-  allowFontScaling,
-}: {
-  digit: number;
-  lineHeight: number;
-  style?: StyleProp<TextStyle>;
-  className?: string;
-  duration: number;
-  allowFontScaling: boolean;
-}) {
-  const scale = useMotionScale();
-  const y = useRef(new Animated.Value(columnOffset(digit, lineHeight))).current;
-  const shown = useRef({ digit, lineHeight });
-  /* Which roll is the latest — see `mayPin`. */
-  const generation = useRef(0);
-  /*
-   * Stable, so a re-render of this column (a new `style` from the caller) does
-   * not hand the native view a fresh transform mid-roll.
-   */
-  const slide = useMemo(() => ({ transform: [{ translateY: y }] }), [y]);
-
-  useEffect(() => {
-    /*
-     * Roll on a new digit, SNAP on a new size — see `columnMove`. And once a roll
-     * finishes the value is set outright, so wherever a native frame stopped, the
-     * column ends exactly on its cell rather than between two.
-     */
-    const move = columnMove(shown.current, { digit, lineHeight });
-    shown.current = { digit, lineHeight };
-    if (move === 'none') return;
-    const to = columnOffset(digit, lineHeight);
-    const roll = ++generation.current;
-    y.stopAnimation();
-    if (move === 'snap' || duration * scale <= 0) {
-      y.setValue(to);
-      return;
-    }
-    Animated.timing(y, {
-      toValue: to,
-      duration: duration * scale,
-      easing: EASE,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (mayPin(roll, generation.current, finished)) y.setValue(to);
-    });
-  }, [digit, duration, lineHeight, scale, y]);
-
-  return (
-    <View style={{ height: lineHeight, overflow: 'hidden' }}>
-      <Animated.View style={slide}>
-        {DIGITS.map((d) => (
-          <Text
-            key={d}
-            style={[style, TABULAR, { lineHeight, height: lineHeight }]}
-            className={className}
-            allowFontScaling={allowFontScaling}
-          >
-            {d}
-          </Text>
-        ))}
-      </Animated.View>
-    </View>
-  );
-});
-
 /**
  * Memoized: the session header and the rest pill re-render four times a second,
- * and a number whose value did not change must not rebuild forty `Text` nodes.
+ * and a number whose value did not change has no reason to re-render.
  */
 export const RollingNumber = memo(RollingNumberComponent);
 
 /**
- * A translated sentence with ROLLING numbers in it: `3 of 17 sets`, `подходов:
+ * A translated sentence with live numbers in it: `3 of 17 sets`, `подходов:
  * 3 из 17`.
  *
  * The sentence is translated WITH its holes still in it — `t()` leaves a
- * placeholder it was not given — and split on them here, so the number rolls in
+ * placeholder it was not given — and split on them here, so the number sits in
  * whatever position the language puts it. Gluing `<Roll/> + ' of 17 sets'` at the
  * call site would freeze English word order into the layout, which is exactly the
  * mistake `lib/i18n.ts` exists to prevent.
@@ -205,7 +93,7 @@ export function RollingPhrase({
 }: {
   /** Already translated, e.g. `t('{done} of {total} sets', { total: 17 })`. */
   template: string;
-  /** The holes that roll, by name. Any other hole was filled by `t()`. */
+  /** The live holes, by name. Any other hole was filled by `t()`. */
   values: Record<string, string | number>;
   lineHeight: number;
   style?: StyleProp<TextStyle>;

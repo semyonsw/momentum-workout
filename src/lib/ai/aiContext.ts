@@ -4,9 +4,7 @@
  *
  *   buildWorkoutContext   routines, the library's names, the last 20 weeks of
  *                         sessions in the app's own shorthand, per-exercise
- *                         rollups, sets per cluster, the app's own verdicts,
- *                         reps in reserve where a set was graded, and what the
- *                         user SAID after each workout (the debriefs)
+ *                         rollups, sets per cluster
  *
  * ── NEVER THE WHOLE DATABASE ───────────────────────────────────────────────
  *
@@ -15,13 +13,6 @@
  * anyway. So each builder hands over what a screen of this app already shows —
  * `CompletedExercise.summary` is literally the shorthand the history list prints
  * — and stays under `CONTEXT_CAP` characters by shedding the OLDEST detail first.
- *
- * ── THE MODEL SHOULD AGREE WITH THE APP ────────────────────────────────────
- *
- * The overload nudges and the deload verdicts are included as `signals`. Without
- * them the model reasons about the same log from first principles and can
- * cheerfully suggest the opposite of what the card is already saying; with them
- * it can build on the verdict instead of contradicting it.
  *
  * ── THE SAME RULES AS EVERY OTHER SCREEN ───────────────────────────────────
  *
@@ -35,19 +26,13 @@
 
 import { clusterBalance } from '../balance';
 import { dayKey } from '../days';
-import { evaluateDeload } from '../deload';
 import { MUSCLE_CLUSTER } from '../muscles';
-import { evaluateOverloadBatch } from '../progressiveOverload';
-import { ladderOf } from '../repLadder';
-import { isSupersettedWithAbove } from '../routinePlan';
+import { isAwaitingMax, ladderOf } from '../repLadder';
 import { ownRestSeconds } from '../rest';
-import { WEEKLY_GOAL_LIMITS } from '../weeklyGoal';
 import { plannedStartWeight } from '../weightCarry';
 import type { CompletedWorkout } from '../completedWorkout';
-import { debriefForAi, type WorkoutDebrief } from '../debrief';
 import type { BodyweightEntry } from '../bodyweightLog';
 import { exerciseBests } from '../records';
-import { effortLine } from '../effort';
 import type { Language } from '../i18n';
 import type {
   Exercise,
@@ -98,8 +83,6 @@ export interface WorkoutContextInput {
   lang: Language;
   now?: Date;
   weeks?: number;
-  /** What the user answered after their workouts — `lib/debrief.ts`. */
-  debriefs?: readonly WorkoutDebrief[];
   /** The training sequence — the loop of routines the user trains in order. */
   sequence?: TrainingSequence;
   /** Bodyweight readings, any order — the line the records are weighed against. */
@@ -110,25 +93,57 @@ export interface WorkoutContextInput {
    * `from` to reason about, so it is told nothing rather than a guess.
    */
   settings?: WorkoutSettings;
+  /**
+   * The workout in flight, if one is open — what a `live` / `live_set` item
+   * points at. Every row, warm-ups included, in order: `set` 1 is the first row
+   * on the card.
+   */
+  live?: LiveWorkout | null;
   /** Overrides `CONTEXT_CAP` — for tests that exercise the shedding. */
   cap?: number;
 }
 
-/** The four settings the assistant may suggest changing (`lib/ai/aiChanges.ts`). */
+/** The three settings the assistant may suggest changing (`lib/ai/aiChanges.ts`). */
 export interface WorkoutSettings {
   restSecondsBetweenSets: number;
   restSecondsBetweenExercises: number;
   autoStartRest: boolean;
-  /** Absent = never set, which the app reads as `WEEKLY_GOAL_LIMITS.default`. */
-  weeklyWorkoutGoal?: number;
+  /* The rest of what Workout settings holds — each optional, each the `from` of a
+     `setting` item of the same name in the prompt. */
+  adjustStepSeconds?: number;
+  prepareSeconds?: number;
+  beepSeconds?: number;
+  soundEnabled?: boolean;
+  hapticsEnabled?: boolean;
+  keepAwakeEnabled?: boolean;
+  notifyOnTimerEnd?: boolean;
+  ladderAllExercises?: boolean;
+  weeklySetTargets?: Partial<Record<string, number>>;
+  /** The weigh-in reminder — days Monday = 0, time `HH:MM`. */
+  weighInReminderEnabled?: boolean;
+  weighInReminderDays?: readonly number[];
+  weighInReminderTime?: string;
+}
+
+/** The open session, as much of it as an edit needs. */
+export interface LiveWorkout {
+  title: string;
+  started: boolean;
+  entries: readonly {
+    exercise: Pick<Exercise, 'id' | 'name'>;
+    sets: readonly {
+      weightKg: number | null;
+      count: number;
+      isWarmup: boolean;
+      isCompleted: boolean;
+    }[];
+  }[];
 }
 
 export interface WorkoutContext {
   json: string;
   /** Workouts in the window that was sent — the chat's "Reading 91 workouts…". */
   workoutCount: number;
-  /** Debriefs that made it into `json`. */
-  debriefCount: number;
   /** The most-trained loaded lift, for "How is my bench press going?". */
   topLift: string | null;
   /** The routine trained most recently that still exists, for "Improve my Push". */
@@ -251,7 +266,7 @@ export function workoutFacts(input: {
   }
   const ranked = [...counts.entries()].sort(
     ([a, ca], [b, cb]) =>
-      Number(byId[b].barWeightKg != null) - Number(byId[a].barWeightKg != null) ||
+      Number(byId[b].equipment === 'barbell') - Number(byId[a].equipment === 'barbell') ||
       cb.s4 - ca.s4 ||
       cb.s20 - ca.s20,
   );
@@ -272,6 +287,59 @@ export function workoutFacts(input: {
     if (first) lastRoutine = { id: first.id, name: first.name };
   }
   return { topLift, lastRoutine };
+}
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+/** The settings, every key only where it is set — a `from` for each setting item. */
+function compactSettings(s: WorkoutSettings): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    restSecondsBetweenSets: s.restSecondsBetweenSets,
+    restSecondsBetweenExercises: s.restSecondsBetweenExercises,
+    autoStartRest: s.autoStartRest,
+  };
+  const rest: [string, unknown][] = [
+    ['timerStepSeconds', s.adjustStepSeconds],
+    ['getReadySeconds', s.prepareSeconds],
+    ['beepSeconds', s.beepSeconds],
+    ['sound', s.soundEnabled],
+    ['vibration', s.hapticsEnabled],
+    ['keepAwake', s.keepAwakeEnabled],
+    ['timerNotifications', s.notifyOnTimerEnd],
+    ['ladderAll', s.ladderAllExercises],
+  ];
+  for (const [name, value] of rest) if (value != null) out[name] = value;
+  if (s.weeklySetTargets && Object.keys(s.weeklySetTargets).length > 0) {
+    out.weeklySetTargets = s.weeklySetTargets;
+  }
+  // Days by NAME, as a `weigh_in_days` item writes them back.
+  if (s.weighInReminderEnabled != null) {
+    out.weighInReminder = {
+      on: s.weighInReminderEnabled,
+      days: (s.weighInReminderDays ?? []).map((d) => DAY_NAMES[d] ?? String(d)),
+      time: s.weighInReminderTime,
+    };
+  }
+  return out;
+}
+
+/**
+ * The open workout: one line per exercise card, its rows as `60x8✓` (logged),
+ * `60x8` (to do), `W 30x8` (a warm-up) — `set` N of a `live_set` is the Nth.
+ */
+function liveRows(live: LiveWorkout): Record<string, unknown> {
+  return {
+    title: live.title,
+    started: live.started,
+    exercises: live.entries.map((entry) => ({
+      exerciseId: entry.exercise.id,
+      name: entry.exercise.name,
+      sets: entry.sets.map(
+        (set) =>
+          `${set.isWarmup ? 'W ' : ''}${set.weightKg != null ? `${set.weightKg}x` : ''}${set.count}${set.isCompleted ? '✓' : ''}`,
+      ),
+    })),
+  };
 }
 
 export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext {
@@ -333,31 +401,6 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
   }
   rollups.sort((a, b) => b.s20 - a.s20);
 
-  /* The app's own verdicts, so the model builds on them. */
-  const history: Record<ID, SetHistory[]> = Object.fromEntries(rows);
-  const trained = exercises.filter((e) => rows.has(e.id));
-  const verdicts = evaluateOverloadBatch(trained, history, { unitSystem, now });
-  const signals: string[] = [];
-  for (const exercise of trained) {
-    const verdict = verdicts[exercise.id];
-    if (verdict?.shouldNudge) {
-      const next =
-        verdict.suggestedWeightKg != null
-          ? `${verdict.suggestedWeightKg} kg`
-          : verdict.suggestedCount != null
-            ? `${verdict.suggestedCount} ${exercise.countUnit}`
-            : '';
-      signals.push(`${exercise.name}: stalled ${verdict.plateauDays} days, app suggests ${next}`);
-      continue;
-    }
-    const deload = evaluateDeload({ exercise, history: history[exercise.id] ?? [] });
-    if (deload.shouldSuggest && deload.suggestedWeightKg != null) {
-      signals.push(
-        `${exercise.name}: no progress in ${deload.stalledSessions} sessions, app suggests a back-off at ${deload.suggestedWeightKg} kg`,
-      );
-    }
-  }
-
   const balance = clusterBalance({ workouts, exercisesById: byId, windowDays: 28, now });
   const setsPerCluster4w = Object.fromEntries(
     balance.clusters.filter((c) => c.sets > 0).map((c) => [c.cluster, c.sets]),
@@ -371,9 +414,8 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
       id: routine.id,
       name: routine.name,
       exercises: sorted
-        .map((item, position) => ({ item, position }))
-        .filter(({ item }) => byId[item.exerciseId])
-        .map(({ item, position }) => {
+        .filter((item) => byId[item.exerciseId])
+        .map((item) => {
           const exercise = byId[item.exerciseId];
           const row: Record<string, unknown> = {
             exerciseId: exercise.id,
@@ -388,12 +430,8 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
             if (kg != null) row.weightKg = kg;
           }
           const ladder = ladderOf(exercise);
-          if (ladder) row.ladder = ladder.max;
-          /* "With the exercise above" — the editor's one control, and what a
-           proposal's `superset` means. Marking every member of the group put
-           `true` on the FIRST one too, and a model copying it joined that row
-           to whatever stood above it. */
-          if (isSupersettedWithAbove(sorted, position)) row.superset = true;
+          // A waiting ladder's max is a placeholder — the next workout tests it.
+          if (ladder) row.ladder = isAwaitingMax(ladder) ? 'max test next workout' : ladder.max;
           if (exercise.cue?.trim()) row.cue = exercise.cue.trim();
           return row;
         }),
@@ -423,9 +461,14 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
       if (e.isUnilateral) kind.push('one side at a time');
       if (e.requiresWeight && e.defaultWeightKg != null)
         kind.push(`starts ${e.defaultWeightKg} kg`);
-      if (e.barWeightKg != null) kind.push(`bar ${e.barWeightKg} kg`);
       const ladder = ladderOf(e);
-      if (ladder) kind.push(`rep ladder max ${ladder.max}`);
+      if (ladder) {
+        kind.push(
+          isAwaitingMax(ladder)
+            ? 'rep ladder awaiting max (first set of the next workout is a max test)'
+            : `rep ladder max ${ladder.max}`,
+        );
+      }
       parts.push(kind.join(', '));
       parts.push(exerciseSettings(e));
       // The user's own one-line form note — words the numbers cannot carry.
@@ -511,14 +554,17 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
    * "when did I last do legs before the summer?" is about the whole log.
    */
   const allSessions = [...workouts].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  let gradedAny = false;
-  let typedAny = false;
   const sessionRows = allSessions.map((w, i) => {
     const row: Record<string, unknown> = { date: dayKey(w.startedAt) };
     /* The id, on the newest sessions only: it is what a set correction ("that
        first set on Monday was a warm-up") names, and nobody corrects a set from
        last year — so the older rows do not pay for it. */
     if (i < ID_SESSIONS) row.id = w.id;
+    /* And which exercise each `ex` line is — a set edit names it, and a line's
+       name is a snapshot that a rename since has left behind. Same order as `ex`. */
+    if (i < ID_SESSIONS) {
+      row.exIds = w.exercises.filter((e) => e.setCount > 0).map((e) => e.exerciseId);
+    }
     if (numbers[w.id] != null) row.n = numbers[w.id];
     row.routine = w.title;
     if (w.routineId) row.routineId = w.routineId;
@@ -526,42 +572,8 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
     row.sets = w.setCount;
     if (w.effort) row.feel = w.effort;
     row.ex = w.exercises.filter((e) => e.setCount > 0).map((e) => `${e.name}: ${e.summary}`);
-    /*
-     * EFFORT, only where somebody graded a set: reps in reserve per working set, in
-     * the order they were done (`2 1 - 0`, `-` = not said). A log that never used
-     * the chip costs this context nothing.
-     */
-    const effort = w.exercises
-      .map((e) => {
-        const line = effortLine(
-          w.sets
-            .filter((set) => set.exerciseId === e.exerciseId && !set.isWarmup)
-            .sort((a, b) => a.setIndex - b.setIndex),
-        );
-        return line ? `${e.name}: ${line}` : null;
-      })
-      .filter((line): line is string => line != null);
-    if (effort.length) {
-      row.rir = effort;
-      gradedAny = true;
-    }
-    if (w.sets.some((set) => set.setType)) typedAny = true;
     return row;
   });
-
-  /*
-   * THE DEBRIEFS — newest first, for every workout still in the log, and each
-   * one only if it says something. They are what the numbers cannot say ("too
-   * heavy", "lower back", "make it shorter"), so they are shed LAST of anything
-   * optional: down to three before the sessions go below six.
-   */
-  const loggedIds = new Set(workouts.map((w) => w.id));
-  const debriefRows = (input.debriefs ?? [])
-    .filter((d) => loggedIds.has(d.workoutId))
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-    .map(debriefForAi)
-    .filter((row): row is Record<string, unknown> => row != null);
-  let debriefLimit = debriefRows.length;
 
   /*
    * THE LOOP. A user who trains Push → Pull → Legs → again has told the app the
@@ -589,30 +601,10 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
     language: LANGUAGE_NAME[lang],
     units: unitSystem === 'imperial' ? 'lb (numbers below are kg)' : 'kg',
     ...(bodyweightKg != null ? { bodyweightKg } : {}),
-    ...(input.settings
-      ? {
-          settings: {
-            restSecondsBetweenSets: input.settings.restSecondsBetweenSets,
-            restSecondsBetweenExercises: input.settings.restSecondsBetweenExercises,
-            autoStartRest: input.settings.autoStartRest,
-            weeklyWorkoutGoal: input.settings.weeklyWorkoutGoal ?? WEEKLY_GOAL_LIMITS.default,
-          },
-        }
-      : {}),
+    ...(input.settings ? { settings: compactSettings(input.settings) } : {}),
     routines: routineRows,
     sequence,
-    ...(gradedAny
-      ? {
-          effortNote:
-            'sessions[].rir lists reps in reserve per working set in order (RPE = 10 - RIR; "-" = not recorded). RIR 0-0.5 means the set was at the limit; the app does not suggest more weight off such sets.',
-        }
-      : {}),
-    ...(typedAny
-      ? {
-          setTypeNote:
-            'in sessions[].ex the reps carry a mark: 8F = taken to failure, 8+ = AMRAP, 10D = drop set. All three are working sets (they count as volume); warm-ups are never listed. Failure and AMRAP sets count as at the limit unless an RIR says otherwise.',
-        }
-      : {}),
+    ...(input.live ? { live: liveRows(input.live) } : {}),
   };
 
   /*
@@ -640,8 +632,6 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
         trend: r.trend,
       })),
       setsPerCluster4w,
-      signals,
-      ...(debriefLimit > 0 ? { debriefs: debriefRows.slice(0, debriefLimit) } : {}),
       allTime,
       sessionsPerWeek12w: weekly,
       ...(bodyweightLine.length ? { bodyweightKgLog: bodyweightLine } : {}),
@@ -667,16 +657,8 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
     recordLimit = Math.max(10, recordLimit - 5);
     json = render();
   }
-  while (json.length > cap && debriefLimit > 3) {
-    debriefLimit -= 1;
-    json = render();
-  }
   while (json.length > cap && sessionLimit > 1) {
     sessionLimit -= 1;
-    json = render();
-  }
-  while (json.length > cap && debriefLimit > 0) {
-    debriefLimit -= 1;
     json = render();
   }
   while (json.length > cap && recordLimit > 0) {
@@ -688,7 +670,6 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
   return {
     json,
     workoutCount: Math.min(sessionLimit, sessionRows.length),
-    debriefCount: debriefLimit,
     ...facts,
   };
 }

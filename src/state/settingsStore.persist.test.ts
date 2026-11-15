@@ -1,7 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_GYM_ID } from '../lib/gyms';
 import {
   DEFAULT_SETTINGS,
   onSettingsHydrationFailed,
@@ -16,7 +15,7 @@ import {
  * `settingsStore.test.ts` pins `sanitizeSettings` key by key, and `rehydrate.test.ts`
  * reads back the 2.2.0 additions one at a time. What neither does is put a
  * whole changed configuration down and pick it up again, or hand `rehydrate` the
- * blobs a real phone can have on it: one from 1.0.x with a single plate list, one
+ * blobs a real phone can have on it: one carrying keys from an older build, one
  * that was cut off half-way through a write, one that is not JSON at all. Each of
  * those is a launch, and a launch that comes up on the wrong rest length — or on
  * a blank screen — is the bug this store's rule 2 exists to prevent.
@@ -50,16 +49,9 @@ describe('a configured phone, relaunched', () => {
     s.bumpNumber('prepareSeconds', 3);
     s.setFlag('soundEnabled', false);
     s.setUnitSystem('imperial');
-    s.setLanguage('en');
-    s.setTheme('custom');
-    s.setWorkoutReminderEnabled(true);
-    s.toggleWorkoutReminderDay(6);
-    s.setWorkoutReminderTime(7, 5);
+    s.setLanguage('ru');
     s.setBodyweightKg(81.4);
-    s.addGym('Hotel');
     s.setWeeklyTarget('push', 14);
-    s.setShareToHealthConnect(true);
-    s.recordMeasurement('waist', '2026-10-01', 82);
 
     const before = sanitizeSettings(useSettings.getState());
     await relaunch();
@@ -70,16 +62,10 @@ describe('a configured phone, relaunched', () => {
       prepareSeconds: 8,
       soundEnabled: false,
       unitSystem: 'imperial',
-      language: 'en',
-      languageChosen: true,
-      workoutReminderEnabled: true,
-      workoutReminderDays: [0, 2, 4, 6],
-      workoutReminderTime: '07:05',
+      language: 'ru',
       bodyweightKg: 81.4,
-      shareToHealthConnect: true,
       weeklySetTargets: { push: 14 },
     });
-    expect(useSettings.getState().gyms).toHaveLength(2);
   });
 
   it('keeps the actions working after a relaunch — they are never read from disk', async () => {
@@ -100,14 +86,17 @@ describe('a configured phone, relaunched', () => {
 });
 
 describe('older and damaged blobs', () => {
-  it('a 1.0.x blob with one plate list becomes one gym, and nothing else is lost', async () => {
-    await stored({ restSecondsBetweenSets: 60, availablePlatesKg: [20, 10, 5, 5, 'x', -1] });
+  it('a blob with the plate lists and gyms of an older build loses nothing else', async () => {
+    await stored({
+      restSecondsBetweenSets: 60,
+      availablePlatesKg: [20, 10, 5],
+      gyms: [{ id: 'g1', name: 'Home', platesKg: [10] }],
+      activeGymId: 'deleted',
+    });
     await useSettings.persist.rehydrate();
-    const { gyms, activeGymId, restSecondsBetweenSets } = useSettings.getState();
-    expect(restSecondsBetweenSets).toBe(60);
-    expect(gyms).toHaveLength(1);
-    expect(gyms[0].platesKg).toEqual([20, 10, 5]);
-    expect(activeGymId).toBe(DEFAULT_GYM_ID);
+    const state = sanitizeSettings(useSettings.getState());
+    expect(state.restSecondsBetweenSets).toBe(60);
+    expect(state).not.toHaveProperty('gyms');
   });
 
   it('a blob from before the bodyweight log seeds the log from the scalar', async () => {
@@ -149,35 +138,10 @@ describe('older and damaged blobs', () => {
     ]);
   });
 
-  it('an active gym that points at nothing resolves to one that exists', async () => {
-    await stored({
-      gyms: [{ id: 'g1', name: 'Home', platesKg: [10] }],
-      activeGymId: 'deleted',
-    });
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().activeGymId).toBe('g1');
-  });
-
   it('a state that is not an object comes up on the defaults', async () => {
     await stored('nonsense');
     await useSettings.persist.rehydrate();
     expect(sanitizeSettings(useSettings.getState())).toEqual(sanitizeSettings(DEFAULT_SETTINGS));
-  });
-});
-
-describe('the reminder cannot be left armed with no days', () => {
-  it('taking the last day away switches it off, and switching it on again brings days back', () => {
-    const s = useSettings.getState();
-    s.setWorkoutReminderEnabled(true);
-    for (const day of [0, 2, 4] as const) s.toggleWorkoutReminderDay(day);
-    expect(useSettings.getState()).toMatchObject({
-      workoutReminderEnabled: false,
-      workoutReminderDays: [],
-    });
-    s.setWorkoutReminderEnabled(true);
-    expect(useSettings.getState().workoutReminderDays).toEqual(
-      DEFAULT_SETTINGS.workoutReminderDays,
-    );
   });
 });
 

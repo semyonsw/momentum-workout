@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { NO_REST, useActiveWorkout } from './activeWorkoutStore';
 import { useLibrary } from './libraryStore';
 import { buildDraftSession } from '../lib/draft';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import type { Exercise, ID } from '../types/models';
 
 /** Edit mode's ⋮⋮ through the store: the plan moves, the history does not. */
@@ -18,7 +18,6 @@ function start(weights: number[]): ID {
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: {},
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     startedAt: '2026-10-30T17:00:00.000Z',
@@ -36,7 +35,6 @@ function start(weights: number[]): ID {
     rest: NO_REST,
     setTimer: null,
     roundsAuto: null,
-    warmupOffer: null,
   });
   return entry.localId;
 }

@@ -32,7 +32,6 @@ import { useWorkoutHistory } from './workoutHistoryStore';
 import { proposalTotals, rowStatus, type ProposalRow } from '../lib/ai/aiProposal';
 import { recomputeWorkout, type CompletedWorkout } from '../lib/completedWorkout';
 import { buildDraftEntry } from '../lib/draft';
-import { DEFAULT_OVERLOAD_POLICY } from '../lib/progressiveOverload';
 import type { Exercise, Routine, SetHistory } from '../types/models';
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +367,6 @@ describe('the chat from the screenshots', () => {
     const entry = buildDraftEntry({
       exercise: side,
       history,
-      policy: DEFAULT_OVERLOAD_POLICY,
       unitSystem: 'metric',
       restSeconds: 90,
       transitionRestSeconds: 120,

@@ -33,7 +33,7 @@ import { useWorkoutHistory } from './workoutHistoryStore';
 import { parseBackup } from '../lib/backup';
 import { ROUND_START_GRACE_MS, autoRoundToStart } from '../lib/rounds';
 import { upNextSet } from '../lib/upNext';
-import { seedRoutines, seedUser } from '../data/seed';
+import { seedRoutines } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import type { Exercise, ID } from '../types/models';
 
@@ -45,7 +45,6 @@ function open(routineIndex: number) {
       useLibrary.getState().exercises.map((e) => [e.id, e]),
     ) as Record<ID, Exercise>,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,

@@ -1,23 +1,21 @@
 /**
- * NavBar — the training and Settings, on one pane of glass.
+ * NavBar — the four roots, on one pane of glass.
  *
- *   ╭──────────────────────────────╮
- *   │      🏋              ⚙       │
- *   │    Workout        Settings   │
- *   ╰──────────────────────────────╯
+ *   ╭──────────────────────────────────────────╮
+ *   │   🏋         ☰          ⟲          ⚙     │
+ *   │ Workout  Routines   History   Settings  │
+ *   ╰──────────────────────────────────────────╯
  *
- * ── TWO ITEMS, EACH IN ITS OWN HALF (3.0) ─────────────────────────────────
+ * ── FOUR ITEMS, EACH IN ITS OWN QUARTER (4.0) ─────────────────────────────
  *
- * From 2.0 to 2.10 the bar was four glyphs around a raised, gradient-filled
- * Home button: Momentum put a landing above three logs, and the way back to it
- * had to be one tap from anywhere. The tasks and the money are apps of their
- * own now, the training is the landing, and the bar holds exactly what the app
- * has — the training and Settings (`lib/sectionNav.SECTIONS`). They sit at
- * the quarter points (`lib/sectionNav.navSlots`), each centred in the half it
- * owns. Rejected: keeping two of the old four positions (a hole in the middle
- * where a button used to be reads as something missing) and dropping the bar
- * for a gear in the corner (Settings would stop being one tap from the root,
- * and the blob would have nowhere to go).
+ * 3.0 had two — the training and Settings — with the routines and the history
+ * behind glyphs in the Workout corner. Those are the places a user goes, so
+ * they are named on the bar now (`lib/sectionNav.SECTIONS` says why), each
+ * centred in the quarter it owns (`lib/sectionNav.navSlots`). Every item is as
+ * wide as its quarter, so the target is the whole slot and not a 64 dp island
+ * in the middle of it. Rejected: dropping the bar for a gear in the corner
+ * (Settings would stop being one tap from the root, and the blob would have
+ * nowhere to go).
  *
  * ── EVERY ITEM IS NAMED (2.9, redesign #10) ───────────────────────────────
  *
@@ -66,12 +64,16 @@ import { palette, tint } from '../theme/tokens';
 
 const GLYPH: Record<SectionTab, SymbolName> = {
   Workout: 'fitness_center',
+  Routines: 'list_alt',
+  History: 'history',
   Settings: 'settings',
 };
 
 /** The section's own name — printed under the glyph and spoken. */
 const LABEL: Record<SectionTab, string> = {
   Workout: 'Workout',
+  Routines: 'Routines',
+  History: 'History',
   Settings: 'Settings',
 };
 
@@ -84,6 +86,8 @@ const NAV_BOTTOM = 14;
 /** Each item's label line sits this far above the bar's bottom edge. */
 const LABEL_BOTTOM = 8;
 const LABEL_LINE = 16;
+/** An item never grows past this, however wide the phone. */
+const ITEM_MAX = 96;
 
 interface NavBarProps {
   /** The sections, in bar order (`SECTIONS`). */
@@ -226,6 +230,7 @@ function NavBarComponent({ sections, active, visible: onRoute, onSelect }: NavBa
               label={t(LABEL[section])}
               active={section === active}
               centre={centres[i]}
+              itemWidth={Math.min(ITEM_MAX, width / sections.length)}
               onSelect={onSelect}
             />
           ))
@@ -245,12 +250,15 @@ const NavItem = memo(function NavItem({
   label,
   active,
   centre,
+  itemWidth,
   onSelect,
 }: {
   section: SectionTab;
   label: string;
   active: boolean;
   centre: number;
+  /** The quarter it owns — the whole of it is the target. */
+  itemWidth: number;
   onSelect: (tab: SectionTab) => void;
 }) {
   const glyph = GLYPH[section];
@@ -275,8 +283,8 @@ const NavItem = memo(function NavItem({
       style={{
         position: 'absolute',
         top: 0,
-        left: centre - 32,
-        width: 64,
+        left: centre - itemWidth / 2,
+        width: itemWidth,
         height: NAV_HEIGHT,
         borderRadius: 22,
         alignItems: 'center',
@@ -292,17 +300,18 @@ const NavItem = memo(function NavItem({
           filled={active}
         />
       </Animated.View>
-      <NavLabel label={label} active={active} />
+      <NavLabel label={label} active={active} width={itemWidth} />
     </BubblePressable>
   );
 });
 
 /**
- * The name under a glyph. Wider than the 64 dp item (the Russian `Тренировка`
- * is ~70 dp at 12.5) and centred on it: with two slots half a bar apart there
- * is room for far longer. Not clipped, not shrunk — 12.5 is the floor.
+ * The name under a glyph, as wide as its item: a quarter of a 336 dp bar is
+ * 84, and the longest name, the Russian `Тренировка`, is ~70 at 12.5. Not
+ * shrunk — 12.5 is the floor; a giant system font clips at the slot's edge
+ * rather than running into the neighbour's name.
  */
-function NavLabel({ label, active }: { label: string; active: boolean }) {
+function NavLabel({ label, active, width }: { label: string; active: boolean; width: number }) {
   return (
     <Text
       numberOfLines={1}
@@ -311,7 +320,7 @@ function NavLabel({ label, active }: { label: string; active: boolean }) {
       accessibilityElementsHidden
       style={{
         marginTop: 3,
-        width: 84,
+        width,
         textAlign: 'center',
         fontSize: 12.5,
         lineHeight: LABEL_LINE,

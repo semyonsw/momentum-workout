@@ -9,7 +9,6 @@ import {
   exerciseRowControls,
   holdActions,
   holdCue,
-  libraryTabRoute,
 } from './discoverability';
 
 /**
@@ -63,15 +62,12 @@ describe('long-press surfaces (U11)', () => {
   });
 });
 
-describe('the workout corner (U23)', () => {
-  it('has one door for routines and exercises, after the assistant', () => {
-    expect(WORKOUT_CORNER).toEqual(['ai', 'library']);
-    expect(WORKOUT_CORNER.filter((key) => key === 'library')).toHaveLength(1);
+describe('the workout corner and the Routines tab (U23, 4.0)', () => {
+  it('holds only the assistant — routines and history are tabs now', () => {
+    expect(WORKOUT_CORNER).toEqual(['ai']);
   });
 
-  it('the switch maps each half to its own route, routines first', () => {
+  it('the Routines tab switches between its two halves, routines first', () => {
     expect(LIBRARY_TABS).toEqual(['routines', 'exercises']);
-    expect(libraryTabRoute('routines')).toBe('routines');
-    expect(libraryTabRoute('exercises')).toBe('library');
   });
 });

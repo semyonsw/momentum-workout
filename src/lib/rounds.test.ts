@@ -10,7 +10,6 @@ import { describe, expect, it } from 'vitest';
 
 import { ROUND_START_GRACE_MS, autoRoundToStart, hasRoundLeft, isRoundExercise } from './rounds';
 import type { DraftEntry, DraftSession, DraftSet } from './draft';
-import { DEFAULT_OVERLOAD_POLICY, evaluateOverload } from './progressiveOverload';
 import { seedExercises } from '../data/seed';
 import type { Exercise } from '../types/models';
 
@@ -42,15 +41,6 @@ function entry(exercise: Exercise, sets: DraftSet[]): DraftEntry {
     restSeconds: 60,
     transitionRestSeconds: 150,
     sets,
-    // The verdict plays no part in the chain, so it is built by the engine's own
-    // "nothing to say" path rather than hand-written into a shape that can drift.
-    overload: evaluateOverload({
-      exercise,
-      history: [],
-      policy: DEFAULT_OVERLOAD_POLICY,
-      unitSystem: 'metric',
-    }),
-    overloadAccepted: false,
     lastSessionSummary: null,
     lastSessionShort: null,
   };
@@ -219,9 +209,5 @@ describe('the shipped boxing exercise', () => {
     expect(boxing.countUnit).toBe('rounds');
     expect(boxing.timerMode).toBe('countdown');
     expect(boxing.prepareSeconds).toBeGreaterThan(0);
-  });
-
-  it('and the policy it is judged by is the shipped one', () => {
-    expect(DEFAULT_OVERLOAD_POLICY.repTarget).toBeGreaterThan(0);
   });
 });

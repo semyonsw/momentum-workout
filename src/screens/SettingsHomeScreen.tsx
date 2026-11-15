@@ -1,118 +1,79 @@
 /**
- * SettingsHomeScreen — the look, the app's door, one export, one import, one reset.
+ * SettingsHomeScreen — every setting in the app, on one page.
  *
  *   ┌──────────────────────────────────────────────┐
  *   │ SETTINGS                            РУ  EN   │
- *   │ APPEARANCE                                   │
- *   │ ┌──────────────────────────────────────────┐ │
- *   │ │ ▓▓▓▓▓▓▓ Fintech Lime ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ ◐  │ │  ← the live gradient
- *   │ │ PRESETS  [▓▓ Lime ✓] [▓▓ Emerald]        │ │
- *   │ │          [▓▓ …     ] [▓▓ …      ]        │ │
- *   │ │ Custom · pick your own three   ● ● ●     │ │
- *   │ └──────────────────────────────────────────┘ │
- *   │ WORKOUT                                      │  ← the training's own row
- *   │ ┌──────────────────────────────────────────┐ │
- *   │ │ ▣ Workout settings                     › │ │
- *   │ └──────────────────────────────────────────┘ │
- *   │ AI · EVERYTHING, IN ONE FILE · reset         │
+ *   │ Workout          rest · get ready · ladder · │
+ *   │                  weekly sets · units         │
+ *   │ Timers & sound   beeps · sound · vibration … │
+ *   │ Bodyweight       number · log · weigh-in     │
+ *   │ Data & backup    backup · export · import ·  │
+ *   │                  delete history · reset      │
+ *   │ AI coach         the key, the model          │
+ *   │ Language         Русский | English           │
  *   └──────────────────────────────────────────────┘
  *
- * ── APPEARANCE FIRST, AND WHY ─────────────────────────────────────────────
+ * ── ONE PAGE (4.0) ────────────────────────────────────────────────────────
  *
- * The theme is the one setting that changes every screen at once, and the only
- * one whose effect can be SEEN from here — so it leads, as a preview of itself
- * rather than as a row naming it. A preset is one tap. Custom's three dots open
- * `ColorPickerSheet`, which writes nothing until `Apply`: a theme change remounts
- * the whole app, and a picker that wrote per tap would close itself under the
- * thumb. The theme names are data in `lib/theme.ts` and go through `t()` here.
+ * From 3.0 the training's settings were behind a `Workout settings` row, and
+ * this page held the app-wide rest. Two pages for one question — "where is that
+ * setting" — meant guessing which first, and the rest timer, the setting
+ * changed most, was the one behind the extra tap. Now it is one scroll with a
+ * heading per section, in the order the owner chose: what shapes a workout
+ * first, then what you touch once. The three training sections are
+ * `components/TrainingSettings.tsx`; the data, the assistant and the language
+ * are here. Rejected: collapsible sections (a setting you have to open a
+ * section to see is the extra tap again) and a search box (thirty rows do not
+ * need one).
  *
- * ── ONE SECTION ROW ───────────────────────────────────────────────────────
+ * ── ONE OF EACH, FOR THE DATA ──────────────────────────────────────────────
  *
- * Settings used to be one scroll holding every log's preferences in whatever
- * order they were added, so the rest step and the plate list sat between the
- * user and anything else. Everything about training is behind ONE row, `Workout
- * settings`; what is left here is about the whole app: the look, the language,
- * the assistant's key, the game layer, the backup, the reset.
- *
- * ── AND ONE OF EACH, UNDERNEATH ────────────────────────────────────────────
- *
- * There were eight data rows across this screen and three more elsewhere: a
- * whole-phone export, a CSV export, a replace, a merge, a CSV import, and an
- * export-and-import pair for each log the app then held. Every one of them
- * worked. Together they made the one that matters — everything, out to a file
- * you can read — just another row in a list of things to be careful about, and a
- * backup you have to choose between is a backup you put off.
- *
- * So: one file holds the log and the settings. `Export everything` writes it,
+ * One file holds the log and the settings. `Export everything` writes it,
  * `Replace everything from a file` reads it back, and `Reset every setting` puts
  * the preferences back to their defaults WITHOUT touching a single logged row.
- * The reset is here rather than in Workout settings because it also resets the
- * look and the language.
+ * The automatic backup sits above them, because it is not an export — it is the
+ * thing that makes remembering to export optional. The two irreversible actions,
+ * deleting the whole history and resetting the settings, are the last rows of
+ * the section, muted, and each asks in the danger sheet first.
  *
- * ONE QUIET ROW MORE, for spreadsheets (M7): `Export a spreadsheet (CSV)` opens
- * a sheet offering the workouts, one row per set. A row and a sheet, so the data
- * card still reads as one export, one import; muted rather
- * than green, because it is a way to READ the log in a spreadsheet, not a way to
- * keep it — a CSV restores nothing, and there is no CSV import (`lib/csv.ts`).
+ * The ghost `Back up now` in the floating slot went with the merge: it was the
+ * same write as `Export everything`, and a long settings page with a floating
+ * button over its rows is a page whose last row is hard to reach.
  *
- * The automatic backup stays, above them, because it is not an export — it is the
- * thing that makes remembering to export optional, and `lib/backup.ts` is right
- * that protection depending on the user's memory of a menu is not protection.
+ * ── THE LANGUAGE IS IN TWO PLACES, ON PURPOSE ─────────────────────────────
  *
- * ── ONE SWITCH FOR THE GAME LAYER (Wave 3) ────────────────────────────────
- *
- * `Achievements and levels` sits under the assistant, off by default, as one
- * switch rather than one per piece (`lib/engagement.ts` has the argument). It
- * is here and not in the section because it is about the whole app, not one of
- * its settings screens. The badge gallery's door appears under it only while it
- * is on.
- *
- * ── AND THE LANGUAGE IS IN THE CORNER, NOT IN A ROW ────────────────────────
- *
- * It is the one setting whose whole job is to be findable by somebody who cannot
- * read the screen it is on. A row saying `Язык` is invisible to exactly the
- * person who needs it, and so is one saying `Language`. Two letters in the
- * corner, each in its own script, are legible either way — and they are in the
- * corner rather than in the list because the corner is the same place on every
- * section root, which is where somebody who cannot read the app will look.
+ * The owner's section list ends with Language, and it is there, each option
+ * named in its own script. The `РУ | EN` letters stay in the corner too: the
+ * person who most needs a language switch is the one who cannot read the page
+ * it is on, and they will not find a section at the foot of a long scroll by
+ * its heading. Two letters at the top, each in its own script, are legible
+ * either way.
  */
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { Pressable } from '../components/Pressable';
 import { StatusBar } from 'expo-status-bar';
-import { LinearGradient } from 'expo-linear-gradient';
 
-import { ColorPickerSheet } from '../components/ColorPickerSheet';
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { Icon } from '../components/Icon';
-import { MaterialSymbol, type SymbolName } from '../components/MaterialSymbol';
-import { FADE_ON, RunningText } from '../components/RunningText';
-import { Sheet } from '../components/Sheet';
 import { LanguageToggle, SectionTopBar } from '../components/SectionTopBar';
-import { BubblePressable } from '../components/bubbles';
 import {
-  FloatingAction,
-  GlassSurface,
-  Lamps,
-  SpecularEdge,
-  useBarInsets,
-} from '../components/glass';
+  BodyweightSection,
+  TimersSoundSection,
+  WorkoutSettingsSection,
+} from '../components/TrainingSettings';
+import { BubblePressable } from '../components/bubbles';
+import { GlassSurface, Lamps, useBarInsets } from '../components/glass';
 import { pressedStyle } from '../components/motion';
 import {
   DangerFootAction,
   Kicker,
+  Segmented,
   Separator,
-  SwitchRow,
+  SettingRow,
   TextButton,
   Toggle,
 } from '../components/primitives';
-import { LevelSheet } from '../components/LevelSheet';
-import { useBadges, useLevel } from '../hooks/useEngagement';
-import { formatValue } from '../lib/units';
-import { describeNextLevel } from '../lib/xp';
-import { describeGallery } from '../lib/achievements';
-import { engagementOn, engagementView } from '../lib/engagement';
 import { SparkleCircle } from '../components/AiEntryCard';
 import { useAi } from '../state/aiStore';
 import { requestBackup, runBackupNow, type BackupRun } from '../hooks/useAutoBackup';
@@ -130,22 +91,15 @@ import {
   pickFolder,
   pickJsonFile,
   readTextFile,
-  saveCsvFile,
 } from '../lib/backupFile';
-import { csvBaseName } from '../lib/csv';
-import { useLanguage, useT } from '../hooks/useT';
+import { useLanguage, usePlural, useT } from '../hooks/useT';
 import { commit, tap } from '../lib/feedback';
 import { LANGUAGES, LANGUAGE_LABELS, LANGUAGE_NAMES, type Language } from '../lib/i18n';
-import {
-  applyBackup,
-  currentSnapshot,
-  exportCsvText,
-  restorableCounts,
-} from '../state/dataTransfer';
+import { applyBackup, currentSnapshot, restorableCounts } from '../state/dataTransfer';
 import { SuccessPopup } from '../components/SuccessPopup';
 import { useSettings } from '../state/settingsStore';
-import { THEME_PRESETS, themeColors, themeName, type ThemePreset } from '../lib/theme';
-import { ai, gradientBar, palette, radius, tint } from '../theme/tokens';
+import { useWorkoutHistory } from '../state/workoutHistoryStore';
+import { ai, palette, radius, tint } from '../theme/tokens';
 
 /** A file that has been read and understood, waiting for a yes. */
 interface PendingImport {
@@ -180,22 +134,31 @@ const REPLACE_NOTE =
   'makes this phone look like the file, so export first if there is anything here you would miss. A backup from Momentum 2.x also holds daily tasks and finance; this app reads only the training from it. A workout in progress is not part of a backup: it carries a running clock.';
 
 interface SettingsHomeScreenProps {
-  onOpenWorkoutSettings: () => void;
-  /** `AI assistant` — the key, the model, the test. */
+  /** `AI coach` — the key, the model, the test. */
   onOpenAiSettings: () => void;
-  /** E1: the badge gallery. Only reachable while the Wave 3 switch is on. */
-  onOpenAchievements: () => void;
+  /** The Bodyweight screen, from the Bodyweight section's door. */
+  onOpenBody: () => void;
 }
 
-export function SettingsHomeScreen({
-  onOpenWorkoutSettings,
-  onOpenAiSettings,
-  onOpenAchievements,
-}: SettingsHomeScreenProps) {
+export function SettingsHomeScreen({ onOpenAiSettings, onOpenBody }: SettingsHomeScreenProps) {
   const settings = useSettings();
   const t = useT();
   const language = useLanguage();
   const bars = useBarInsets();
+  const countedWorkouts = usePlural();
+  const clearHistory = useWorkoutHistory((s) => s.clearHistory);
+  const workouts = useWorkoutHistory((s) => s.workouts);
+  const workoutCount = workouts.length;
+  /*
+   * Counted from the DATABASE rather than from the array above — the whole point
+   * is to be able to disagree with it. Once per change of the log, not once per
+   * render: this root is pre-built while idle and re-renders with every
+   * setting, and a write to the table is always a write to `workouts` too.
+   */
+  const countOnDisk = useWorkoutHistory((s) => s.countOnDisk);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `workouts` is the signal to recount
+  const onDisk = useMemo(() => countOnDisk(), [countOnDisk, workouts]);
+  const [confirmingHistory, setConfirmingHistory] = useState(false);
 
   const [status, setStatus] = useState<Status | null>(null);
   /**
@@ -211,14 +174,6 @@ export function SettingsHomeScreen({
   };
   const [pending, setPending] = useState<PendingImport | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  /* The level sheet. It opened from a chip on the 2.x landing; that screen is
-     gone with the split, so the level is a row of the card its switch is on. */
-  const [levelOpen, setLevelOpen] = useState(false);
-  const level = useLevel();
-  /** Which of Custom's three dots has its picker open. */
-  const [picking, setPicking] = useState<0 | 1 | 2 | null>(null);
-  /** The two spreadsheet exports' sheet. */
-  const [choosingCsv, setChoosingCsv] = useState(false);
   /** A picker is open or a file is being read. Stops a second tap racing it. */
   const [busy, setBusy] = useState(false);
 
@@ -327,38 +282,6 @@ export function SettingsHomeScreen({
   };
 
   /**
-   * A SPREADSHEET — one log as CSV (`lib/csv.ts`), through the folder picker.
-   *
-   * Not a backup, so none of the backup's bookkeeping: the picker every time
-   * rather than the granted folder, no replacing earlier files, no `lastBackupAt`, no adopting the folder for automatic copies. Saying
-   * "backed up" over a file that cannot be restored would be the one lie this
-   * screen must not tell.
-   */
-  const exportCsv = async () => {
-    setChoosingCsv(false);
-    if (busy) return;
-    tap();
-    setBusy(true);
-    setStatus(null);
-    try {
-      const outcome = await saveCsvFile(csvBaseName(), exportCsvText(), language);
-      if (!outcome.saved) {
-        setStatus({ tone: 'quiet', text: t('No folder picked, so nothing was saved.') });
-        return;
-      }
-      commit();
-      succeed(
-        t('Export successful'),
-        t('Saved {name} to {where}.', { name: outcome.name, where: outcome.where }),
-      );
-    } catch (error) {
-      setStatus({ tone: 'quiet', text: describeError(error, language) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  /**
    * IMPORT — the phone's own file browser, then a question.
    *
    * Reading the file and APPLYING it are deliberately two steps: this is the only
@@ -414,7 +337,7 @@ export function SettingsHomeScreen({
     );
   };
 
-  const asking = pending != null || confirmingReset || picking != null || choosingCsv;
+  const asking = pending != null || confirmingReset || confirmingHistory;
 
   return (
     <View className="flex-1 bg-bg">
@@ -445,91 +368,16 @@ export function SettingsHomeScreen({
           showsVerticalScrollIndicator={false}
           scrollEnabled={!asking}
         >
-          {/* APPEARANCE — see the file header for why it leads. */}
-          <Kicker className="mx-lg mb-kicker-gap">{t('Appearance')}</Kicker>
-          <GlassSurface tier="card" radius={radius.card} shadow="e1" flat className="mx-lg">
-            <View style={{ padding: 14 }}>
-              <ThemePreview name={t(themeName(settings.themeId))} />
-              <Text
-                maxFontSizeMultiplier={1.3}
-                style={{ marginTop: 14, fontSize: 12.5, letterSpacing: 1.1 }}
-                className="font-semibold uppercase text-ink-faint"
-              >
-                {t('Presets')}
-              </Text>
-              {/* Two columns, as rows of pairs: a flex-wrap grid cannot give
-                  two cards an exact half each with an 8 dp gutter between. */}
-              <View style={{ marginTop: 8, gap: 8 }}>
-                {pairs(THEME_PRESETS).map((pair) => (
-                  <View key={pair[0].id} className="flex-row" style={{ gap: 8 }}>
-                    {pair.map((preset) => (
-                      <PresetCard
-                        key={preset.id}
-                        preset={preset}
-                        selected={settings.themeId === preset.id}
-                        onPress={() => {
-                          if (settings.themeId === preset.id) return;
-                          tap();
-                          settings.setTheme(preset.id);
-                        }}
-                      />
-                    ))}
-                  </View>
-                ))}
-              </View>
-              <CustomCard
-                colors={settings.customColors}
-                selected={settings.themeId === 'custom'}
-                onSelect={() => {
-                  if (settings.themeId === 'custom') return;
-                  tap();
-                  settings.setTheme('custom');
-                }}
-                onPickDot={(index) => {
-                  tap();
-                  setPicking(index);
-                }}
-              />
-            </View>
-          </GlassSurface>
-          <Text
-            maxFontSizeMultiplier={1.3}
-            style={{ marginTop: 8, fontSize: 14, lineHeight: 20 }}
-            className="mx-lg text-ink-faint"
-          >
-            {t(
-              'The three colours tint the buttons, the rings, the lit cards and the light behind every section. The AI button keeps its own colours so it always stands out.',
-            )}
-          </Text>
+          <SectionHeading first>{t('Workout')}</SectionHeading>
+          <WorkoutSettingsSection />
 
-          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('Workout')}</Kicker>
-          {/* The row that IS the app, behind the training's mark — the same
-              Material Symbol the nav bar draws for it. */}
-          <GlassSurface tier="card" radius={radius.row} shadow="e1" flat className="mx-lg">
-            <SectionRow
-              label={t('Workout settings')}
-              hint={t('Rest, plates, weekly targets')}
-              symbol="fitness_center"
-              onPress={onOpenWorkoutSettings}
-            />
-          </GlassSurface>
+          <SectionHeading>{t('Timers & sound')}</SectionHeading>
+          <TimersSoundSection />
 
-          {/* THE ASSISTANT, between the section it reads and the general
-              block. One row, whose second line is the one fact about it that
-              matters — whether a key has passed its test — and a lit dot when
-              it has. */}
-          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('AI')}</Kicker>
-          <AiSettingsRow onPress={onOpenAiSettings} />
+          <SectionHeading>{t('Bodyweight')}</SectionHeading>
+          <BodyweightSection onOpenBody={onOpenBody} />
 
-          {/* WAVE 3's ONE SWITCH (lib/engagement.ts), off by default. Off, the
-              card is this one row and nothing else in the app changes; on, the
-              doors to what it turned on open underneath it. */}
-          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('Achievements and levels')}</Kicker>
-          <EngagementCard
-            onOpenAchievements={onOpenAchievements}
-            onOpenLevel={() => setLevelOpen(true)}
-          />
-
+          <SectionHeading>{t('Data & backup')}</SectionHeading>
           {/* ----------------------------------------------------------
               AUTOMATIC BACKUP — the row that makes the one below it optional.
 
@@ -547,7 +395,7 @@ export function SettingsHomeScreen({
               is a granted directory, and the app's own sandbox dies with the app —
               which is one of the exact events a backup exists to survive. So the
               row states which of the two facts is missing. */}
-          <Kicker className="mx-lg mb-kicker-gap mt-kicker">{t('Everything, in one file')}</Kicker>
+          <Kicker className="mx-lg mb-kicker-gap">{t('Everything, in one file')}</Kicker>
 
           {/* THE HERO. The one fact on this screen anybody opens it to check —
               how old the last copy is — at a size nothing else here comes near.
@@ -622,15 +470,6 @@ export function SettingsHomeScreen({
               onPress={() => void importEverything()}
             />
             <Separator inset={0} />
-            {/* Muted: a way to READ the log elsewhere, not a way to keep it. */}
-            <TextButton
-              label={t('Export a spreadsheet (CSV)')}
-              onPress={() => {
-                tap();
-                setChoosingCsv(true);
-              }}
-            />
-            <Separator inset={0} />
           </GlassSurface>
 
           {status ? (
@@ -657,44 +496,64 @@ export function SettingsHomeScreen({
             )}
           </Text>
 
-          {/* THE FOOT OF THE SCREEN (U19): the one action here that cannot be
-              undone is the last thing on the page, muted, and it asks in the
-              danger sheet. A reset should cost a scroll, not a flick. */}
+          {/* ----------------------------------------------------------
+              WHAT IS ACTUALLY ON DISK, stated as a fact.
+
+              The log lives in SQLite (`historyDb.ts`) and the app holds a copy of
+              it in memory. Those two can disagree in exactly one direction — a read
+              that failed leaves the copy empty while the file is untouched — and
+              when they do, every screen shows an empty history and it looks
+              precisely like a year of training being deleted. One line here is the
+              difference between that and knowing better. */}
+          <View className="mx-lg mt-lg overflow-hidden rounded-surface border border-hairline bg-surface">
+            <SettingRow
+              label={t('Workouts on disk')}
+              value={
+                onDisk == null
+                  ? t('Cannot read the log')
+                  : onDisk === workoutCount
+                    ? `${onDisk}`
+                    : t('{onDisk} on disk · {loaded} loaded', { onDisk, loaded: workoutCount })
+              }
+              valueTone={onDisk == null || onDisk !== workoutCount ? 'muted' : 'faint'}
+            />
+          </View>
+
+          {/* THE FOOT OF THE SECTION (U19): the two actions here that cannot be
+              undone are its last rows, muted, and each asks in the danger sheet.
+              One workout at a time is deleted from the history; this is all of it,
+              offered only when there is something to lose. */}
+          {workoutCount > 0 ? (
+            <DangerFootAction
+              label={t('Delete all workout history')}
+              onPress={() => setConfirmingHistory(true)}
+              className="mx-md mt-xl"
+            />
+          ) : null}
           <DangerFootAction
             label={t('Reset every setting')}
             hint={t('Nothing you have logged is touched.')}
             onPress={() => setConfirmingReset(true)}
-            className="mx-md mt-xl"
+            className="mx-md mt-md"
           />
+
+          <SectionHeading>{t('AI coach')}</SectionHeading>
+          <AiSettingsRow onPress={onOpenAiSettings} />
+
+          <SectionHeading>{t('Language')}</SectionHeading>
+          <View className="mx-lg">
+            <Segmented
+              options={LANGUAGES.map((value) => ({ value, label: LANGUAGE_NAMES[value] }))}
+              value={language}
+              onChange={(value) => {
+                tap();
+                settings.setLanguage(value);
+              }}
+              accessibilityLabel={t('Application language')}
+            />
+          </View>
         </ScrollView>
       </View>
-
-      {/* THE ONE NON-FILLED INSTANCE of the floating slot, and it earns the
-          exception: a maintenance task should not shout in the same voice as
-          `Add expense`. Same coordinates, same geometry, ghost glass. */}
-      {asking ? null : (
-        <FloatingAction
-          label={
-            settings.autoBackupFolderUri == null ? t('Choose a backup folder') : t('Back up now')
-          }
-          round
-          variant="ghost"
-          symbol="cloud_upload"
-          onPress={() => void saveBackup(t('Backup saved'))}
-        />
-      )}
-
-      {levelOpen && level ? (
-        <LevelSheet
-          progress={level.progress}
-          lines={level.lines}
-          onOpenBadges={() => {
-            setLevelOpen(false);
-            onOpenAchievements();
-          }}
-          onDismiss={() => setLevelOpen(false)}
-        />
-      ) : null}
 
       {pending ? (
         <ConfirmSheet
@@ -722,7 +581,7 @@ export function SettingsHomeScreen({
           tone="danger"
           title={t('Reset every setting?')}
           body={t(
-            'Every duration, switch, target and default in this app goes back to how it shipped. Your exercises, routines, history, gyms and bodyweight are untouched.',
+            'Every duration, switch, target and default in this app goes back to how it shipped. Your exercises, routines, history and bodyweight are untouched.',
           )}
           confirmLabel={t('Reset settings')}
           cancelLabel={t('Keep mine')}
@@ -735,35 +594,29 @@ export function SettingsHomeScreen({
         />
       ) : null}
 
-      {choosingCsv ? (
-        <Sheet title={t('Export as a spreadsheet')} onDismiss={() => setChoosingCsv(false)}>
-          <View className="overflow-hidden rounded-surface bg-surface-alt">
-            <ExportRow
-              label={t('Export workouts (CSV)')}
-              detail={t('One row per set, warm-ups marked.')}
-              onPress={() => void exportCsv()}
-            />
-          </View>
-          <Text className="mx-xs mt-md text-label text-ink-faint">
-            {t(
-              'A spreadsheet export is for reading a log in Excel or Google Sheets. It is not a backup and cannot be read back in — only the JSON file restores.',
-            )}
-          </Text>
-          <TextButton label={t('Cancel')} onPress={() => setChoosingCsv(false)} />
-        </Sheet>
-      ) : null}
-
-      {picking != null ? (
-        <ColorPickerSheet
-          index={picking}
-          colors={settings.customColors}
-          onDismiss={() => setPicking(null)}
-          onDone={(hex) => {
-            const index = picking;
-            setPicking(null);
-            // The one write, and it remounts the app: see `ColorPickerSheet`.
-            useSettings.getState().setCustomColor(index, hex);
+      {confirmingHistory ? (
+        <ConfirmSheet
+          tone="danger"
+          title={t('Delete all workout history?')}
+          body={t(
+            'All {count} finished {workouts} go, and so do the sets in them — which is what the prefills and the records read. This cannot be undone.',
+            {
+              count: workoutCount,
+              // `few` is a Russian-only form, so it is the Russian word.
+              workouts: countedWorkouts(workoutCount, {
+                one: t('workout'),
+                few: 'тренировки',
+                many: t('workouts'),
+              }),
+            },
+          )}
+          confirmLabel={t('Delete everything')}
+          cancelLabel={t('Keep my history')}
+          onConfirm={() => {
+            clearHistory();
+            setConfirmingHistory(false);
           }}
+          onCancel={() => setConfirmingHistory(false)}
         />
       ) : null}
 
@@ -774,259 +627,10 @@ export function SettingsHomeScreen({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Appearance                                                          */
-/* ------------------------------------------------------------------ */
-
-/** One choice in the spreadsheet sheet: what it writes, and what a row of it is. */
-function ExportRow({
-  label,
-  detail,
-  onPress,
-}: {
-  label: string;
-  detail: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`${label}. ${detail}`}
-      style={pressedStyle}
-      className="h-row-lg justify-center px-lg"
-    >
-      <Text className="text-body text-ink">{label}</Text>
-      <Text numberOfLines={1} className="mt-[2px] text-label text-ink-faint">
-        {detail}
-      </Text>
-    </Pressable>
-  );
-}
-
-/** A list in twos, for the two-column preset grid. */
-function pairs<T>(list: readonly T[]): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < list.length; i += 2) out.push(list.slice(i, i + 2));
-  return out;
-}
-
-/** The CSS a designer would write for the current theme — shown, not used. */
-function cssFor(colors: readonly [string, string, string]): string {
-  return `linear-gradient(90deg, ${colors[0]} 0%, ${colors[1]} 50%, ${colors[2]} 100%)`;
-}
-
-/**
- * The live theme as a 96 dp bar: the 90° gradient, the name, and the gradient
- * written out. (A sheen used to cross it every 4 s; it went with the rest of the
- * app's never-ending loops in 2.1.0.)
- */
-function ThemePreview({ name }: { name: string }) {
-  const themeId = useSettings((s) => s.themeId);
-  const custom = useSettings((s) => s.customColors);
-  return (
-    <View style={{ height: 96, borderRadius: 18 }}>
-      <LinearGradient
-        {...gradientBar()}
-        style={{
-          flex: 1,
-          borderRadius: 18,
-          overflow: 'hidden',
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          justifyContent: 'space-between',
-        }}
-      >
-        <View className="flex-row items-center justify-between">
-          <Text
-            maxFontSizeMultiplier={1.3}
-            numberOfLines={1}
-            style={{ flex: 1, fontSize: 19, fontWeight: '600', color: palette.onAcc }}
-          >
-            {name}
-          </Text>
-          <MaterialSymbol name="palette" size={24} color={palette.onAcc} filled />
-        </View>
-        <RunningText
-          text={cssFor(themeColors(themeId, custom))}
-          maxFontSizeMultiplier={1.3}
-          fadeColor={FADE_ON.gradient}
-          style={{ fontFamily: 'monospace', fontSize: 12.5, color: palette.onAcc, opacity: 0.88 }}
-        />
-      </LinearGradient>
-    </View>
-  );
-}
-
-/** Behind a preset card's tag: the card's own wash over the outer card glass. */
-const PRESET_FADE = { selected: '#1A1E1D', idle: '#151918' } as const;
-
-/**
- * One preset: its own gradient (not the live theme's — that is the point of a
- * swatch), the name, and a running tag. The selected one is outlined in the
- * accent and ticked.
- */
-function PresetCard({
-  preset,
-  selected,
-  onPress,
-}: {
-  preset: ThemePreset;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const t = useT();
-  const name = t(preset.name);
-  return (
-    <BubblePressable
-      onPress={onPress}
-      radius={16}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      accessibilityLabel={`${name}. ${t(preset.tag)}`}
-      style={(state) => [
-        pressedStyle(state),
-        {
-          flex: 1,
-          minWidth: 0,
-          padding: 10,
-          borderRadius: 16,
-          borderWidth: 1.5,
-          borderColor: selected ? palette.acc : 'rgba(236,241,238,0.045)',
-          backgroundColor: selected ? 'rgba(236,241,238,0.06)' : 'rgba(236,241,238,0.028)',
-        },
-      ]}
-    >
-      <View
-        style={{
-          height: 36,
-          borderRadius: 12,
-        }}
-      >
-        <LinearGradient
-          colors={[...preset.colors]}
-          locations={[0, 0.5, 1]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={{ flex: 1, borderRadius: 12 }}
-        />
-      </View>
-      <View className="flex-row items-center" style={{ marginTop: 8, gap: 6 }}>
-        <Text
-          maxFontSizeMultiplier={1.3}
-          numberOfLines={1}
-          style={{ flex: 1, fontSize: 14.5, lineHeight: 19 }}
-          className="font-medium text-ink"
-        >
-          {name}
-        </Text>
-        {selected ? <Icon name="check" size={16} color={palette.acc} /> : null}
-      </View>
-      <RunningText
-        text={t(preset.tag)}
-        maxFontSizeMultiplier={1.3}
-        fadeColor={selected ? PRESET_FADE.selected : PRESET_FADE.idle}
-        containerStyle={{ marginTop: 1 }}
-        style={{ fontSize: 12.5, lineHeight: 16, color: palette.inkFaint }}
-      />
-    </BubblePressable>
-  );
-}
-
-/**
- * Custom: three dots that each open the picker, and a strip of the three.
- * Solid accent outline when it is the theme in use; dashed when it is only an
- * offer. Tapping the card itself (not a dot) selects it as it stands.
- */
-function CustomCard({
-  colors,
-  selected,
-  onSelect,
-  onPickDot,
-}: {
-  colors: readonly [string, string, string];
-  selected: boolean;
-  onSelect: () => void;
-  onPickDot: (index: 0 | 1 | 2) => void;
-}) {
-  const t = useT();
-  return (
-    <BubblePressable
-      onPress={onSelect}
-      radius={16}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      accessibilityLabel={`${t('Custom')}. ${t('Pick your own three colours')}`}
-      style={(state) => [
-        pressedStyle(state),
-        {
-          marginTop: 8,
-          padding: 12,
-          borderRadius: 16,
-          borderWidth: 1.5,
-          borderStyle: selected ? 'solid' : 'dashed',
-          borderColor: selected ? palette.acc : 'rgba(236,241,238,0.12)',
-          backgroundColor: selected ? 'rgba(236,241,238,0.06)' : 'rgba(236,241,238,0.028)',
-        },
-      ]}
-    >
-      <View className="flex-row items-center" style={{ gap: 10 }}>
-        <View className="flex-1" style={{ minWidth: 0 }}>
-          <Text
-            maxFontSizeMultiplier={1.3}
-            numberOfLines={1}
-            style={{ fontSize: 15.5, lineHeight: 20 }}
-            className="font-medium text-ink"
-          >
-            {t('Custom')}
-          </Text>
-          <Text
-            maxFontSizeMultiplier={1.3}
-            numberOfLines={2}
-            style={{ marginTop: 2, fontSize: 13, lineHeight: 17, color: palette.inkFaint }}
-          >
-            {t('Pick your own three colours')}
-          </Text>
-        </View>
-        {([0, 1, 2] as const).map((index) => (
-          <BubblePressable
-            key={index}
-            onPress={() => onPickDot(index)}
-            radius="pill"
-            hitSlop={4}
-            accessibilityRole="button"
-            accessibilityLabel={t('Colour {n}', { n: index + 1 })}
-            style={(state) => [
-              pressedStyle(state),
-              {
-                width: 38,
-                height: 38,
-                borderRadius: radius.pill,
-                backgroundColor: colors[index],
-                borderWidth: 2,
-                borderColor: 'rgba(236,241,238,0.22)',
-              },
-            ]}
-          />
-        ))}
-      </View>
-      <LinearGradient
-        colors={[...colors]}
-        locations={[0, 0.5, 1]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={{ marginTop: 10, height: 30, borderRadius: 10 }}
-      />
-    </BubblePressable>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-
 /**
  * The assistant's door. Its dot and its line are the AI's own fixed colours
- * (`tokens.ai`), not the theme's — the footnote above promises the AI keeps
- * its colours so it always stands out, and this row is where that is seen.
+ * (`tokens.ai`), not the theme's, so the assistant always stands out from the
+ * rest of the app.
  */
 function AiSettingsRow({ onPress }: { onPress: () => void }) {
   const t = useT();
@@ -1092,134 +696,17 @@ function AiSettingsRow({ onPress }: { onPress: () => void }) {
 }
 
 /**
- * The switch, and — only while it is on — the level and the badge door with its
- * count. Both are worked out here (`useLevel`, `useBadges`), which costs nothing
- * with the switch off: the hooks compute nothing then.
- *
- * The level row is new in 3.0.0. Its chip sat under the 2.x landing's greeting,
- * and each app now opens on its own section, where a score would take the first
- * screen's corner — the thing the chip was kept small to avoid. Here it sits
- * beside the switch that turned it on.
+ * A section's heading: the page's one level above the small uppercase kickers,
+ * at `title` size, so a scroll through thirty rows reads as six sections.
  */
-function EngagementCard({
-  onOpenAchievements,
-  onOpenLevel,
-}: {
-  onOpenAchievements: () => void;
-  onOpenLevel: () => void;
-}) {
-  const t = useT();
-  const lang = useLanguage();
-  const on = useSettings((s) => engagementOn(s));
-  const setEngagement = useSettings((s) => s.setEngagement);
-  const view = engagementView(on);
-  const badges = useBadges();
-  const level = useLevel();
+function SectionHeading({ children, first = false }: { children: string; first?: boolean }) {
   return (
-    <GlassSurface tier="well" radius={radius.row} flat className="mx-lg">
-      <SwitchRow
-        label={t('Achievements and levels')}
-        hint={t('Off by default. Quiet badges and levels, worked out from your logs.')}
-        value={on}
-        onChange={setEngagement}
-      />
-      {view.level && level ? (
-        <>
-          <Separator inset={0} />
-          <SectionRow
-            label={t('Level {n}', { n: level.progress.level })}
-            hint={`${formatValue(level.progress.xp)} ${describeNextLevel(level.progress, lang)}`}
-            symbol="center_focus_strong"
-            onPress={onOpenLevel}
-          />
-        </>
-      ) : null}
-      {view.badges ? (
-        <>
-          <Separator inset={0} />
-          <SectionRow
-            label={t('Badges')}
-            hint={describeGallery(badges, lang)}
-            symbol="task_alt"
-            onPress={onOpenAchievements}
-          />
-        </>
-      ) : null}
-    </GlassSurface>
-  );
-}
-
-/**
- * A door, as a row of a card: the app's section row, and the badge gallery's.
- *
- * The leading tile is the section's own Material Symbol in a 40 dp lit square —
- * the glyph the nav bar draws for it — so the row reads as the app's section
- * rather than as one more setting. A door inside a section does not get one;
- * there is nothing for it to be a mark of.
- */
-function SectionRow({
-  label,
-  hint,
-  symbol,
-  onPress,
-}: {
-  label: string;
-  hint: string;
-  symbol: SymbolName;
-  onPress: () => void;
-}) {
-  return (
-    <View>
-      <BubblePressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={`${label}. ${hint}`}
-        style={(state) => [
-          pressedStyle(state),
-          {
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-          },
-        ]}
-      >
-        <View
-          style={{
-            height: 40,
-            width: 40,
-            marginRight: 12,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 13,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: tint(0.24),
-            backgroundColor: tint(0.16),
-          }}
-        >
-          <SpecularEdge color="rgba(236,241,238,0.12)" radius={13} />
-          <MaterialSymbol name={symbol} size={22} color={palette.acc} filled />
-        </View>
-        <View className="flex-1 pr-md" style={{ minWidth: 0 }}>
-          <Text
-            maxFontSizeMultiplier={1.3}
-            numberOfLines={1}
-            style={{ fontSize: 17, lineHeight: 22 }}
-            className="font-medium text-ink"
-          >
-            {label}
-          </Text>
-          <RunningText
-            text={hint}
-            maxFontSizeMultiplier={1.3}
-            fadeColor={FADE_ON.card}
-            containerStyle={{ marginTop: 2 }}
-            style={{ fontSize: 13.5, lineHeight: 18, color: palette.inkFaint }}
-          />
-        </View>
-        <Icon name="chevron-right" size={18} color={palette.inkFaint} />
-      </BubblePressable>
-    </View>
+    <Text
+      accessibilityRole="header"
+      maxFontSizeMultiplier={1.3}
+      className={['mx-lg mb-md text-title font-semibold text-ink', first ? '' : 'mt-xxl'].join(' ')}
+    >
+      {children}
+    </Text>
   );
 }

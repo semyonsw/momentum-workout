@@ -2,7 +2,7 @@
   "expo": {
     "name": "Workout",
     "slug": "momentum-app",
-    "version": "3.0.2",
+    "version": "4.0.0",
     "orientation": "portrait",
     "scheme": "workouttracker",
     "platforms": [
@@ -22,7 +22,7 @@
     ],
     "android": {
       "package": "com.semyonsw.workouttracker",
-      "versionCode": 79,
+      "versionCode": 80,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#060807"
@@ -34,8 +34,7 @@
         "WAKE_LOCK",
         "POST_NOTIFICATIONS",
         "SCHEDULE_EXACT_ALARM",
-        "USE_EXACT_ALARM",
-        "android.permission.health.WRITE_EXERCISE"
+        "USE_EXACT_ALARM"
       ]
     },
     "plugins": [
@@ -59,7 +58,6 @@
       "./plugins/withoutMicrophone",
       "expo-sqlite",
       "expo-secure-store",
-      "react-native-health-connect",
       [
         "expo-build-properties",
         {

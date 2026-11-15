@@ -37,8 +37,8 @@
  *
  * Every confirm that deletes, discards, archives or overwrites passes it — a
  * grep test (`lib/destructive.test.ts`) holds that line, and today that is
- * every confirm in the app (`Disconnect` too: the chats stay, the key goes;
- * `Restart the clock` too: the time on it is overwritten). `primary`, the
+ * every confirm in the app (`Disconnect` too: the chats stay, the key goes).
+ * `primary`, the
  * gradient side by side with `Cancel`, stays for a confirm that loses nothing.
  *
  * Whatever the tone, the scrim, the handle and hardware back all mean the safe

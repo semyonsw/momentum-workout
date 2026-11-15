@@ -23,10 +23,8 @@ import {
   roundToStep,
 } from './units';
 import { daysBetween, parseDay, shiftDay, weekEnd, weekStart } from './days';
-import { platesFor, describePlates } from './plates';
 import { parseBackup, serializeBackup } from './backup';
 import { validateChanges } from './ai/aiChanges';
-import { stepWeeklyGoal, usableExcusedWeeks, usableWeeklyGoal } from './weeklyGoal';
 import { bodyweightAt, clampBodyweightKg, sanitizeBodyweightLog } from './bodyweightLog';
 import { daysSince, isBackupFileName, padToCover, utf8ByteLength } from './autoBackup';
 
@@ -98,7 +96,7 @@ describe('dates are the phone’s own', () => {
 
   it('a set-kind correction is labelled with the local day, not the UTC one', () => {
     const [change] = validateChanges(
-      [{ target: 'workout_set', id: 'w1', exerciseId: 'bench', number: 1, text: 'failure' }],
+      [{ target: 'workout_set', id: 'w1', exerciseId: 'bench', number: 1, text: 'warmup' }],
       {
         exercises: [],
         workouts: [
@@ -149,16 +147,6 @@ describe('weights and steps', () => {
     expect(parseCountInput('1:30', 'seconds')).toBe(90);
     expect(parseCountInput('1,5', 'rounds')).toBe(90);
   });
-
-  it('platesFor: the bar alone, an impossible load, and no plates at all', () => {
-    expect(platesFor(20, 20)).toEqual([]);
-    expect(platesFor(62, 20)).toBeNull();
-    expect(platesFor(15, 20)).toBeNull();
-    expect(platesFor(25, 20, [])).toBeNull();
-    expect(platesFor(NaN, 20)).toBeNull();
-    expect(platesFor(60, 20, [0, -5, NaN, 20])).toEqual([20]);
-    expect(describePlates(20, platesFor(100, 20))).toBe('20 + 2×25 + 2×15');
-  });
 });
 
 describe('a backup file read back', () => {
@@ -201,21 +189,6 @@ describe('a backup file read back', () => {
 });
 
 describe('settings sanitizers', () => {
-  it('weekly goal stays inside 1–7', () => {
-    expect(usableWeeklyGoal(0)).toBe(1);
-    expect(usableWeeklyGoal(NaN)).toBeUndefined();
-    expect(stepWeeklyGoal(7, 1)).toBe(7);
-    expect(stepWeeklyGoal(undefined, -9)).toBe(1);
-  });
-
-  it('excused weeks are real Mondays, once each', () => {
-    expect(usableExcusedWeeks(['2026-11-02', 'x', '2026-11-03', '2026-11-02', 7])).toEqual([
-      '2026-11-02',
-    ]);
-    expect(usableExcusedWeeks([])).toBeUndefined();
-    expect(usableExcusedWeeks('2026-11-02')).toBeUndefined();
-  });
-
   it('bodyweight: unset stays unset, the range clamps, the log keeps one a day', () => {
     expect(clampBodyweightKg(0)).toBeUndefined();
     expect(clampBodyweightKg('  ')).toBeUndefined();

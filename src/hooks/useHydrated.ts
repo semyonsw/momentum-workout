@@ -1,12 +1,10 @@
 /**
  * `useSettingsHydrated()` — has the settings store finished reading from disk?
  *
- * Needed by exactly one thing, and it is the reason it exists: the first-launch
- * language picker. `persist` rehydrates ASYNCHRONOUSLY, so for the first frame
- * or two of every launch the store holds its initial values — which include
- * `languageChosen: false`. A picker that reads that flag without waiting would
- * flash in front of every existing user on every launch, asking a question they
- * answered months ago.
+ * Needed by the launch gate in `App.tsx`. `persist` rehydrates ASYNCHRONOUSLY,
+ * so for the first frame or two of every launch the store holds its defaults —
+ * English, the default rest — and a shell drawn then would show them to a user
+ * whose stored choices say otherwise.
  *
  * Returns true immediately when hydration has already happened (a remount later
  * in the session), and subscribes otherwise. `onFinishHydration` fires once, and

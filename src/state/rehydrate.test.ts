@@ -54,86 +54,47 @@ describe('settings written by 2.2.0', () => {
 
     expect(useSettings.getState().weeklyReviewDismissed).toBe('2026-10-05');
   });
-  it('cold-start with no body measurements, and read them back when there are some', async () => {
+  it('cold-start from a blob with measurements and a weekly goal: read past, rest kept', async () => {
     const { useSettings, DEFAULT_SETTINGS } = await import('./settingsStore');
     useSettings.getState().importSettings(DEFAULT_SETTINGS);
     await AsyncStorage.setItem(
       'settings',
-      JSON.stringify({ version: 1, state: { bodyweightKg: 81, restSecondsBetweenSets: 95 } }),
-    );
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().bodyMeasurements).toBeUndefined();
-    expect(useSettings.getState().bodyweightKg).toBe(81);
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(95);
-
-    await AsyncStorage.setItem(
-      'settings',
       JSON.stringify({
         version: 1,
-        state: { bodyMeasurements: { waist: [{ day: '2026-10-05', cm: 82.5 }] } },
+        state: {
+          bodyweightKg: 81,
+          restSecondsBetweenSets: 95,
+          bodyMeasurements: { waist: [{ day: '2026-10-05', cm: 82.5 }] },
+          weeklyWorkoutGoal: 5,
+          excusedWeeks: ['2026-12-28'],
+        },
       }),
     );
     await useSettings.persist.rehydrate();
-    expect(useSettings.getState().bodyMeasurements).toEqual({
-      waist: [{ day: '2026-10-05', cm: 82.5 }],
-    });
-  });
-  it('cold-start with no weekly goal, and read one back when there is one (W8)', async () => {
-    const { useSettings, DEFAULT_SETTINGS } = await import('./settingsStore');
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    await AsyncStorage.setItem(
-      'settings',
-      JSON.stringify({ version: 1, state: { restSecondsBetweenSets: 95 } }),
-    );
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().weeklyWorkoutGoal).toBeUndefined();
-    expect(useSettings.getState().excusedWeeks).toBeUndefined();
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(95);
-
-    await AsyncStorage.setItem(
-      'settings',
-      JSON.stringify({
-        version: 1,
-        state: { weeklyWorkoutGoal: 5, excusedWeeks: ['2026-12-28'] },
-      }),
-    );
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().weeklyWorkoutGoal).toBe(5);
-    expect(useSettings.getState().excusedWeeks).toEqual(['2026-12-28']);
+    const state = useSettings.getState() as unknown as Record<string, unknown>;
+    expect(state.bodyweightKg).toBe(81);
+    expect(state.restSecondsBetweenSets).toBe(95);
+    expect(state.bodyMeasurements).toBeUndefined();
+    expect(state.weeklyWorkoutGoal).toBeUndefined();
+    expect(state.excusedWeeks).toBeUndefined();
   });
 });
 
-describe('the engagement switch on a cold start (Wave 3)', () => {
-  it('a 2.2.0 blob comes up off; a stored true comes up on', async () => {
+describe('a stored blob with keys of removed features', () => {
+  it('rehydrates, and the old keys are dropped', async () => {
     const { useSettings, DEFAULT_SETTINGS } = await import('./settingsStore');
     useSettings.getState().importSettings(DEFAULT_SETTINGS);
     await AsyncStorage.setItem(
       'settings',
-      JSON.stringify({ version: 1, state: { restSecondsBetweenSets: 95 } }),
+      JSON.stringify({
+        version: 1,
+        state: { restSecondsBetweenSets: 95, engagement: true, milestoneShown: 100 },
+      }),
     );
     await useSettings.persist.rehydrate();
-    expect(useSettings.getState().engagement).toBeUndefined();
-    expect(useSettings.getState().restSecondsBetweenSets).toBe(95);
-
-    await AsyncStorage.setItem(
-      'settings',
-      JSON.stringify({ version: 1, state: { engagement: true } }),
-    );
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().engagement).toBe(true);
-  });
-
-  it('the milestone stamp: absent on a 2.2.0 blob, read back when there is one', async () => {
-    const { useSettings, DEFAULT_SETTINGS } = await import('./settingsStore');
-    useSettings.getState().importSettings(DEFAULT_SETTINGS);
-    await AsyncStorage.setItem('settings', JSON.stringify({ version: 1, state: {} }));
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().milestoneShown).toBeUndefined();
-    await AsyncStorage.setItem(
-      'settings',
-      JSON.stringify({ version: 1, state: { milestoneShown: 100 } }),
-    );
-    await useSettings.persist.rehydrate();
-    expect(useSettings.getState().milestoneShown).toBe(100);
+    const state = useSettings.getState() as unknown as Record<string, unknown>;
+    expect(state.restSecondsBetweenSets).toBe(95);
+    expect(state.engagement).toBeUndefined();
+    expect(state.milestoneShown).toBeUndefined();
   });
 });

@@ -64,14 +64,11 @@
  * It does not deload on a miss. Repeating a target you did not hit is the honest
  * response to one bad day, and a program that cuts your numbers because you slept
  * badly is a program you stop trusting. It also never touches WEIGHT: the ladder
- * owns the rep prescription of a rep-counted exercise and nothing else, which is
- * exactly why `evaluateOverload` stands down when one is running — two systems
- * telling one exercise what to do next is one of them being wrong.
+ * owns the rep prescription of a rep-counted exercise and nothing else.
  */
 
 import { plural, t, type Language } from './i18n';
 import type { CountUnit, Exercise, ID, RepLadder } from '../types/models';
-import { isLadderRung, type SetType } from './setType';
 
 /* ------------------------------------------------------------------ */
 /* Limits                                                             */
@@ -182,6 +179,17 @@ export function isAutoLadder(ladder: RepLadder | null | undefined): boolean {
 export function normalizeLadder(value: unknown): RepLadder | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Partial<RepLadder>;
+  /*
+   * A ladder waiting for its max is a ladder with no trustworthy max at all, so it
+   * is the one shape allowed to arrive without a usable number — the placeholder
+   * is repaired to the seed rather than the whole ladder being thrown away. It
+   * carries nothing earned: there is no max yet to have earned reps against.
+   */
+  if (raw.awaitingMax === true) {
+    const placeholder =
+      typeof raw.max === 'number' && Number.isFinite(raw.max) ? raw.max : AUTO_LADDER_SEED_REPS;
+    return { max: clampMax(placeholder), earned: 0, awaitingMax: true };
+  }
   if (typeof raw.max !== 'number' || !Number.isFinite(raw.max)) return null;
 
   const max = clampMax(raw.max);
@@ -385,17 +393,14 @@ export function ladderMet(targets: readonly number[], performed: readonly number
  * The counts a ladder is judged against: completed WORKING sets, in order.
  *
  * Warm-ups are dropped here for the same reason they are dropped from the
- * shorthand, the volume and every overload verdict — a warm-up is a set that does
+ * shorthand, the volume and the records — a warm-up is a set that does
  * not count, and counting one as the top set would hand out a rep for a rep
- * nobody did. DROP SETS are dropped too, for a different reason: they are working
- * volume, but they are not rungs — a burn-out after the ladder is extra work, and
- * judging it against the next rung could fail a session the user completed
- * (`lib/setType.ts`). Failure and AMRAP sets stay: the top set is all-out anyway.
+ * nobody did.
  */
 export function performedLadderCounts(
-  sets: readonly { count: number; isWarmup: boolean; isCompleted: boolean; setType?: SetType }[],
+  sets: readonly { count: number; isWarmup: boolean; isCompleted: boolean }[],
 ): number[] {
-  return sets.filter((s) => s.isCompleted && isLadderRung(s)).map((s) => s.count);
+  return sets.filter((s) => s.isCompleted && !s.isWarmup).map((s) => s.count);
 }
 
 /* ------------------------------------------------------------------ */
@@ -429,6 +434,130 @@ export function ladderAfterTopSet(
   return ladderTargets({ max: achieved, earned: 0 }, sets);
 }
 
+/* ------------------------------------------------------------------ */
+/* Finding the max in a workout                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Is this ladder waiting for its first set to tell it the max?
+ *
+ * The one predicate for the state, so every reader that would otherwise prescribe
+ * from the placeholder `max` asks the same question. See `RepLadder.awaitingMax`.
+ */
+export function isAwaitingMax(ladder: RepLadder | null | undefined): boolean {
+  return ladder?.awaitingMax === true;
+}
+
+/**
+ * The ladder `Find my max in the next workout` stores.
+ *
+ * The old max rides along as the placeholder — not because it is used (nothing
+ * prescribes from it while waiting) but so that switching the ladder off in the
+ * editor and back on has a number to show, and a hand-edited backup that drops
+ * the flag degrades to the ladder it was rather than to the seed.
+ */
+export function awaitingLadder(previous?: RepLadder | null): RepLadder {
+  return {
+    max: clampMax(previous?.max ?? AUTO_LADDER_SEED_REPS),
+    earned: 0,
+    awaitingMax: true,
+  };
+}
+
+/** The rows a ladder's in-flight decisions look at: working sets, in order. */
+type LadderRow = { localId?: string; count: number; isWarmup: boolean; isCompleted: boolean };
+
+/**
+ * The max the TEST set proved, or null.
+ *
+ * Only a waiting ladder has a test, and only its first WORKING set is it — a
+ * warm-up on top does not count, by the same rule that keeps a warm-up out of
+ * everything else. Null until that set is logged, and for a logged zero: a test
+ * nobody did is not a max of one, and treating it as one would build a whole
+ * session of single reps off a stray ✓.
+ */
+export function testedMax(
+  ladder: RepLadder | null | undefined,
+  sets: readonly LadderRow[],
+): number | null {
+  if (!isAwaitingMax(ladder)) return null;
+  const top = sets.find((s) => !s.isWarmup);
+  if (!top || !top.isCompleted) return null;
+  const reps = Math.round(top.count);
+  if (!Number.isFinite(reps) || reps <= 0) return null;
+  return clampMax(reps);
+}
+
+/**
+ * Is `setId` the all-out test set — the first working set of a waiting ladder?
+ *
+ * For the labels ("Max reps — go all out") and for the count cell that reads
+ * `MAX` until the reps are entered. True whether or not it is logged yet; the
+ * caller decides whether a logged test still needs its label.
+ */
+export function isMaxTestSet(
+  entry: { ladder?: RepLadder; sets: readonly LadderRow[] },
+  setId: string,
+): boolean {
+  if (!isAwaitingMax(normalizeLadder(entry.ladder))) return false;
+  return entry.sets.find((s) => !s.isWarmup)?.localId === setId;
+}
+
+/**
+ * The targets the working rows of an exercise IN FLIGHT should follow, or null
+ * for "leave them alone".
+ *
+ * The one place the three cases are told apart, so the store's reshape is a
+ * lookup rather than a decision:
+ *
+ *  • A WAITING ladder whose test is not logged yet prescribes NOTHING. There is no
+ *    max to build from, and reshaping the rows off the placeholder would hand out a
+ *    plan the app made up.
+ *  • A WAITING ladder whose test IS logged builds a fresh ladder off what it
+ *    proved — `16` becomes `16 + 10 + 8 + 8 + 6` the instant the ✓ lands.
+ *  • An ordinary ladder is what it always was: the plan, or the plan re-shaped
+ *    around a top set that beat or missed it (`ladderAfterTopSet`).
+ */
+export function inFlightLadderTargets(
+  ladder: RepLadder,
+  sets: readonly LadderRow[],
+): number[] | null {
+  const working = sets.filter((s) => !s.isWarmup);
+  if (working.length === 0) return null;
+  if (isAwaitingMax(ladder)) {
+    const proved = testedMax(ladder, sets);
+    return proved == null ? null : ladderTargets({ max: proved, earned: 0 }, working.length);
+  }
+  const top = working[0];
+  return top.isCompleted
+    ? ladderAfterTopSet(ladder, top.count, working.length)
+    : ladderTargets(ladder, working.length);
+}
+
+/**
+ * What the LIBRARY's ladder becomes once a test set has proved `proved`, or null
+ * for "no write".
+ *
+ *  • Still waiting: the max is the number proved, and nothing is earned yet.
+ *  • Already resolved by this same test (`replacing` is the count the test set
+ *    held before an edit — "I actually got 17"): the correction follows, but only
+ *    while the ladder is untouched since, i.e. still exactly that max with nothing
+ *    earned. Anything else is a ladder that has moved on and is not this test's to
+ *    rewrite.
+ */
+export function resolveTestedMax(
+  current: RepLadder | null | undefined,
+  proved: number,
+  replacing: number | null = null,
+): RepLadder | null {
+  if (!current || !Number.isFinite(proved) || proved <= 0) return null;
+  const max = clampMax(proved);
+  if (isAwaitingMax(current)) return { max, earned: 0 };
+  if (replacing == null) return null;
+  if (current.max !== clampMax(replacing) || (current.earned ?? 0) !== 0) return null;
+  return current.max === max ? null : { max, earned: 0 };
+}
+
 /** One row's worth of the reshape: the new count, or null to leave it alone. */
 export type ReshapedCount = number | null;
 
@@ -439,10 +568,10 @@ export type ReshapedCount = number | null;
  *
  *  1. A LOGGED SET IS HISTORY. Never touched, whatever the ladder now says.
  *  2. A ROW THE USER EDITED IS THEIRS. `isPrefilled` is false the moment a value
- *     is nudged, and this respects it — the same rule the overload nudge follows.
+ *     is nudged, and this respects it.
  *  3. WARM-UPS ARE NOT IN THE LADDER. They keep their own numbers and do not
  *     consume a rung, so a warm-up single on top of five working sets still gets
- *     the whole `16 + 10 + 8 + 8 + 6` underneath it. Nor are drop sets.
+ *     the whole `16 + 10 + 8 + 8 + 6` underneath it.
  *
  * Returns one entry per row, aligned with the input. Rows past the end of the
  * ladder keep what they have — an exercise can carry more sets than the plan.
@@ -453,14 +582,13 @@ export function reshapeLadderSets(
     isWarmup: boolean;
     isCompleted: boolean;
     isPrefilled: boolean;
-    setType?: SetType;
   }[],
   targets: readonly number[],
 ): ReshapedCount[] {
   let rung = 0;
   return sets.map((set) => {
-    // Warm-ups and drop sets keep their own numbers and take no rung.
-    if (!isLadderRung(set)) return null;
+    // Warm-ups keep their own numbers and take no rung.
+    if (set.isWarmup) return null;
     const target = targets[rung];
     rung += 1;
     if (target == null) return null;
@@ -476,7 +604,7 @@ export function reshapeLadderSets(
 /** One exercise in a finished session, as far as its ladder is concerned. */
 export interface LadderEntryLike {
   exercise: { id: ID; name: string; countUnit: CountUnit; ladder?: RepLadder };
-  sets: readonly { count: number; isWarmup: boolean; isCompleted: boolean; setType?: SetType }[];
+  sets: readonly { count: number; isWarmup: boolean; isCompleted: boolean }[];
 }
 
 /** A ladder that moved, and everything a caller needs to say so. */
@@ -530,10 +658,23 @@ export function ladderOutcomes(entries: readonly LadderEntryLike[]): LadderOutco
   const outcomes: LadderOutcome[] = [];
 
   for (const entry of entries) {
-    const before = ladderOf(entry.exercise);
+    const stored = ladderOf(entry.exercise);
+    if (!stored) continue;
+    /*
+     * A WAITING LADDER IS JUDGED AGAINST THE MAX ITS OWN TEST PROVED — which is
+     * the ladder the rows were rebuilt to the moment that set was logged, so the
+     * session is held to a plan the user was actually shown. Untested (the first
+     * set never logged), there is nothing to judge, and the ladder keeps waiting.
+     */
+    const before = isAwaitingMax(stored)
+      ? (() => {
+          const proved = testedMax(stored, entry.sets);
+          return proved == null ? null : { max: proved, earned: 0 };
+        })()
+      : stored;
     if (!before) continue;
 
-    const working = entry.sets.filter(isLadderRung);
+    const working = entry.sets.filter((s) => !s.isWarmup);
     const targets = ladderTargets(before, working.length);
     const performed = performedLadderCounts(entry.sets);
     if (!ladderMet(targets, performed)) continue;

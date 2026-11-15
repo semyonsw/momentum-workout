@@ -9,11 +9,10 @@
  * number only when reality differs from last time.
  */
 
-import type { Language } from './i18n';
+import { t, type Language } from './i18n';
 import type {
   Exercise,
   ID,
-  OverloadPolicy,
   RepLadder,
   Routine,
   SessionEffort,
@@ -23,14 +22,9 @@ import type {
 import { countUnitLabel, effectiveLoadKg, formatDuration } from './units';
 import { resolveRest } from './rest';
 import { summarizeSessionSets } from './history';
-import { evaluateOverload, type OverloadVerdict } from './progressiveOverload';
-import { describeLadder, ladderOf, ladderTargets } from './repLadder';
+import { describeLadder, isAwaitingMax, ladderOf, ladderTargets } from './repLadder';
 import { countsToMax, maxLabel } from './maxReps';
-import { exerciseBests, type BodyweightLookup, type ExerciseBests } from './records';
-import { evaluateDeload, type DeloadVerdict } from './deload';
 import { plannedStartWeight } from './weightCarry';
-import { cleanRir } from './effort';
-import { cleanSetType, isLadderRung, type SetType } from './setType';
 
 /* ------------------------------------------------------------------ */
 /* Draft shapes (in-memory, screen-local)                              */
@@ -49,18 +43,10 @@ export interface DraftSet {
    * Seconds of rest actually taken BEFORE this set, measured by `completeSet`.
    *
    * Absent, not zero, when no rest was running: "I did not use the timer" and "I
-   * rested zero seconds" are different facts, and the median in
-   * `lib/restHistory.ts` would be dragged to nothing by a log full of the second
-   * one standing in for the first.
+   * rested zero seconds" are different facts, and a log full of the second one
+   * standing in for the first would say nothing true about either.
    */
   restTakenSeconds?: number;
-  /**
-   * Reps in reserve, when the user said — see `lib/effort.ts`. Never prefilled:
-   * effort is a fact about a set that happened, not a plan carried over.
-   */
-  rir?: number;
-  /** Drop / failure / AMRAP — see `lib/setType.ts`. Never prefilled, like `rir`. */
-  setType?: SetType;
 }
 
 export interface DraftEntry {
@@ -80,18 +66,6 @@ export interface DraftEntry {
    */
   restSeconds: number;
   transitionRestSeconds: number;
-  /**
-   * The superset this exercise belongs to, carried straight off the routine item.
-   *
-   * Same string = same superset, and the behaviour is `completeSet`'s: no rest
-   * between members, one rest after the last member of a round. `lib/superset.ts`
-   * owns the "whose turn is it" decision.
-   *
-   * Absent on an exercise added mid-session: there is no routine item behind it.
-   * Joining a superset mid-workout is a plan change, and the place to make one is
-   * the routine editor.
-   */
-  supersetGroup?: string;
   /*
    * NO `restSecondsOverride` HERE ANY MORE. It carried the routine item's rest
    * into the session, and it was half of a cascade that could not be seen: the
@@ -106,7 +80,7 @@ export interface DraftEntry {
    * time. Absent = it isn't running one, which is every exercise until somebody
    * switches it on.
    *
-   * A COPY, deliberately, and the same decision `supersetGroup` above is: the live
+   * A COPY, deliberately: the live
    * session is what the cards and `completeSet` read, and a store action reaching
    * back into the library to ask what the max is would tie today's plan to a row
    * the user may have edited since — including the row this very session is about
@@ -118,37 +92,10 @@ export interface DraftEntry {
    */
   ladder?: RepLadder;
   sets: DraftSet[];
-  /** Computed once at session start — history doesn't change mid-workout. */
-  overload: OverloadVerdict;
-  /**
-   * The back-off suggestion for a stalled lift, or absent.
-   *
-   * Computed once at build time for exactly the same reason `overload` is, and
-   * absent rather than a `shouldSuggest: false` object so that a session persisted
-   * by an older build rehydrates without one. `lib/deload.ts` decides it, and the
-   * card renders it only when the overload nudge is silent — two contradictory
-   * suggestions on one card is one of them wrong.
-   */
-  deload?: DeloadVerdict;
-  /** Set when the user accepts the nudge, so we don't nag twice. */
-  overloadAccepted: boolean;
   /** Human summary of last session for the collapsed card: "+25 kg · 12 12 12". */
   lastSessionSummary: string | null;
   /** Terser variant for the expanded header, which already states the target. */
   lastSessionShort: string | null;
-  /**
-   * The standing bests for this movement, as of the moment the session was built.
-   *
-   * A COPY at build time, for the same reason `ladder` and `supersetGroup` are: the
-   * card compares the row under the thumb against these, and a comparison that
-   * reached back into history mid-session would start counting sets from THIS
-   * workout as the record to beat — so the third set of a good day would stop
-   * reading as a best because the second set already moved the bar.
-   *
-   * Absent when there is no history to have a best from, which is every exercise
-   * the first time it is performed. `lib/records.ts` owns the arithmetic.
-   */
-  bests?: ExerciseBests;
 }
 
 export interface DraftSession {
@@ -251,7 +198,7 @@ function lastSessionWarmups(history: SetHistory[], sessionId: ID | undefined): S
  *
  * `variant: 'short'` keeps only the TOP WORKING WEIGHT and its reps, for the
  * expanded header — "4 × 4–6 reps · last: +40 kg · 4 4". That is the same rule
- * the chart and the overload engine use: the drop sets happened, but the number
+ * the chart uses: the drop sets happened, but the number
  * you are deciding against is what you worked at, not what you finished on.
  */
 export function summarizeLastSession(
@@ -286,7 +233,7 @@ export function formatTarget(
     exercise: Exercise;
     ladder?: RepLadder;
     /** The session's own rows, when there are any — see the ladder note above. */
-    sets?: readonly Pick<DraftSet, 'isWarmup' | 'setType'>[];
+    sets?: readonly Pick<DraftSet, 'isWarmup'>[];
   },
   lang: Language = 'en',
 ): string {
@@ -296,13 +243,15 @@ export function formatTarget(
    * THE SET COUNT IS THE ROWS, not the plan, for every kind of target — not only
    * a ladder's. `+ Add set` on a `3 × 8–10` card used to leave the line reading
    * 3 while four rows sat under it, which read as the tap not having worked.
-   * Rungs, not every row: a warm-up is not a set of the plan and a drop set is
-   * extra work after it. No rows (a routine preview) falls back to the plan.
+   * Working rows, not every row: a warm-up is not a set of the plan. No rows (a
+   * routine preview) falls back to the plan.
    */
-  const working = entry.sets?.filter(isLadderRung).length;
+  const working = entry.sets?.filter((s) => !s.isWarmup).length;
   const targetSets = working && working > 0 ? working : entry.targetSets;
 
   const ladder = entry.ladder ? ladderOf({ ...exercise, ladder: entry.ladder }) : null;
+  // Waiting for a max, there is no plan to state yet — only what will happen.
+  if (ladder && isAwaitingMax(ladder)) return t('MAX, then the ladder', lang);
   if (ladder) return describeLadder(ladderTargets(ladder, targetSets));
 
   if (unit === 'seconds' || unit === 'rounds') {
@@ -394,7 +343,6 @@ export interface BuildDraftParams {
   exercisesById: Record<ID, Exercise>;
   /** Completed history for every exercise in the routine. */
   historyByExerciseId: Record<ID, SetHistory[]>;
-  policy: OverloadPolicy;
   unitSystem: UnitSystem;
   /**
    * Rest between sets, from Settings — what every exercise that has no rest of
@@ -407,10 +355,6 @@ export interface BuildDraftParams {
    * and the user owns both numbers.
    */
   defaultTransitionRestSeconds?: number;
-  /** Passed through to every entry's bests. See `BuildEntryParams`. */
-  bodyweightAtDate?: BodyweightLookup;
-  /** Passed through to every entry's deload check. See `BuildEntryParams`. */
-  availablePlatesKg?: readonly number[];
   /** Passed through to every entry's prose. See `BuildEntryParams`. */
   lang?: Language;
   /**
@@ -422,13 +366,13 @@ export interface BuildDraftParams {
 }
 
 /**
- * One exercise's worth of a draft session: the prefilled rows, the overload
- * verdict, and the two lines of last-session context.
+ * One exercise's worth of a draft session: the prefilled rows and the two lines
+ * of last-session context.
  *
  * Extracted from `buildDraftSession` when exercises became addable MID-WORKOUT
  * ("start pull day, then decide to do neck"). An entry appended to a running
  * session has to be built exactly like one the routine planned — same prefill
- * rules, same verdict, same summaries — and the only honest way to guarantee that
+ * rules, same summaries — and the only honest way to guarantee that
  * is for both paths to call the same function. The one difference is
  * `plannedSetCount`: a routine plans its target, an exercise added mid-workout
  * starts at one row and grows with `Add set`.
@@ -437,24 +381,9 @@ export interface BuildEntryParams {
   exercise: Exercise;
   /** Completed history for THIS exercise. */
   history: SetHistory[];
-  policy: OverloadPolicy;
   unitSystem: UnitSystem;
   restSeconds: number;
   transitionRestSeconds: number;
-  /**
-   * What the lifter weighed on a given day, for comparing bodyweight-loaded sets
-   * against each other honestly. Absent = no bodyweight is known, and the two
-   * load-based bests are simply absent too. See `lib/bodyweightLog.ts`.
-   */
-  bodyweightAtDate?: BodyweightLookup;
-  /**
-   * The plates of the gym in force, so a deload suggestion is a weight that can
-   * actually be loaded. Absent = no suggestion involving a barbell is offered,
-   * which is the same silence the plate label keeps.
-   */
-  availablePlatesKg?: readonly number[];
-  /** The routine item's superset group, if it is in one. See `DraftEntry`. */
-  supersetGroup?: string;
   /** What the header states — "4 × 8–10". */
   targetSets: number;
   targetRepsMin?: number;
@@ -473,19 +402,15 @@ export function buildDraftEntry(params: BuildEntryParams): DraftEntry {
   const {
     exercise,
     history,
-    policy,
-    unitSystem,
     restSeconds,
     transitionRestSeconds,
     targetSets,
     targetRepsMin,
     targetRepsMax,
-    now = new Date(),
     lang = 'en',
   } = params;
 
   const previous = lastSessionSets(history, exercise.id);
-  const overload = evaluateOverload({ exercise, history, policy, unitSystem, now });
 
   /*
    * Prefill strategy, in priority order:
@@ -533,6 +458,15 @@ export function buildDraftEntry(params: BuildEntryParams): DraftEntry {
     params.plannedSetCount ?? (ladder ? targetSets : Math.max(targetSets, previous.length)),
   );
   const ladderPlan = ladder ? ladderTargets(ladder, plannedSets) : null;
+  /*
+   * A LADDER WAITING FOR ITS MAX opens its first row as the test: a counter at
+   * zero, for the same reason a `MAX` set is one — the number is the question, and
+   * a prefilled guess one ✓ away from being logged as the answer is the bug that
+   * rule exists to prevent. The rows under it carry the placeholder's shape only
+   * until the test is logged, at which point the store rebuilds them from what it
+   * proved (`inFlightLadderTargets`).
+   */
+  const testsMax = isAwaitingMax(ladder);
 
   /*
    * `MAX` STARTS EVERY SET AT ZERO, and that is the feature rather than a gap in
@@ -553,14 +487,15 @@ export function buildDraftEntry(params: BuildEntryParams): DraftEntry {
       weightKg: exercise.requiresWeight
         ? (plannedWeightKg ?? reference?.weightKg ?? startingWeightKg)
         : null,
-      count: toMax
-        ? 0
-        : (ladderPlan?.[i] ??
-          reference?.count ??
-          targetRepsMax ??
-          targetRepsMin ??
-          startingCount ??
-          10),
+      count:
+        toMax || (testsMax && i === 0)
+          ? 0
+          : (ladderPlan?.[i] ??
+            reference?.count ??
+            targetRepsMax ??
+            targetRepsMin ??
+            startingCount ??
+            10),
       isWarmup: false,
       isCompleted: false,
       completedAt: null,
@@ -579,7 +514,7 @@ export function buildDraftEntry(params: BuildEntryParams): DraftEntry {
    * Last session's warm-ups, ahead of the work — weighted movements only, and only
    * for a routine-built entry: one added mid-workout starts at one row by contract.
    * They are prefills like any row (ghosted, one ✓ to repeat), and every reader
-   * that skips `isWarmup` — the ladder, the carry, the nudge — skips them.
+   * that skips `isWarmup` — the ladder, the carry, the records — skips them.
    */
   const warmups: DraftSet[] =
     exercise.requiresWeight && params.plannedSetCount == null
@@ -603,18 +538,9 @@ export function buildDraftEntry(params: BuildEntryParams): DraftEntry {
     ...(ladder ? { ladder } : {}),
     restSeconds,
     transitionRestSeconds,
-    ...(params.supersetGroup ? { supersetGroup: params.supersetGroup } : {}),
     sets: warmups.length > 0 ? [...warmups, ...sets] : sets,
-    overload,
-    overloadAccepted: false,
     lastSessionSummary: summarizeLastSession(previous, exercise, 'full', lang),
     lastSessionShort: summarizeLastSession(previous, exercise, 'short', lang),
-    bests: exerciseBests(history, exercise, params.bodyweightAtDate),
-    deload: evaluateDeload({
-      exercise,
-      history,
-      availablePlatesKg: params.availablePlatesKg,
-    }),
   };
 }
 
@@ -623,12 +549,9 @@ export function buildDraftSession(params: BuildDraftParams): DraftSession {
     routine,
     exercisesById,
     historyByExerciseId,
-    policy,
     unitSystem,
     defaultRestSeconds,
     defaultTransitionRestSeconds = defaultRestSeconds + 30,
-    bodyweightAtDate,
-    availablePlatesKg,
     startedAt = null,
     now = new Date(),
     lang = 'en',
@@ -643,7 +566,6 @@ export function buildDraftSession(params: BuildDraftParams): DraftSession {
       return buildDraftEntry({
         exercise,
         history: historyByExerciseId[exercise.id] ?? [],
-        policy,
         unitSystem,
         /*
          * REST: WHAT THIS EXERCISE WILL ACTUALLY RUN, recorded — its own rest if
@@ -663,15 +585,6 @@ export function buildDraftSession(params: BuildDraftParams): DraftSession {
          */
         restSeconds: resolveRest(exercise, defaultRestSeconds).seconds,
         transitionRestSeconds: defaultTransitionRestSeconds,
-        bodyweightAtDate,
-        availablePlatesKg,
-        /*
-         * Carried onto the entry rather than looked up later. The session is what
-         * `completeSet` and the cards read, and a store action reaching back into
-         * the routine store to ask which group an exercise is in would tie the
-         * live session to a template the user may have edited since.
-         */
-        ...(item.supersetGroup ? { supersetGroup: item.supersetGroup } : {}),
         targetSets: item.targetSets,
         targetRepsMin: item.targetRepsMin,
         targetRepsMax: item.targetRepsMax,
@@ -695,7 +608,7 @@ export function buildDraftSession(params: BuildDraftParams): DraftSession {
  * warm-up.
  *
  * A warm-up is a set that does not count — it is out of the volume, out of the
- * set count, out of the shorthand and out of every overload verdict — so
+ * set count, out of the shorthand and out of the records — so
  * numbering it as one would make every number below it wrong. Three working sets
  * with a warm-up on top read W, 1, 2, 3, and "set 2 of 3" means what it says.
  *
@@ -720,7 +633,7 @@ export function workingSetLabels(sets: readonly Pick<DraftSet, 'isWarmup'>[]): (
 /**
  * Flatten a draft into `SetHistory` rows. Only COMPLETED sets are written —
  * an untouched planned row is an intention, not history, and letting it into
- * the table would poison every future overload verdict.
+ * the table would poison every future prefill.
  */
 export function draftToSetHistory(session: DraftSession): SetHistory[] {
   const rows: SetHistory[] = [];
@@ -729,8 +642,6 @@ export function draftToSetHistory(session: DraftSession): SetHistory[] {
   for (const entry of session.entries) {
     entry.sets.forEach((set, index) => {
       if (!set.isCompleted) return;
-      const rir = cleanRir(set.rir);
-      const setType = cleanSetType(set.setType, set.isWarmup);
       rows.push({
         id: uid('sh'),
         sessionId: session.localId,
@@ -745,10 +656,6 @@ export function draftToSetHistory(session: DraftSession): SetHistory[] {
         isCompleted: true,
         // Absent rather than zero — see `DraftSet.restTakenSeconds`.
         ...(set.restTakenSeconds != null ? { restTakenSeconds: set.restTakenSeconds } : {}),
-        // Through the one validator: a session persisted by any build reaches the
-        // database here, and a value off the scale is not written at all.
-        ...(rir != null ? { rir } : {}),
-        ...(setType ? { setType } : {}),
       });
     });
   }
@@ -823,8 +730,8 @@ export function sessionVolume(session: DraftSession, bodyweightKg?: number | nul
   for (const entry of session.entries) {
     if (entry.exercise.countUnit !== 'reps') continue;
     for (const set of entry.sets) {
-      // Warm-ups are excluded here exactly as they are from the overload engine
-      // and the shorthand: a warm-up is a set that does not count.
+      // Warm-ups are excluded here exactly as they are from the records and the
+      // shorthand: a warm-up is a set that does not count.
       if (!set.isCompleted || set.isWarmup) continue;
       const load = effectiveLoadKg(set.weightKg, entry.exercise.loadMode, bodyweightKg);
       if (load == null) {

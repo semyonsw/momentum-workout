@@ -1,25 +1,26 @@
 /**
- * AppShell — the training, Settings, and a stack.
+ * AppShell — four roots and a stack.
  *
- *   tab:  Workout | Settings
+ *   tab:  Workout | Routines | History | Settings
  *   stack: session · routineEditor · addExercise · createExercise · editExercise
- *          · exerciseHistory · sequence · routines · library · workoutHistory
- *          · wrapped · workoutSettings · body · muscles · achievements
+ *          · exerciseHistory · sequence · body · muscles
  *          · aiSettings · aiChat · aiReview
  *
- * ── TWO ROOTS ─────────────────────────────────────────────────────────────
+ * ── FOUR ROOTS (4.0) ──────────────────────────────────────────────────────
  *
- * The training, which the app opens on and where Back arms the exit, and
- * Settings. Until 3.0 a landing with three tiles sat above four sections
- * (`screens/LandingScreen.tsx`, removed); the tasks and the money are apps of
- * their own now, and the training is the landing.
+ * The training, which the app opens on and where Back arms the exit; the
+ * routines (with the exercise library behind their `Routines | Exercises`
+ * switch); the past (Log | Graphs | Calendar); and Settings, one page. From
+ * 3.0 to 4.0 the routines and the history were PUSHED from captioned glyphs in
+ * the Workout corner, and `Workout settings` was pushed from a row in Settings.
+ * Each of those was a place a newcomer had to be shown once; a named slot on
+ * the bar is a place they can see. `lib/sectionNav.ts` holds the order and the
+ * back rule: any root but the training goes back to it.
  *
- * ── ITS PAST IS NOT A ROOT ────────────────────────────────────────────────
- *
- * `History` used to be a root of its own. The Workout screen now carries a ⟲ in
- * its corner and pushes the history, so "how has this been going" is one tap
- * from where the training is. `More` is gone with it: it was a lobby, and
- * Settings — the one screen anybody actually went there for — is a root.
+ * Which half of Routines and which view of History is showing is held HERE,
+ * not in the roots: a root you leave is thrown away and rebuilt
+ * (`lib/stageBuilds.ts`), and Home's `Graphs ›` has to be able to land on the
+ * graphs.
  *
  * ── THE BAR IS THE ONE WAY BETWEEN THEM ────────────────────────────────────
  *
@@ -30,7 +31,7 @@
  * order still lives in `lib/sectionNav.ts`, which is what makes a slide go the
  * way the blob does.
  *
- * Why not a router library: the app has two roots and a handful of pushable screens, none
+ * Why not a router library: the app has four roots and a handful of pushable screens, none
  * of them deep-linked, none of them needing URL state. `expo-router` would add a
  * dependency, a file-system convention and a navigator config to express a
  * `Route[]` and two functions. When deep links or a native back-stack are actually
@@ -43,8 +44,8 @@
  * What lives here and what doesn't: the library and the routines moved out to
  * `libraryStore` the moment they became editable — component state that vanishes
  * on a cold launch is not where a user's exercises belong. What is left in this
- * file is navigation, plus the two derived things navigation needs: the training
- * sequence's next step and the overload verdicts behind its nudge count.
+ * file is navigation, plus the derived thing navigation needs: the training
+ * sequence's next step.
  */
 
 import {
@@ -60,6 +61,7 @@ import {
 import { BackHandler, Text, View } from 'react-native';
 import { runOnJS, useSharedValue, withTiming, Easing } from 'react-native-reanimated';
 import { StatusBar } from 'expo-status-bar';
+import * as Notifications from 'expo-notifications';
 
 import { ConfirmSheet } from '../components/ConfirmSheet';
 import { BlurGate, Toast, type ToastAction } from '../components/glass';
@@ -85,14 +87,10 @@ import { RoutineListScreen } from '../screens/RoutineListScreen';
 import { LibrarySwitch } from '../components/LibrarySwitch';
 import { SequenceScreen } from '../screens/SequenceScreen';
 import { SettingsHomeScreen } from '../screens/SettingsHomeScreen';
-import { AchievementsScreen } from '../screens/AchievementsScreen';
-import { WrappedScreen } from '../screens/WrappedScreen';
-import type { WrappedPeriod } from '../lib/wrapped';
 import { Hold } from './Hold';
 import { ShellStage, TRANSITION_MS, type ShellTransition } from './ShellStage';
 import { PushHost } from './PushHost';
 import { mayLeave } from './leaveGuard';
-import { WorkoutSettingsScreen } from '../screens/WorkoutSettingsScreen';
 import { BodyScreen } from '../screens/BodyScreen';
 import { MuscleMapScreen } from '../screens/MuscleMapScreen';
 import { AiChatScreen } from '../screens/AiChatScreen';
@@ -100,7 +98,6 @@ import { AiReviewScreen } from '../screens/AiReviewScreen';
 import { AiSettingsScreen } from '../screens/AiSettingsScreen';
 import { applyChanges, applySequence, applyProposal, discardProposal } from '../state/aiActions';
 import { useAi } from '../state/aiStore';
-import { useDebriefs } from '../state/debriefStore';
 import type { AiSection } from '../lib/ai/aiSchema';
 import {
   historyByExerciseId,
@@ -111,8 +108,6 @@ import {
 } from '../lib/completedWorkout';
 import { buildDraftEntry, defaultTargetCount, defaultTargetSets } from '../lib/draft';
 import { resolveRest } from '../lib/rest';
-import { bodyweightAt } from '../lib/bodyweightLog';
-import { writeWorkoutToHealthConnect } from '../lib/healthConnect';
 import { ladderOutcomes } from '../lib/repLadder';
 import { applyPlannedSetDiff, performedSetCounts, plannedSetDiff } from '../lib/routinePlan';
 import {
@@ -123,13 +118,13 @@ import {
   type ExerciseDraft,
 } from '../lib/exerciseDraft';
 import { MUSCLE_CLUSTER, describeItemsFocus } from '../lib/muscles';
-import { evaluateOverload, type OverloadVerdict } from '../lib/progressiveOverload';
 import { searchExercises } from '../lib/search';
 import { useActiveWorkout } from '../state/activeWorkoutStore';
 import { routineUsageCount, useLibrary } from '../state/libraryStore';
-import { platesInForce, useSettings } from '../state/settingsStore';
+import { useSettings } from '../state/settingsStore';
 import { recentSummaries, useWorkoutHistory } from '../state/workoutHistoryStore';
-import { libraryTabRoute } from '../lib/discoverability';
+import type { LibraryTab } from '../lib/discoverability';
+import { isWeighInNotification } from '../lib/weighInReminder';
 import { useLanguage, usePlural, useT } from '../hooks/useT';
 import {
   SECTIONS,
@@ -141,7 +136,8 @@ import {
 } from '../lib/sectionNav';
 import { seedUser } from '../data/seed';
 import { emptyWorkoutRoutine } from '../lib/workoutHome';
-import { pushRoute, reusesSession } from './sessionRoute';
+import { useBarInsets } from '../components/glass';
+import { pushRoute, reusesSession, startsAfterOpen } from './sessionRoute';
 import type { CompletedWorkout } from '../lib/completedWorkout';
 import type { Exercise, ID, MuscleGroup, SetHistory, UnitSystem } from '../types/models';
 import type { RandomSpec } from '../lib/randomRoutine';
@@ -184,27 +180,11 @@ type Route =
   | { name: 'editExercise'; exerciseId: ID }
   | { name: 'exerciseHistory'; exerciseId: ID }
   | { name: 'sequence' }
-  /* The two screens the training log is SET UP from, pushed from the foot of the
-     workout section rather than owning roots of their own. */
-  | { name: 'routines' }
-  | { name: 'library' }
-  /* The training's past, pushed by the ⟲ in the corner. `view` opens it on
-     Graphs (or Calendar) directly — the Workout screen's Progress card (2.9,
-     #11). Absent = the Log, as the ⟲ opens it. */
-  | { name: 'workoutHistory'; view?: WorkoutHistoryView }
-  /* X1: a month or a year of the log, pushed from the foot of the history
-     above (the landing's card went with the landing in 3.0). */
-  | { name: 'wrapped'; period: WrappedPeriod }
-  /* Everything about training that is a setting, pushed from Settings. */
-  | { name: 'workoutSettings' }
-  /* W9: the tape-measure log, pushed from the Graphs view and from Workout
-     settings → Body — the two places bodyweight already lives. */
-  | { name: 'body' }
+  /* The bodyweight log, pushed from the Graphs view, Home's Progress card and
+     Settings → Bodyweight — the places bodyweight already lives. */
+  | { name: 'body'; fromReminder?: boolean }
   /* W3: this week's sets on a body, from the sets-per-cluster card. */
   | { name: 'muscles' }
-  /* E1: the badge gallery, from Settings and the level sheet while Wave 3's
-     switch is on. */
-  | { name: 'achievements' }
   /* The assistant. Settings is reached from the sparkle when no key is
      connected, and carries the question along so that passing the test lands
      on the chat that was asked for. */
@@ -213,23 +193,23 @@ type Route =
   | { name: 'aiReview'; proposalId: string };
 
 /**
- * Where the shell was standing, outside React. The tree remounts when the theme
- * changes (`App.tsx`), and this is what lands it back on the same screen rather
- * than on the training — see `route` in the shell.
+ * Where the shell was standing, outside React. The tree can remount under it —
+ * the error boundary recovering, a fast refresh — and this is what lands it back
+ * on the same screen rather than on the training — see `route` in the shell.
  */
 const remembered: { route: ShellRoute } = { route: SHELL_ROOT };
 
-/** From Save to the debrief sheet: the sparks' run, and a breath. */
-const DEBRIEF_DELAY_MS = 1500;
+/** Weigh-in taps already opened this process — see the listener in the shell. */
+const openedWeighIns = new Set<string>();
 
 /** How long a toast with an Undo stays: long enough to read and reach. */
 const UNDO_TOAST_MS = 4500;
-/** The one-time "workout still running" tip (redesign #7): a sentence and a door. */
-const LEAVE_RUNNING_TIP_MS = 6000;
 
 export function AppShell() {
   const t = useT();
   const lang = useLanguage();
+  /* What a root's scroll pays at its foot so the nav pill never covers a row. */
+  const rootFoot = useBarInsets().bottom;
   /**
    * What the last commit said, for about two seconds.
    *
@@ -242,8 +222,6 @@ export function AppShell() {
     text: string;
     key: number;
     action?: ToastAction;
-    /** How long it stays, when not the default (the leave-running tip's 6 s). */
-    ms?: number;
   } | null>(null);
   /* Keyed, so a second toast with the same words still replays its entrance. */
   const setToast = useCallback(
@@ -252,10 +230,7 @@ export function AppShell() {
   );
   useEffect(() => {
     if (toast == null) return undefined;
-    const timer = setTimeout(
-      () => setToastState(null),
-      toast.ms ?? (toast.action ? UNDO_TOAST_MS : 1900),
-    );
+    const timer = setTimeout(() => setToastState(null), toast.action ? UNDO_TOAST_MS : 1900);
     return () => clearTimeout(timer);
   }, [toast]);
   /**
@@ -269,9 +244,8 @@ export function AppShell() {
    * the name the rest of the shell reads; it used to differ on the landing,
    * which was not a section.
    *
-   * Seeded from module scope rather than a constant, because the tree under
-   * `App.tsx` REMOUNTS when the theme changes — and a theme is chosen in
-   * Settings, where the user should still be standing when the colours land.
+   * Seeded from module scope rather than a constant, so a remount of the tree
+   * under `App.tsx` (see `remembered`) leaves the user where they were standing.
    */
   const [route, setRouteState] = useState<ShellRoute>(() => remembered.route);
   const tab: SectionTab = route;
@@ -295,6 +269,10 @@ export function AppShell() {
    * opened.
    */
   const [focusWorkoutId, setFocusWorkoutId] = useState<ID | null>(null);
+  /* Which view the History root shows, and which half the Routines root shows —
+     lifted, see the file header. */
+  const [historyView, setHistoryView] = useState<WorkoutHistoryView>('log');
+  const [libraryHalf, setLibraryHalf] = useState<LibraryTab>('routines');
   const [stack, setStack] = useState<Route[]>([]);
   const [query, setQuery] = useState('');
   /*
@@ -419,6 +397,56 @@ export function AppShell() {
     [setStack],
   );
   const pop = useCallback(() => setStack((s) => s.slice(0, -1)), [setStack]);
+
+  /*
+   * A TAP ON "TIME TO WEIGH IN" LANDS ON THE WELL (4.0).
+   *
+   * Two doors, because there are two ways a tap reaches a process:
+   *   • COLD — the tap launched the app. The response is waiting by the time the
+   *     shell mounts (the shell only mounts once the stores have loaded), and
+   *     `getLastNotificationResponse` hands it over.
+   *   • WARM — the app was alive in the background. The listener fires.
+   * A response can arrive through both on a cold start, and the "last response"
+   * survives a remount of the tree, so each is opened once by its notification's
+   * identity and then cleared.
+   *
+   * The Bodyweight screen goes on TOP of whatever is there — a running session
+   * stays underneath, a step back away — and the root goes to the training, so
+   * `Skip` lands on Home rather than wherever the app was last left. An older
+   * `body` in the stack is lifted out, so one back does not land on a second copy.
+   */
+  useEffect(() => {
+    const open = (response: Notifications.NotificationResponse | null) => {
+      if (!response) return;
+      const { request, date } = response.notification;
+      if (!isWeighInNotification(request.content.data)) return;
+      const identity = `${request.identifier}@${date}`;
+      if (openedWeighIns.has(identity)) return;
+      openedWeighIns.add(identity);
+      try {
+        Notifications.clearLastNotificationResponse();
+      } catch {
+        // Older native module: the identity check above already covers it.
+      }
+      setRoute(SHELL_ROOT);
+      setStack((s) => [
+        ...s.filter((r) => r.name !== 'body'),
+        { name: 'body', fromReminder: true },
+      ]);
+    };
+    try {
+      open(Notifications.getLastNotificationResponse());
+    } catch {
+      // No native module (a test, a web build): nothing could have been tapped.
+    }
+    let sub: { remove: () => void } | null = null;
+    try {
+      sub = Notifications.addNotificationResponseReceivedListener(open);
+    } catch {
+      sub = null;
+    }
+    return () => sub?.remove();
+  }, [setRoute, setStack]);
   /**
    * Back to the logging screen, however many screens deep the detour went.
    *
@@ -479,26 +507,32 @@ export function AppShell() {
    * `clearFocusWorkout` is how it says it has acted, so the row opens once rather
    * than every time somebody comes back.
    *
-   * `setStack` to exactly `[workoutHistory]` and not `push`: every caller of this
-   * is on a screen the user is LEAVING — a row on the exercise-history screen, the
-   * `RECENT` list on the workout section — and pushing history on top of them would
-   * make `‹` walk back through a screen nobody asked to see again.
+   * The History root, on its Log, with the stack cleared: every caller of this is
+   * on a screen the user is LEAVING — a row on the exercise-history screen, the
+   * `RECENT` list on Home — and `‹` must not walk back through it. From a root
+   * the switch slides like a tab tap; from under a pushed screen there is
+   * nothing on stage to slide, so the route just changes.
    */
   const openWorkout = useCallback(
     (sessionId: ID) => {
       setFocusWorkoutId(sessionId);
-      setTab('Workout');
-      setStack([{ name: 'workoutHistory' }]);
+      setHistoryView('log');
+      if (stack.length > 0) {
+        setStack([]);
+        setTab('History');
+      } else navigate('History');
     },
-    [setStack, setTab],
+    [navigate, setStack, setTab, stack.length],
+  );
+  /** History, opened on one view — Home's `Graphs ›`. */
+  const openHistoryView = useCallback(
+    (view: WorkoutHistoryView) => {
+      setHistoryView(view);
+      navigate('History');
+    },
+    [navigate],
   );
   const clearFocusWorkout = useCallback(() => setFocusWorkoutId(null), []);
-
-  /** X1: Wrapped goes on top of wherever it was opened, and ✕ / Back come back there. */
-  const openWrapped = useCallback(
-    (period: WrappedPeriod) => push({ name: 'wrapped', period }),
-    [push],
-  );
 
   /** Filled in below, once the editor's exit rule exists. See `leaveTop`. */
   const leaveRoutineEditor = useRef<(route: { routineId: ID; isNew?: boolean }) => void>(pop);
@@ -515,34 +549,7 @@ export function AppShell() {
     const running = useActiveWorkout.getState().session?.startedAt != null;
     if (!running) discardSession();
     pop();
-    /*
-     * THE FIRST TIME a running workout is left (redesign #7), say where it went:
-     * ~6 s over the screen the user lands on, with the way back in it. Once,
-     * persisted — after that the Home card is the answer and a toast on every
-     * Back would be noise. Here rather than in the session screen because that
-     * screen is gone by the time the toast has to be read.
-     */
-    const settings = useSettings.getState();
-    // Only when Back lands on a section root: the shell draws its toast there and
-    // nowhere else, and a tip marked seen on a screen that cannot show it (the
-    // session opened from Routines) would be spent without ever being read.
-    const landsOnRoot = stack.length === 1;
-    if (running && landsOnRoot && !settings.seenLeaveRunningTip) {
-      settings.setFlag('seenLeaveRunningTip', true);
-      setToastState({
-        text: t('Workout still running — resume it from the Workout tab'),
-        key: Date.now(),
-        ms: LEAVE_RUNNING_TIP_MS,
-        action: {
-          label: t('Resume'),
-          onPress: () => {
-            setToastState(null);
-            push({ name: 'session' });
-          },
-        },
-      });
-    }
-  }, [discardSession, pop, push, stack.length, t]);
+  }, [discardSession, pop]);
 
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((current) => {
@@ -585,7 +592,7 @@ export function AppShell() {
   /*
    * ANDROID BACK, in the design's order (`lib/sectionNav.backAction`): a sheet
    * closes itself — overlays register their own handler, later and so first —
-   * then a pushed screen pops, then Settings goes back to the training, and
+   * then a pushed screen pops, then any other root goes back to the training, and
    * the training asks for a second press within two seconds before it lets
    * the app go.
    *
@@ -643,20 +650,20 @@ export function AppShell() {
     push({ name: 'session' });
   }, [push, sessionId]);
 
-  /* --- derived: history, the choices, the nudge count ------------------- */
+  /* --- derived: history, the choices ------------------------------------ */
   /*
    * Everything that reads history reads THIS — and history is now ONLY what the
    * user logged. The shipped fixture sessions are gone (see `src/data/seed.ts`):
    * a fresh install used to open on four workouts nobody did, a chart of someone
-   * else's pull-downs, and nudges about weights never lifted, none of it
+   * else's pull-downs, and bests for weights never lifted, none of it
    * distinguishable from real data. What remains is a `CompletedWorkout[]` on
-   * disk, flattened to the shape the prefills, the overload engine and the
+   * disk, flattened to the shape the prefills, the records and the
    * exercise chart all want.
    */
   const historyByIdRef = useRef<Record<ID, SetHistory[]> | null>(null);
   const historyById = useMemo(() => {
-    // An exercise whose rows did not change keeps its array, so the verdict cache
-    // below recomputes only the exercises that moved. See `shareUnchanged`.
+    // An exercise whose rows did not change keeps its array, so a screen memoized
+    // on one exercise's history recomputes only when it moved. See `shareUnchanged`.
     const next = shareUnchanged(historyByIdRef.current, historyByExerciseId(workouts));
     historyByIdRef.current = next;
     return next;
@@ -675,55 +682,6 @@ export function AppShell() {
     const ordinals = Object.values(numbers);
     return ordinals.length > 0 ? Math.max(...ordinals) + 1 : 1;
   }, [numbers]);
-
-  /*
-   * PER EXERCISE, CACHED. A ✓ at a new weight writes that one exercise's default
-   * back to the library, which is a new `exercises` array — and re-running the
-   * engine over every exercise's whole history on each of those was a synchronous
-   * pass over the log inside the tap that logged the set. The library replaces
-   * only what it edits, so an exercise object that is the same reference, with the
-   * same history array, the same units and the same UTC day (the engine's clock
-   * reads no finer than that — see `daysBetween`) gets the same verdict back.
-   */
-  const verdictCache = useRef(
-    new WeakMap<
-      Exercise,
-      {
-        history: SetHistory[] | undefined;
-        unitSystem: UnitSystem;
-        day: string;
-        verdict: OverloadVerdict;
-      }
-    >(),
-  ).current;
-  const verdicts = useMemo(() => {
-    const now = new Date();
-    const day = now.toISOString().slice(0, 10);
-    const out: Record<ID, OverloadVerdict> = {};
-    for (const exercise of exercises) {
-      const history = historyById[exercise.id];
-      const cached = verdictCache.get(exercise);
-      if (
-        cached &&
-        cached.history === history &&
-        cached.unitSystem === unitSystem &&
-        cached.day === day
-      ) {
-        out[exercise.id] = cached.verdict;
-        continue;
-      }
-      const verdict = evaluateOverload({
-        exercise,
-        history: history ?? [],
-        policy: seedUser.overloadPolicy,
-        unitSystem,
-        now,
-      });
-      verdictCache.set(exercise, { history, unitSystem, day, verdict });
-      out[exercise.id] = verdict;
-    }
-    return out;
-  }, [exercises, historyById, unitSystem, verdictCache]);
 
   /** When each routine was last trained, for the hero's `LAST` stat. */
   const lastTrained = useMemo(() => lastTrainedByRoutine(workouts), [workouts]);
@@ -768,21 +726,9 @@ export function AppShell() {
     const currentId = sequence.routineIds[sequence.cursor];
     const choice = choices.find((c) => c.routineId === currentId) ?? null;
     const routine = currentId ? routinesById[currentId] : undefined;
-    const items = routine ? routine.items.filter((item) => exercisesById[item.exerciseId]) : [];
 
-    return {
-      steps,
-      next:
-        choice && routine
-          ? {
-              ...choice,
-              // Only counts what the engine would actually surface — an exercise
-              // with no load can never contribute a nudge.
-              nudgeCount: items.filter((item) => verdicts[item.exerciseId]?.shouldNudge).length,
-            }
-          : null,
-    };
-  }, [choices, exercisesById, routinesById, sequence, t, verdicts]);
+    return { steps, next: choice && routine ? choice : null };
+  }, [choices, routinesById, sequence, t]);
 
   /**
    * Open a routine as a workout. It does NOT start it: the session is built with
@@ -832,23 +778,26 @@ export function AppShell() {
         routine,
         exercisesById,
         historyByExerciseId: historyById,
-        policy: seedUser.overloadPolicy,
         unitSystem: settings.unitSystem,
         defaultRestSeconds: settings.restSecondsBetweenSets,
         defaultTransitionRestSeconds: settings.restSecondsBetweenExercises,
-        /*
-         * What the lifter weighed on the day of each past set, so a bodyweight
-         * movement's bests compare honestly: `+20 kg × 8` at 78 kg does not tie
-         * the same set at 82 kg. A closure rather than a number, because the
-         * answer is different for every row in the history it is about to read.
-         */
-        bodyweightAtDate: (at) => bodyweightAt(settings.bodyweightLog, at),
-        // For the deload suggestion, which must never name an unloadable weight.
-        availablePlatesKg: platesInForce(settings),
         lang,
       });
     },
     [exercisesById, historyById, lang, push, routinesById, startSession],
+  );
+  /**
+   * Home's `Start` (4.0): open the routine exactly as a row does, then start the
+   * session it built — `startsAfterOpen` says when that is safe. Synchronous: the
+   * store's `startSession` has set the draft by the time it returns.
+   */
+  const handleStartRoutine = useCallback(
+    (routineId: ID) => {
+      handleOpenWorkout(routineId);
+      const store = useActiveWorkout.getState();
+      if (startsAfterOpen(store.session, routineId)) store.startWorkout();
+    },
+    [handleOpenWorkout],
   );
 
   /**
@@ -889,7 +838,6 @@ export function AppShell() {
       routine: emptyWorkoutRoutine({ name: t('Workout'), ownerId: seedUser.id, now: new Date() }),
       exercisesById,
       historyByExerciseId: historyById,
-      policy: seedUser.overloadPolicy,
       unitSystem: settings.unitSystem,
       defaultRestSeconds: settings.restSecondsBetweenSets,
       defaultTransitionRestSeconds: settings.restSecondsBetweenExercises,
@@ -980,7 +928,7 @@ export function AppShell() {
    * One set by default: an exercise added mid-workout with nothing said about it
    * has no plan behind it — the user is deciding set by set, and `Add set` in the
    * card is one tap. The rest of the entry is built by the SAME function the routine
-   * path uses, so the prefills, the overload verdict and the last-session lines are
+   * path uses, so the prefills and the last-session lines are
    * identical to what a planned exercise would have shown.
    *
    * TWO EXCEPTIONS, and both are the user having already said how many:
@@ -1017,16 +965,12 @@ export function AppShell() {
         buildDraftEntry({
           exercise,
           history: historyById[exercise.id] ?? [],
-          policy: seedUser.overloadPolicy,
           unitSystem: settings.unitSystem,
           // Its own rest if it has one, the setting otherwise — the same read the
           // routine path makes, so an exercise added at the rack rests exactly as
           // long as the same exercise planned into a routine. See `lib/rest.ts`.
           restSeconds: resolveRest(exercise, settings.restSecondsBetweenSets).seconds,
           transitionRestSeconds: settings.restSecondsBetweenExercises,
-          bodyweightAtDate: (at) => bodyweightAt(settings.bodyweightLog, at),
-          // For the deload suggestion, which must never name an unloadable weight.
-          availablePlatesKg: platesInForce(settings),
           targetSets: planned,
           targetRepsMax: defaultTargetCount(exercise),
           plannedSetCount: planned,
@@ -1072,18 +1016,6 @@ export function AppShell() {
     [setToast, t],
   );
 
-  /*
-   * The debrief's `Ask the assistant about it`. The sheet lives above the
-   * navigation (`DebriefHost`), so it leaves the question in its store and the
-   * shell — which owns the routes — opens the chat on it.
-   */
-  const debriefPrompt = useDebriefs((s) => s.aiPrompt);
-  useEffect(() => {
-    if (!debriefPrompt) return;
-    useDebriefs.getState().clearAiPrompt();
-    openAi('Workout', debriefPrompt);
-  }, [debriefPrompt, openAi]);
-
   /* An AI routine stops saying so once its editor has been opened, too. */
   useEffect(() => {
     if (currentTop?.name === 'routineEditor') {
@@ -1101,10 +1033,6 @@ export function AppShell() {
    * top one is rendered too while it peeks out of a push or an edge drag.
    */
   const renderPushed = (top: Route | null): ReactNode => {
-    if (top?.name === 'wrapped') {
-      return <WrappedScreen period={top.period} onClose={pop} />;
-    }
-
     if (top?.name === 'aiSettings') {
       const route = top;
       return (
@@ -1206,7 +1134,7 @@ export function AppShell() {
               onFinish={(finished, updatePlan) => {
                 /*
                  * The one write to permanent history. Everything downstream —
-                 * the training history, the prefills, the overload verdicts — reads what
+                 * the training history, the prefills, the records — reads what
                  * this stores; nothing else in the app writes a logged set.
                  *
                  * A session with nothing logged stores nothing (`saveSession` returns
@@ -1216,7 +1144,7 @@ export function AppShell() {
                 const saved = saveSession(finished);
                 /*
                  * Everything below is a CONSEQUENCE of the save — the toast, the
-                 * debrief, the loop, the ladders, the plan. Past this line the
+                 * loop, the ladders, the plan. Past this line the
                  * workout is on disk, so none of them may throw back into the
                  * finish: the screen reads a throw as "not saved" and keeps the
                  * session for another try, which would store the workout twice.
@@ -1237,35 +1165,10 @@ export function AppShell() {
                     setJustSaved({ id: saved.id, at: Date.now() });
                   }
 
-                  /*
-                   * ...and a few questions about how it went (`lib/debrief.ts`), if
-                   * the user has not switched them off. Filed NOW, so a phone locked
-                   * straight after Save still has it waiting on Home; opened a beat
-                   * later, so the sparks and the toast land first and the sheet does
-                   * not arrive on top of the celebration it follows.
-                   */
-                  if (saved && useSettings.getState().askAfterWorkout) {
-                    useDebriefs.getState().offer(saved, DEBRIEF_DELAY_MS);
-                  }
                   // The queue only moves when a workout from the step it is on actually
                   // gets recorded. A session with nothing logged saves nothing, and a
                   // workout from some other routine is not this step being done.
                   if (saved) advanceSequence(saved.routineId);
-
-                  /*
-                   * ...and the rest of the phone is told a workout happened, if the user
-                   * has switched that on and granted it.
-                   *
-                   * FIRE AND FORGET, deliberately: it is a `void` on a promise nobody
-                   * awaits, it can fail in half a dozen ordinary ways (Health Connect not
-                   * installed, permission revoked, provider gone), and none of them are
-                   * worth a word on screen because the log is already on disk by this
-                   * line. `lib/healthConnect.ts` has the argument for why it writes a
-                   * session and nothing else.
-                   */
-                  if (saved && useSettings.getState().shareToHealthConnect) {
-                    void writeWorkoutToHealthConnect(saved);
-                  }
 
                   /*
                    * ...and every ladder that met its target moves up, one rep, without
@@ -1540,7 +1443,6 @@ export function AppShell() {
         <ExerciseHistoryScreen
           exercise={exercise}
           history={historyById[exercise.id] ?? []}
-          verdict={verdicts[exercise.id]}
           onBack={pop}
           /*
            * Tapping a session row here goes to that workout in History, which means
@@ -1588,117 +1490,21 @@ export function AppShell() {
     /* Pushed from a section root, and the two logs' own detail screens    */
     /* ------------------------------------------------------------------ */
 
-    if (top?.name === 'routines') {
-      return (
-        <RoutineListScreen
-          routines={routines}
-          exercisesById={exercisesById}
-          sequence={sequence}
-          onOpen={(routineId) => push({ name: 'routineEditor', routineId })}
-          onStartWorkout={handleOpenWorkout}
-          onCreate={handleAddRoutine}
-          onCreateRandom={handleAddRandomRoutine}
-          library={exercises}
-          onOpenSequence={() => push({ name: 'sequence' })}
-          onBack={pop}
-          switcher={
-            <LibrarySwitch
-              value="routines"
-              onChange={(tab) => replaceTop({ name: libraryTabRoute(tab) })}
-            />
-          }
-        />
-      );
-    }
-
-    if (top?.name === 'library') {
-      return (
-        <LibraryTab
-          query={query}
-          exercises={exercises}
-          matches={matches}
-          recentlyUsed={recentlyUsed}
-          expanded={expanded}
-          onToggleExpanded={toggleExpanded}
-          onChangeQuery={setQuery}
-          onBack={pop}
-          kicker={t('Routines & exercises')}
-          switcher={
-            <LibrarySwitch
-              value="exercises"
-              onChange={(tab) => replaceTop({ name: libraryTabRoute(tab) })}
-            />
-          }
-          onPick={(exerciseId) => push({ name: 'exerciseHistory', exerciseId })}
-          onCreate={handleCreate}
-          onDelete={setDeleting}
-          deleting={deleting}
-          onCancelDelete={() => setDeleting(null)}
-          onConfirmDelete={deleteExercise}
-          routineUses={(id) => routineUsageCount(routines, id)}
-        />
-      );
-    }
-
-    if (top?.name === 'workoutSettings') {
-      return <WorkoutSettingsScreen onBack={pop} onOpenBody={() => push({ name: 'body' })} />;
-    }
-
     if (top?.name === 'body') {
-      return <BodyScreen onBack={pop} />;
-    }
-
-    if (top?.name === 'achievements') {
-      return <AchievementsScreen onBack={pop} />;
+      return (
+        <BodyScreen
+          onBack={pop}
+          fromReminder={top.fromReminder === true}
+          onDone={(message) => {
+            pop();
+            if (message) setToast(message);
+          }}
+        />
+      );
     }
 
     if (top?.name === 'muscles') {
       return <MuscleMapScreen workouts={workouts} exercisesById={exercisesById} onBack={pop} />;
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* The training's past, behind its ⟲                                   */
-    /* ------------------------------------------------------------------ */
-
-    if (top?.name === 'workoutHistory') {
-      return (
-        <WorkoutHistory
-          initialView={top.view}
-          workouts={workouts}
-          loadFailed={loadFailed}
-          numbers={numbers}
-          historyByExerciseId={historyById}
-          exercisesById={exercisesById}
-          focusWorkoutId={focusWorkoutId}
-          onFocusHandled={clearFocusWorkout}
-          unitSystem={unitSystem}
-          onBack={pop}
-          onDelete={deleteWorkout}
-          onSetNumber={setWorkoutNumber}
-          onEditSet={updateWorkoutSet}
-          onDeleteSet={deleteWorkoutSet}
-          onEditWorkout={editWorkout}
-          onAddSet={addWorkoutSet}
-          onRemoveExercise={deleteWorkoutExercise}
-          onRestoreWorkout={restoreWorkout}
-          /*
-           * The one edit on that screen that needs navigation: the picker is another
-           * pushed route, so the screen cannot open it itself. `focusWorkoutId` is
-           * set on the way BACK (the picker's `onPick` and `onBack`), so the workout
-           * is open again when the history reappears.
-           */
-          onAddExercise={(workoutId) => {
-            push({ name: 'addExercise', routineId: null, target: 'history', workoutId });
-          }}
-          onOpenSettings={() => push({ name: 'workoutSettings' })}
-          onOpenWrapped={openWrapped}
-          onOpenBody={() => push({ name: 'body' })}
-          onOpenMuscles={() => push({ name: 'muscles' })}
-          /* A calendar day's `Open ›` (redesign #12): the same door Home's recent
-             rows use, so the Log opens with that workout expanded. */
-          onOpenWorkout={setFocusWorkoutId}
-        />
-      );
     }
 
     return null;
@@ -1719,18 +1525,15 @@ export function AppShell() {
           recent={recent}
           numbers={numbers}
           onOpen={handleOpenWorkout}
+          onStart={handleStartRoutine}
           onOpenSequence={() => push({ name: 'sequence' })}
-          // A past session opens where past sessions live. The history row is
-          // the detail view — it expands in place — so there is nothing to push
-          // beyond the history screen itself.
+          // A past session opens where past sessions live: the History root,
+          // with that row expanded.
           onOpenSession={openWorkout}
-          onOpenHistory={() => push({ name: 'workoutHistory' })}
-          onOpenRoutines={() => push({ name: 'routines' })}
           onNewRoutine={handleAddRoutine}
-          onOpenGraphs={() => push({ name: 'workoutHistory', view: 'graphs' })}
+          onOpenGraphs={() => openHistoryView('graphs')}
           onOpenMuscles={() => push({ name: 'muscles' })}
           onOpenBody={() => push({ name: 'body' })}
-          onOpenExerciseHistory={(exerciseId) => push({ name: 'exerciseHistory', exerciseId })}
           onStartEmpty={handleStartEmpty}
           aiReady={aiReady}
           onOpenAi={(prompt) => openAi('Workout', prompt)}
@@ -1739,11 +1542,93 @@ export function AppShell() {
         />
       );
     }
+    if (r === 'Routines') {
+      const switcher = <LibrarySwitch value={libraryHalf} onChange={setLibraryHalf} />;
+      if (libraryHalf === 'exercises') {
+        return (
+          <LibraryTab
+            query={query}
+            exercises={exercises}
+            matches={matches}
+            recentlyUsed={recentlyUsed}
+            expanded={expanded}
+            onToggleExpanded={toggleExpanded}
+            onChangeQuery={setQuery}
+            kicker={t('Routines')}
+            switcher={switcher}
+            footInset={rootFoot}
+            onPick={(exerciseId) => push({ name: 'exerciseHistory', exerciseId })}
+            onCreate={handleCreate}
+            onDelete={setDeleting}
+            deleting={deleting}
+            onCancelDelete={() => setDeleting(null)}
+            onConfirmDelete={deleteExercise}
+            routineUses={(id) => routineUsageCount(routines, id)}
+          />
+        );
+      }
+      return (
+        <RoutineListScreen
+          routines={routines}
+          exercisesById={exercisesById}
+          sequence={sequence}
+          onOpen={(routineId) => push({ name: 'routineEditor', routineId })}
+          onStartWorkout={handleStartRoutine}
+          onCreate={handleAddRoutine}
+          onCreateRandom={handleAddRandomRoutine}
+          library={exercises}
+          onOpenSequence={() => push({ name: 'sequence' })}
+          switcher={switcher}
+          footInset={rootFoot}
+        />
+      );
+    }
+    if (r === 'History') {
+      return (
+        <WorkoutHistory
+          view={historyView}
+          onChangeView={setHistoryView}
+          footInset={rootFoot}
+          workouts={workouts}
+          loadFailed={loadFailed}
+          numbers={numbers}
+          historyByExerciseId={historyById}
+          exercisesById={exercisesById}
+          focusWorkoutId={focusWorkoutId}
+          onFocusHandled={clearFocusWorkout}
+          unitSystem={unitSystem}
+          onDelete={deleteWorkout}
+          onSetNumber={setWorkoutNumber}
+          onEditSet={updateWorkoutSet}
+          onDeleteSet={deleteWorkoutSet}
+          onEditWorkout={editWorkout}
+          onAddSet={addWorkoutSet}
+          onRemoveExercise={deleteWorkoutExercise}
+          onRestoreWorkout={restoreWorkout}
+          /*
+           * The one edit on that screen that needs navigation: the picker is a
+           * pushed route, so the screen cannot open it itself. `focusWorkoutId` is
+           * set on the way BACK (the picker's `onPick` and `onBack`), so the workout
+           * is open again when the history reappears.
+           */
+          onAddExercise={(workoutId) => {
+            push({ name: 'addExercise', routineId: null, target: 'history', workoutId });
+          }}
+          onOpenBody={() => push({ name: 'body' })}
+          onOpenMuscles={() => push({ name: 'muscles' })}
+          /* A calendar day's `Open ›` (redesign #12): the same door Home's recent
+             rows use, so the Log opens with that workout expanded. */
+          onOpenWorkout={(workoutId) => {
+            setFocusWorkoutId(workoutId);
+            setHistoryView('log');
+          }}
+        />
+      );
+    }
     return (
       <SettingsHomeScreen
-        onOpenWorkoutSettings={() => push({ name: 'workoutSettings' })}
         onOpenAiSettings={() => push({ name: 'aiSettings' })}
-        onOpenAchievements={() => push({ name: 'achievements' })}
+        onOpenBody={() => push({ name: 'body' })}
       />
     );
   };
@@ -1817,18 +1702,21 @@ export function AppShell() {
 /* ------------------------------------------------------------------ */
 
 /**
- * The training log's past: the sessions, the lines, or the days.
+ * The History root: the sessions, the lines, or the days.
  *
- * PUSHED by the ⟲ on the Workout screen rather than owning a root, because it is
- * the training's past and not a section of its own. The three views are one question at three zoom levels, so they stay one screen with a
+ * A root since 4.0 (it was pushed by a ⟲ in the Workout corner). The three views
+ * are one question at three zoom levels, so they stay one screen with a
  * `Segmented` under the shared header, which is where all three screens' own
  * `toolbar` slot puts it: the control does not move as the view changes under it.
  *
- * Which view is showing is held HERE rather than in any of the three: it has to
- * survive switching between them, and none of them should know the others exist.
+ * Which view is showing is held by the SHELL rather than in any of the three: it
+ * has to survive switching between them, none of them should know the others
+ * exist, and Home's `Graphs ›` has to be able to choose it.
  */
 function WorkoutHistory({
-  initialView = 'log',
+  view,
+  onChangeView: setView,
+  footInset,
   workouts,
   loadFailed,
   numbers,
@@ -1846,15 +1734,14 @@ function WorkoutHistory({
   onRemoveExercise,
   onRestoreWorkout,
   onAddExercise,
-  onBack,
-  onOpenSettings,
-  onOpenWrapped,
   onOpenBody,
   onOpenMuscles,
   onOpenWorkout,
 }: {
-  /** The view it opens on — Graphs, from the Progress card. */
-  initialView?: WorkoutHistoryView;
+  view: WorkoutHistoryView;
+  onChangeView: (view: WorkoutHistoryView) => void;
+  /** The scroll's foot, clear of the nav pill. */
+  footInset: number;
   workouts: CompletedWorkout[];
   loadFailed: boolean;
   numbers: Record<ID, number>;
@@ -1872,28 +1759,23 @@ function WorkoutHistory({
   onRemoveExercise: HistoryScreenProps['onRemoveExercise'];
   onRestoreWorkout: HistoryScreenProps['onRestoreWorkout'];
   onAddExercise: HistoryScreenProps['onAddExercise'];
-  onBack: () => void;
-  onOpenSettings: () => void;
-  onOpenWrapped: (period: WrappedPeriod) => void;
   onOpenBody: () => void;
   onOpenMuscles: () => void;
   /** Open one workout in the Log — a calendar day's preview row. */
   onOpenWorkout: (workoutId: ID) => void;
 }) {
   const t = useT();
-  const [view, setView] = useState<WorkoutHistoryView>(initialView);
 
   /*
-   * A workout tapped ANYWHERE ELSE in the app lands on this tab expecting the log
-   * — see `openWorkout`. The graphs view has no row to open, so without this the
-   * tap looks like it did nothing, and `focusWorkoutId` is never handled: it sits
-   * there and springs the row open the next time somebody switches to the log.
-   * Switching the view here is what makes the two features compose; neither
-   * branch could have caught it alone, because neither had both.
+   * A workout tapped ANYWHERE ELSE in the app lands here expecting the log —
+   * see `openWorkout`, which asks for it. The graphs view has no row to open,
+   * so a focus that arrives on another view would never be handled: it would sit
+   * there and spring the row open the next time somebody switched to the log.
+   * This is the backstop for any caller that sets a focus without the view.
    */
   useEffect(() => {
-    if (focusWorkoutId) setView('log');
-  }, [focusWorkoutId]);
+    if (focusWorkoutId && view !== 'log') setView('log');
+  }, [focusWorkoutId, setView, view]);
 
   const toolbar = (
     <View className="mt-md">
@@ -1913,7 +1795,7 @@ function WorkoutHistory({
         historyByExerciseId={history}
         exercisesById={exercisesById}
         toolbar={toolbar}
-        onBack={onBack}
+        footInset={footInset}
         onOpenBody={onOpenBody}
       />
     );
@@ -1924,7 +1806,7 @@ function WorkoutHistory({
       <CalendarScreen
         workouts={workouts}
         toolbar={toolbar}
-        onBack={onBack}
+        footInset={footInset}
         onOpenWorkout={onOpenWorkout}
       />
     );
@@ -1932,7 +1814,7 @@ function WorkoutHistory({
 
   return (
     <HistoryScreen
-      onBack={onBack}
+      footInset={footInset}
       workouts={workouts}
       /* So an unreadable log says so, instead of reading as an empty one. */
       loadFailed={loadFailed}
@@ -1950,8 +1832,6 @@ function WorkoutHistory({
       onRemoveExercise={onRemoveExercise}
       onRestoreWorkout={onRestoreWorkout}
       onAddExercise={onAddExercise}
-      onOpenSettings={onOpenSettings}
-      onOpenWrapped={onOpenWrapped}
       onOpenMuscles={onOpenMuscles}
       toolbar={toolbar}
     />

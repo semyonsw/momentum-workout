@@ -232,10 +232,8 @@ describe('app settings', () => {
     expect(setting({ field: 'auto_rest', number: 1 })).toBeUndefined();
   });
 
-  it('weekly goal: held to 1–7', () => {
-    expect(setting({ field: 'weekly_goal', number: 4 })?.value).toBe(4);
-    expect(setting({ field: 'weekly_workout_goal', number: 9 })?.value).toBe(7);
-    expect(setting({ field: 'weekly_goal', number: 0 })?.value).toBe(1);
+  it('the retired weekly goal is an unknown field', () => {
+    expect(setting({ field: 'weekly_goal', number: 4 })).toBeUndefined();
   });
 
   it('"settings" is read as the target too, and an unknown field is dropped', () => {
@@ -335,14 +333,11 @@ describe('what the card says', () => {
       { target: 'setting', field: 'rest_between_sets', value: 60 },
       { target: 'setting', field: 'rest_between_exercises', value: 180 },
       { target: 'setting', field: 'auto_rest', value: false },
-      { target: 'setting', field: 'weekly_goal', value: 5 },
     ]);
     expect(out.map(({ subject, label, from, to }) => [subject, label, from, to])).toEqual([
       ['Settings', 'Rest between sets', '1:30', '1:00'],
       ['Settings', 'Rest between exercises', '2:00', '3:00'],
       ['Settings', 'Start rest automatically', 'On', 'Off'],
-      // Never set: the default the app is using.
-      ['Settings', 'Weekly workout goal', '3', '5'],
     ]);
   });
 

@@ -14,7 +14,7 @@
  *   success    a countdown reached zero — rest is over, or the bell rang
  *   countTick  one second of a get-ready count
  *   celebrate  something reached 100% — every set of a session, every task
- *              of a day, a finished debrief, a backup that landed
+ *              of a day, a backup that landed
  *   sparkle    the light ticks that ride an animation as it plays
  *
  * ── ONE BUZZ PER TOUCH ──────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ export function countFinal(): void {
  * A crescendo rather than one long buzz, because a single vibration of any
  * length reads as an alarm; three steps that climb read as something filling up,
  * which is what just happened. Reserved for completions — a day, a session, a
- * debrief — so it keeps meaning something.
+ * backup — so it keeps meaning something.
  */
 export function celebrate(): void {
   if (!hapticsOn()) return;

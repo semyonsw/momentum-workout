@@ -14,9 +14,9 @@
  * existed) are left out, so a young task draws a short line ending at the
  * right edge rather than a floor of zeros.
  *
- * `min` (W9) lifts the floor for a series that is never near zero — a waist in
- * centimetres on a 0–100 scale is a flat line at the top. The caller picks the
- * band (the measurement rows pad their own range by half a unit each side), so
+ * `min` lifts the floor for a series that is never near zero — a bodyweight in
+ * kilograms on a 0–100 scale is a flat line at the top. The caller picks the
+ * band (the weight card pads its own range by half a unit each side), so
  * the fixed-scale promise above still holds where it is asked for.
  */
 

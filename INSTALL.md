@@ -17,8 +17,8 @@ both.
 2. Installs the dependency tree with `npm ci` — the exact locked versions —
    falling back to `npm install`, then `--legacy-peer-deps`, and explaining the
    difference if it has to.
-3. **Runs `npm run typecheck` and the whole test suite** (700-odd tests: rep
-   ladders, timers, overload maths, cold starts, stores, backups, migrations).
+3. **Runs `npm run typecheck` and the whole test suite** (about 2,200 tests: rep
+   ladders, timers, cold starts, stores, backups, migrations, the AI coach's edits).
    "Install complete" therefore means the code works on your machine.
 4. Looks for a `momentum-*.apk` (or, before 2.0.0, `workout-tracker-*.apk`) next to it and for `adb`. If a phone is
    plugged in, it offers to push the APK over USB, and knows what each Android
@@ -48,7 +48,7 @@ No computer setup needed at all:
 5. On Samsung, also set **Battery → Unrestricted** and keep the app out of
    **Sleeping apps**, or its alarms get dropped.
 
-Minimum Android 8.0 (API 26) — Health Connect needs it. Full detail: **[BUILD_ANDROID.md](BUILD_ANDROID.md)**.
+Minimum Android 8.0 (API 26). Full detail: **[BUILD_ANDROID.md](BUILD_ANDROID.md)**.
 
 ---
 

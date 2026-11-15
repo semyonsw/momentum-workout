@@ -91,13 +91,18 @@ interface CalendarScreenProps {
   workouts: CompletedWorkout[];
   /** The `Log | Graphs | Calendar` switch, owned by the tab. */
   toolbar?: ReactNode;
-  /** `‹` — this screen is pushed by the ⟲ on the workout section now. */
-  onBack?: () => void;
+  /** The scroll's foot: clear of the nav pill, since this is a root (4.0). */
+  footInset?: number;
   /** `Open ›` on a day's preview row: show that workout in the Log. */
   onOpenWorkout?: (workoutId: ID) => void;
 }
 
-export function CalendarScreen({ workouts, toolbar, onBack, onOpenWorkout }: CalendarScreenProps) {
+export function CalendarScreen({
+  workouts,
+  toolbar,
+  footInset = 40,
+  onOpenWorkout,
+}: CalendarScreenProps) {
   const t = useT();
   const countedDays = usePlural();
   /*
@@ -147,7 +152,6 @@ export function CalendarScreen({ workouts, toolbar, onBack, onOpenWorkout }: Cal
     <View className="flex-1 bg-bg">
       <ScreenHeader
         kicker={t('Training history')}
-        onBack={onBack}
         subtitle={
           workouts.length === 0
             ? t('Nothing finished yet')
@@ -165,7 +169,7 @@ export function CalendarScreen({ workouts, toolbar, onBack, onOpenWorkout }: Cal
       <ScrollView
         ref={scrollRef}
         className="flex-1"
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 40 }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: footInset }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={settleToBottom}
       >

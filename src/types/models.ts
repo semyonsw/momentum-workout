@@ -5,7 +5,7 @@
  *
  * 1. `SetHistory` is the ONLY write-heavy table and it is deliberately
  *    denormalized (it carries `exerciseId` + `performedAt` + `weightKg`).
- *    Progressive-overload analysis is therefore ONE indexed range scan:
+ *    One exercise's history is therefore ONE indexed range scan:
  *      SELECT * FROM set_history
  *      WHERE exercise_id = ? AND is_warmup = 0 AND is_completed = 1
  *      ORDER BY performed_at DESC LIMIT 200;
@@ -21,14 +21,12 @@
  *    14 13 10 10" (none), and "12 rounds 3min boxing bag" (rounds).
  *
  * 3. Weight lives on the SET, never on the exercise. Real sessions drop weight
- *    mid-exercise ("15kg 5, then 10kg 12 9 8") and the overload engine needs the
- *    true per-set load to detect a plateau.
+ *    mid-exercise ("15kg 5, then 10kg 12 9 8") and the history and the records
+ *    need the true per-set load.
  *
  * All weights are stored in KILOGRAMS. Imperial is a presentation concern only
  * (see `src/lib/units.ts`) so history never gets corrupted by a unit toggle.
  */
-
-import type { SetType } from '../lib/setType';
 
 export type ID = string;
 /** ISO-8601 UTC timestamp, e.g. "2026-08-11T18:31:14.000Z". */
@@ -41,30 +39,7 @@ export type ISODateTime = string;
 export type UnitSystem = 'metric' | 'imperial';
 
 /**
- * Tunables for the progressive-overload engine. Exposed in Settings so the
- * "2 weeks" in the spec is a default, not a hard-coded assumption.
- */
-export interface OverloadPolicy {
-  /** A weight is "stale" once it has been the top working weight this long. */
-  stalenessDays: number; // default 14
-  /** ...and has been repeated at least this many separate sessions. */
-  minSessions: number; // default 3
-  /** Default jump when no exercise-specific increment is set. */
-  incrementKg: number; // default 2.5
-  /**
-   * Only suggest MORE WEIGHT once the rep target is met at the current weight.
-   * Otherwise the nudge suggests one more REP first — the correct progression
-   * order, and it stops the app from pushing weight the user can't yet own.
-   */
-  requireRepTargetMet: boolean; // default true
-  /** Reps on the top set that count as "owning" the weight. */
-  repTarget: number; // default 8
-  /** Ignore history older than this when looking for a recent regression. */
-  regressionLookbackDays: number; // default 60
-}
-
-/**
- * The owner of the library — two fields, because two is all anything reads.
+ * The owner of the library — one field, because one is all anything reads.
  *
  * `displayName`, `unitSystem` and `createdAt` used to be here and were never
  * read by a single line: the app has no screen that greets anybody, and the unit
@@ -77,7 +52,6 @@ export interface OverloadPolicy {
  */
 export interface User {
   id: ID;
-  overloadPolicy: OverloadPolicy;
 }
 
 /* ------------------------------------------------------------------ */
@@ -214,6 +188,20 @@ export interface RepLadder {
    * turns an auto ladder into one the app will not take away again.
    */
   auto?: boolean;
+  /**
+   * WAITING FOR A MAX — `Find my max in the next workout` in the exercise editor.
+   *
+   * Nobody types a max any more: a typed one is a guess, and the scheme is only as
+   * honest as its top set. So the ladder is switched on in this state instead, and
+   * the next workout's first working set is the test — all-out, logged with the
+   * reps actually done — after which the rows below are built from it and `max`
+   * is overwritten with that number (`lib/repLadder.resolveTestedMax`).
+   *
+   * While this is true `max` is a PLACEHOLDER (the old max, or the seed) and every
+   * reader that would prescribe from it asks `isAwaitingMax` first. Present only
+   * when true, so a ladder with a real max round-trips exactly as before.
+   */
+  awaitingMax?: boolean;
 }
 
 export type LoadMode =
@@ -258,22 +246,6 @@ export interface Exercise {
 
   /** Smallest plate/pin jump available for THIS movement (dumbbells: 2.5, cable stack: 5). */
   incrementKg?: number;
-
-  /**
-   * The empty bar, in kilograms — and the switch that turns the plate label on.
-   *
-   * Present ⟹ this movement is loaded with plates on a bar, so the weight cell
-   * gets a micro-label reading `20 + 2×10 + 2×2.5`. Absent ⟹ nothing renders, which
-   * is what a machine, a dumbbell and a cable stack want: a "plate breakdown" for a
-   * pin position is a lie about the equipment.
-   *
-   * On the exercise rather than in Settings because it is a fact about the
-   * movement — an Olympic bar is 20, a women's bar is 15, a trap bar is whatever it
-   * says on it — and one number in Settings would put a 20 kg bar under a hex bar.
-   * Which PLATES exist is the opposite kind of fact, about the gym rather than the
-   * lift, so that one does live in Settings.
-   */
-  barWeightKg?: number;
 
   /**
    * Where to START, the first time this exercise is ever performed.
@@ -392,7 +364,7 @@ export interface Exercise {
    * reasoning that "prose per set is a search feature this app has no screen for".
    * That is still true. This is the opposite kind of field: it is a fact about the
    * MOVEMENT, not about one performance of it — the same class of thing as
-   * `barWeightKg` and `incrementKg` — so there is one of them per exercise, it is
+   * `incrementKg` — so there is one of them per exercise, it is
    * edited where the exercise is defined, and it is displayed in the one place it
    * is useful, which is on the card at the moment you are about to do the lift.
    *
@@ -453,19 +425,6 @@ export interface RoutineItem {
    */
   /** Extra rest after the LAST set, before moving on. */
   transitionRestSeconds?: number;
-  /**
-   * Same string = same superset; rest only fires after the last member.
-   *
-   * Set by the routine editor's one superset control — a toggle reading "with the
-   * exercise above" — so the string itself is never shown to anybody and is only
-   * ever compared. `lib/superset.ts` owns whose turn is next, `completeSet` owns
-   * the no-rest branch, and `lib/routinePlan.ts` owns joining and splitting.
-   *
-   * ADJACENCY IS THE MODEL. Two items sharing a group but separated by a third are
-   * read as no superset at all: a bracket that skips a row is a lie about what
-   * happens in the gym, and it is reachable just by reordering a routine.
-   */
-  supersetGroup?: string;
 }
 
 export interface Routine {
@@ -497,10 +456,10 @@ export interface Routine {
  *    in a way anybody notices.
  *  `rpe` — nothing collected it. Rate of perceived exertion is a real training
  *    tool, and it asks the user to grade every set, which is the opposite of a
- *    log that costs one tap. (It came back in 2.3 as `rir` below — OPTIONAL, set
- *    from a chip only by somebody who wants it, and read by the nudge, the AI
- *    context and the row. A field a control writes and three things read passes
- *    the test this list applies; the deleted one did not.)
+ *    log that costs one tap. (It came back for a while as `rir`, with drop /
+ *    failure / AMRAP set types beside it; both went in 4.0 for the same reason.
+ *    Old rows and backups may still carry `rir` or `setType` — the sanitizers
+ *    drop them, so such a set reads as a plain working set.)
  *  `notes` — nothing wrote it, and prose per set is a search feature this app has
  *    no screen for.
  *  `side` — a per-set left/right split. `Exercise.isUnilateral` already says "each
@@ -511,8 +470,8 @@ export interface Routine {
  *
  * They are gone rather than kept "in case". The one that stayed is
  * `restTakenSeconds`, because `completeSet` now writes it: the store knows when
- * rest started and when the next ✓ landed, so the number is free and the median
- * of it is a fact about the lifter that Settings can offer back.
+ * rest started and when the next ✓ landed, so the number is free, and a measured
+ * fact about the lifter is worth keeping in the log.
  */
 export interface SetHistory {
   id: ID;
@@ -533,22 +492,9 @@ export interface SetHistory {
 
   /** Warm-ups are excluded from every analysis. */
   isWarmup: boolean;
-  /**
-   * Drop set, to failure or AMRAP — a WORKING set of a particular kind. Absent =
-   * a plain working set (or a warm-up, which is `isWarmup` and never this). Since
-   * 2.3; `lib/setType.ts` has why the warm-up flag stayed beside it.
-   */
-  setType?: SetType;
   isCompleted: boolean;
-  /** Actual rest taken before this set — feeds future rest suggestions. */
+  /** Actual rest taken before this set, as the rest timer measured it. */
   restTakenSeconds?: number;
-  /**
-   * Reps in reserve, 0–5 in half steps — RPE is `10 − rir` and derived, never
-   * stored. Absent = nobody said, which is every set logged before 2.3 and every
-   * set since that was not graded. `lib/effort.ts` owns the scale, the validator
-   * and the one decision it feeds: a set at the limit is no evidence for more load.
-   */
-  rir?: number;
 }
 
 /**

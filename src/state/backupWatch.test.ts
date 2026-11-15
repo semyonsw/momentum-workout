@@ -3,7 +3,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { useAi, type AiMessage } from './aiStore';
 import { BACKED_UP_FIELDS } from '../lib/backupWatch';
 import { storesHydrated, watchBackedUpStores } from './backupWatch';
-import { useDebriefs } from './debriefStore';
 import { useLibrary } from './libraryStore';
 import { DEFAULT_SETTINGS, useSettings } from './settingsStore';
 import { useWorkoutHistory } from './workoutHistoryStore';
@@ -21,9 +20,7 @@ import { useWorkoutHistory } from './workoutHistoryStore';
 const user = (id: string): AiMessage => ({ id, role: 'user', text: id, at: '2026-10-15' });
 
 beforeAll(async () => {
-  await Promise.all(
-    [useSettings, useLibrary, useAi, useDebriefs].map((store) => store.persist.rehydrate()),
-  );
+  await Promise.all([useSettings, useLibrary, useAi].map((store) => store.persist.rehydrate()));
 });
 
 let onChange: ReturnType<typeof vi.fn>;
@@ -64,11 +61,6 @@ describe('what asks for a write', () => {
 
   it('a change to the history log', () => {
     useWorkoutHistory.setState({ workouts: [...useWorkoutHistory.getState().workouts] });
-    expect(onChange).toHaveBeenCalledTimes(1);
-  });
-
-  it('a debrief', () => {
-    useDebriefs.setState({ debriefs: { ...useDebriefs.getState().debriefs } });
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
@@ -121,12 +113,9 @@ describe('the watch lists cover every persisted field', () => {
     return Object.keys(partialize(state));
   };
 
-  it('library, debriefs', () => {
+  it('library', () => {
     for (const key of persisted(useLibrary, useLibrary.getState())) {
       expect(BACKED_UP_FIELDS.library).toContain(key);
-    }
-    for (const key of persisted(useDebriefs, useDebriefs.getState())) {
-      expect(BACKED_UP_FIELDS.debriefs).toContain(key);
     }
   });
 });

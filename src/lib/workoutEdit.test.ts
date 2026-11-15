@@ -29,7 +29,7 @@ import type { Exercise, SetHistory } from '../types/models';
  *     changed the rows and left them alone would be a summary describing sets that
  *     are no longer there.
  *  2. A RETIME MOVES THE ROWS TOO. `performedAt` is the workout's own instant
- *     denormalised onto every set — it is what the overload engine and every chart
+ *     denormalised onto every set — it is what the records and every chart
  *     read — so a header that moved without them would put a session on Tuesday
  *     that every analysis still dates to Wednesday.
  */
@@ -148,8 +148,8 @@ describe('the name', () => {
 describe('moving a workout in time', () => {
   it('re-dates every set with it', () => {
     /*
-     * The rule that matters. `performedAt` is what the overload engine, the trends
-     * and the exercise history all read; a header that moved without the rows would
+     * The rule that matters. `performedAt` is what the records, the trends and
+     * the exercise history all read; a header that moved without the rows would
      * be a session on the wrong day everywhere except the row you were looking at.
      */
     const to = new Date(2026, 7, 16, 10, 24);

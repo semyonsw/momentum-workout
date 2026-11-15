@@ -96,11 +96,6 @@ export interface ProposedExercise {
    * number, which is what most routines hold.
    */
   repsMin?: number;
-  /**
-   * Done as a superset WITH THE EXERCISE ABOVE IT — the editor's one control.
-   * Absent = as it is now; `false` splits it off.
-   */
-  superset?: boolean;
 }
 
 export interface RoutineProposal {
@@ -137,8 +132,8 @@ export interface SequenceBlock {
 
 /**
  * A SETTINGS CHANGE: the numbers and switches the user can set by hand outside a
- * routine's rows — an exercise's rest, ladder, cue; the app's rest and weekly
- * goal. `lib/ai/aiChanges.ts` owns what
+ * routine's rows — an exercise's rest, ladder, cue; the app's rest.
+ * `lib/ai/aiChanges.ts` owns what
  * each one means, how it is checked, and how it is applied (on a tap, with Undo).
  * The block carries them raw; the validator here only keeps the shape.
  */
@@ -173,8 +168,12 @@ const LIMITS = {
   why: 400,
   /** Steps in a suggested loop. Twelve is a quarter of training; 24 is room. */
   sequence: 24,
-  /** Settings in one change card — enough for "every exercise of Push", short of a wall. */
-  changes: 12,
+  /**
+   * Items in one change card. 24 since the card learned to create, remove and
+   * edit (`aiEdits.ts`): "make an Arms routine with these five" is a create,
+   * five adds and their numbers — past 12 on its own.
+   */
+  changes: 24,
 } as const;
 
 /** Every number that can reach the library, and the range it is held to. */
@@ -269,10 +268,6 @@ export const responseSchema = {
                       type: 'integer',
                       description: 'Bottom of a rep range (8 of 8-10); reps is the top.',
                     },
-                    superset: {
-                      type: 'boolean',
-                      description: 'true = superset with the exercise above it.',
-                    },
                   },
                   required: ['name', 'sets', 'reps', 'weightKg'],
                 },
@@ -297,7 +292,8 @@ export const responseSchema = {
           },
           changes: {
             type: 'object',
-            description: 'For a "changes_proposal" block: settings to change, applied on a tap.',
+            description:
+              'For a "changes_proposal" block: things to change, create, remove or log, applied on a tap.',
             properties: {
               items: {
                 type: 'array',
@@ -306,21 +302,50 @@ export const responseSchema = {
                   properties: {
                     target: {
                       type: 'string',
-                      enum: ['exercise', 'setting', 'bodyweight', 'workout_set'],
+                      enum: [
+                        'exercise',
+                        'setting',
+                        'bodyweight',
+                        'routine',
+                        'routine_item',
+                        'sequence',
+                        'workout',
+                        'workout_set',
+                        'live',
+                        'live_set',
+                      ],
                     },
                     id: {
                       type: 'string',
                       description:
-                        'exerciseId or workout id from CONTEXT; omit for setting and bodyweight.',
+                        'The exercise, routine or workout id from CONTEXT — or, for field "create", a new handle like "new_1" that later items may use.',
                     },
                     exerciseId: {
                       type: 'string',
-                      description: 'For workout_set: the exercise id inside that workout.',
+                      description: 'For routine_item, workout, workout_set, live, live_set.',
                     },
                     field: { type: 'string' },
                     number: { type: 'number' },
                     text: { type: 'string' },
                     on: { type: 'boolean' },
+                    set: {
+                      type: 'integer',
+                      description: 'For workout_set / live_set: the set, 1 = the first.',
+                    },
+                    name: { type: 'string', description: 'For field "create": the name.' },
+                    muscle: { type: 'string', enum: [...MUSCLE_GROUPS] },
+                    kind: {
+                      type: 'string',
+                      enum: [
+                        'weighted',
+                        'bodyweight_plus',
+                        'assisted',
+                        'reps',
+                        'seconds',
+                        'meters',
+                        'rounds',
+                      ],
+                    },
                   },
                   required: ['target', 'field'],
                 },
@@ -523,8 +548,6 @@ function validateExercise(item: unknown): ProposedExercise | null {
     const bottom = clampInt(min, CLAMP.reps.min, CLAMP.reps.max);
     if (bottom < out.reps) out.repsMin = bottom;
   }
-  // false is a request too — "split those two up" — so both values are kept.
-  if (typeof item.superset === 'boolean') out.superset = item.superset;
   return out;
 }
 

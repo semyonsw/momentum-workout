@@ -486,7 +486,7 @@ function UpNextCard({
   const t = useT();
   const lang = useLanguage();
   const { exercise } = target.entry;
-  const count = showsMaxLabel(exercise, target.set)
+  const count = showsMaxLabel(exercise, target.set, target.isMaxTest)
     ? maxLabel(lang)
     : `${formatCount(target.set.count, exercise.countUnit)} ${countUnitLabel(exercise.countUnit, lang).toLowerCase()}`;
   const numbers = exercise.requiresWeight

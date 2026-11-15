@@ -19,7 +19,6 @@ describe('2.9 redesign B strings', () => {
       'Auto-start rest',
       'Rest timer starts when you log a set',
       'Back, workout keeps running',
-      'Workout still running — resume it from the Workout tab',
       'Volume',
       'Keep training',
       'Changed from the plan',

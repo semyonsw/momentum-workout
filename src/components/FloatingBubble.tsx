@@ -22,15 +22,13 @@
  *
  * ── THE MOTION ────────────────────────────────────────────────────────────
  *
- *   in    translateY −28 → 0 and scale 0.82 → 1 over 560 ms on
- *         `bezier(.34,1.5,.64,1)` — it drops in and overshoots — with the
- *         opacity over the first 260 ms, and then its children follow one after
- *         another, 120/190/260 ms late.
- *   out   320 ms on `bezier(.4,0,.6,1)`, opacity 220 ms, no stagger. Something
- *         leaving should not ask to be watched.
+ *   in    fade and a 6 dp drop, `IN_MS`, on the base curve.
+ *   out   fade and lift, `OUT_MS`. Something leaving should not ask to be watched.
  *
- * The design's blur-in (6 → 0) has no cheap React Native equivalent and is left
- * out; the rest is exactly the v3 spec's.
+ * It used to drop 28 dp with a scale-up overshoot over 560 ms and then deal its
+ * children in one by one. The calm pass kept what the motion MEANS — the bubble
+ * came from the top, where the hero went — and cut the show: the contents arrive
+ * with the capsule, and `delays` is accepted and ignored.
  *
  * ── THE GLASS ─────────────────────────────────────────────────────────────
  *
@@ -70,10 +68,9 @@ import { curve, motion, radius } from '../theme/tokens';
 import { Pane } from './glass';
 
 const EASE = curve(motion.ease);
-const DROP = Easing.bezier(0.34, 1.5, 0.64, 1);
-const FOLLOW = Easing.bezier(0.34, 1.4, 0.64, 1);
-const LIFT = Easing.bezier(0.4, 0, 0.6, 1);
 const EASE_IN = Easing.in(Easing.quad);
+const IN_MS = 160;
+const OUT_MS = 120;
 
 /**
  * Two below the top bar's bottom edge. The prototype says `top: 104` in a frame
@@ -85,7 +82,7 @@ const BUBBLE_TOP = 70;
 export function FloatingBubble({
   visible,
   children,
-  delays = [120, 190, 260],
+  delays: _delays,
   contentStyle,
   accessibilityLabel,
   underlay,
@@ -93,9 +90,9 @@ export function FloatingBubble({
   width,
 }: {
   visible: boolean;
-  /** Each child gets its own staggered entrance, in order. */
+  /** Laid out in a row inside the capsule, in order. */
   children: ReactNode;
-  /** When each child follows the capsule in, ms. */
+  /** Accepted and ignored since the calm pass — children arrive with the capsule. */
   delays?: readonly number[];
   /** Padding and gap inside the capsule — each bubble's own. */
   contentStyle?: StyleProp<ViewStyle>;
@@ -115,81 +112,26 @@ export function FloatingBubble({
 
   const fade = useRef(new Animated.Value(0)).current;
   const move = useRef(new Animated.Value(0)).current;
-  const itemValues = useRef<Animated.Value[]>([]);
-  /* Each item's rise, built beside its value and kept: a fresh interpolation node
-     per render makes the Animated.View detach and re-attach its native graph. */
-  const itemRises = useRef<Animated.AnimatedInterpolation<number>[]>([]);
-  while (itemValues.current.length < items.length) {
-    const value = new Animated.Value(0);
-    itemValues.current.push(value);
-    itemRises.current.push(value.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }));
-  }
-
   /** The blur stays mounted through the exit, and goes once it has finished. */
   const [blurred, setBlurred] = useState(visible);
 
   useEffect(() => {
     if (visible) setBlurred(true);
-    const values = itemValues.current;
-    const animation = visible
-      ? Animated.parallel([
-          Animated.timing(fade, {
-            toValue: 1,
-            duration: 260 * scale,
-            easing: EASE,
-            useNativeDriver: true,
-          }),
-          Animated.timing(move, {
-            toValue: 1,
-            duration: 560 * scale,
-            easing: DROP,
-            useNativeDriver: true,
-          }),
-          ...values.map((value, index) =>
-            Animated.timing(value, {
-              toValue: 1,
-              duration: 520 * scale,
-              delay: (delays[index] ?? delays[delays.length - 1] ?? 0) * scale,
-              easing: FOLLOW,
-              useNativeDriver: true,
-            }),
-          ),
-        ])
-      : Animated.parallel([
-          Animated.timing(fade, {
-            toValue: 0,
-            duration: 220 * scale,
-            easing: EASE_IN,
-            useNativeDriver: true,
-          }),
-          Animated.timing(move, {
-            toValue: 0,
-            duration: 320 * scale,
-            easing: LIFT,
-            useNativeDriver: true,
-          }),
-          ...values.map((value) =>
-            Animated.timing(value, {
-              toValue: 0,
-              duration: 220 * scale,
-              easing: EASE_IN,
-              useNativeDriver: true,
-            }),
-          ),
-        ]);
+    const ms = (visible ? IN_MS : OUT_MS) * scale;
+    const easing = visible ? EASE : EASE_IN;
+    const to = visible ? 1 : 0;
+    const animation = Animated.parallel([
+      Animated.timing(fade, { toValue: to, duration: ms, easing, useNativeDriver: true }),
+      Animated.timing(move, { toValue: to, duration: ms, easing, useNativeDriver: true }),
+    ]);
     animation.start(({ finished }) => {
       if (finished && !visible) setBlurred(false);
     });
     return () => animation.stop();
-    // `delays` is a literal at every call site; the animation keys on `visible`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, scale, fade, move]);
 
-  const nodes = useMemo(
-    () => ({
-      dropY: move.interpolate({ inputRange: [0, 1], outputRange: [-28, 0] }),
-      dropScale: move.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1] }),
-    }),
+  const dropY = useMemo(
+    () => move.interpolate({ inputRange: [0, 1], outputRange: [-6, 0] }),
     [move],
   );
 
@@ -202,8 +144,8 @@ export function FloatingBubble({
         left: 0,
         right: 0,
         alignItems: 'center',
-        // Over the scroll, under the top bar (`SectionTopBar` is 10): the drop
-        // starts 28 dp up, and it should come out from under the glass.
+        // Over the scroll, under the top bar (`SectionTopBar` is 10), so the
+        // drop comes out from under the glass.
         zIndex: 9,
       }}
     >
@@ -214,8 +156,7 @@ export function FloatingBubble({
         accessibilityLabel={accessibilityLabel}
         style={{
           opacity: fade,
-          transformOrigin: 'top',
-          transform: [{ translateY: nodes.dropY }, { scale: nodes.dropScale }],
+          transform: [{ translateY: dropY }],
         }}
       >
         <View style={{ borderRadius: radius.pill }}>
@@ -248,9 +189,8 @@ export function FloatingBubble({
             />
             {underlay}
             {items.map((child, index) => {
-              const value = itemValues.current[index];
               return (
-                <Animated.View
+                <View
                   key={index}
                   onLayout={
                     onItemLayout
@@ -261,13 +201,9 @@ export function FloatingBubble({
                           })
                       : undefined
                   }
-                  style={{
-                    opacity: value,
-                    transform: [{ translateY: itemRises.current[index] }],
-                  }}
                 >
                   {child}
-                </Animated.View>
+                </View>
               );
             })}
           </View>
@@ -280,12 +216,11 @@ export function FloatingBubble({
 const FILL = { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 } as const;
 
 /**
- * The hero, stepping back while its bubble is up: scale 1 → 0.95 and opacity
- * 1 → 0.45 from its top edge, both over 420 ms. It is already under the bar by
- * then; this only stops it competing with the bubble through the glass. The
- * design also blurs it by 2 — a live blur over a whole hero every scroll is not
- * worth a frame budget for a 2 px softening, so that part is left out. Put the
- * style on an `Animated.View` around the hero.
+ * The hero, stepping back while its bubble is up: opacity 1 → 0.45 over
+ * `IN_MS`. It is already under the bar by then; this only stops it competing
+ * with the bubble through the glass. (It also shrank to 0.95 over 420 ms until
+ * the calm pass — the dim alone does the job.) Put the style on an
+ * `Animated.View` around the hero.
  */
 export function useHeroRecede(receded: boolean) {
   const scale = useMotionScale();
@@ -293,7 +228,7 @@ export function useHeroRecede(receded: boolean) {
   useEffect(() => {
     Animated.timing(v, {
       toValue: receded ? 1 : 0,
-      duration: 420 * scale,
+      duration: IN_MS * scale,
       easing: EASE,
       useNativeDriver: true,
     }).start();
@@ -301,8 +236,6 @@ export function useHeroRecede(receded: boolean) {
   return useMemo(
     () => ({
       opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.45] }),
-      transformOrigin: 'top' as const,
-      transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.95] }) }],
     }),
     [v],
   );

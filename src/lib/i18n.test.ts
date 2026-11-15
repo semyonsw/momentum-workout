@@ -84,11 +84,11 @@ describe('the setting', () => {
     expect(usableLanguage('en')).toBe('en');
   });
 
-  // Russian is what the app ships in, so anything unreadable lands there.
-  it('falls back to Russian for anything else', () => {
-    expect(usableLanguage('fr')).toBe('ru');
-    expect(usableLanguage(undefined)).toBe('ru');
-    expect(usableLanguage(7)).toBe('ru');
+  // English is what a fresh install speaks, so anything unreadable lands there.
+  it('falls back to English for anything else', () => {
+    expect(usableLanguage('fr')).toBe('en');
+    expect(usableLanguage(undefined)).toBe('en');
+    expect(usableLanguage(7)).toBe('en');
   });
 });
 

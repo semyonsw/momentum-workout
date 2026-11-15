@@ -9,23 +9,16 @@ function draft(patch: Partial<ExerciseDraft>): ExerciseDraft {
 }
 
 describe('advancedRows', () => {
-  it('a weighted rep exercise folds the ladder, MAX and the increment — nudges are on, so no row', () => {
+  it('a weighted rep exercise folds the ladder, MAX and the increment', () => {
     expect(
       advancedRows(draft({ requiresWeight: true, countUnit: 'reps', ladderOn: false })),
     ).toEqual(['ladder', 'max', 'increment']);
   });
 
-  it('a ladder states that nudges are off', () => {
-    expect(
-      advancedRows(draft({ requiresWeight: true, countUnit: 'reps', ladderOn: true })),
-    ).toEqual(['ladder', 'max', 'increment', 'overload']);
-  });
-
-  it('unweighted work has no increment, and says why it has no nudges', () => {
+  it('unweighted work has no increment', () => {
     expect(advancedRows(draft({ requiresWeight: false, countUnit: 'reps' }))).toEqual([
       'ladder',
       'max',
-      'overload',
     ]);
   });
 
@@ -37,18 +30,16 @@ describe('advancedRows', () => {
     }
   });
 
-  it('is never empty, so the Advanced row always has something to open', () => {
-    for (const requiresWeight of [true, false]) {
-      for (const countUnit of ['reps', 'seconds', 'meters', 'rounds'] as const) {
-        expect(advancedRows(draft({ requiresWeight, countUnit })).length).toBeGreaterThan(0);
-      }
+  it('is empty for unweighted time and distance, so the screen shows no Advanced row', () => {
+    for (const countUnit of ['seconds', 'meters', 'rounds'] as const) {
+      expect(advancedRows(draft({ requiresWeight: false, countUnit }))).toEqual([]);
     }
   });
 
   it('names the rows in render order', () => {
     expect(
       advancedLabels(draft({ requiresWeight: true, countUnit: 'reps', ladderOn: true })),
-    ).toEqual(['Rep ladder', 'Reps to MAX', 'Increment', 'Overload nudges']);
+    ).toEqual(['Rep ladder', 'Reps to MAX', 'Increment']);
   });
 });
 

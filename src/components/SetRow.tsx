@@ -2,34 +2,26 @@
  * SetRow — the most important 56 dp in the app.
  *
  *   ┌──── 80 ────┬─────────┬─────────┬ 48 ┐
- *   │ [W] [W ▾]  │  20 kg  │ 8 reps  │ (✓)│  ← a warm-up: toggle on, letter in the well
- *   │ ┆W┆ [1 ▾]  │  80 kg  │ 8 reps  │ (✓)│  ← up next: the lit row, the solid ✓
- *   │     [2 ▾]  │  80 kg  │ 8 RIR 2 │ (✓)│  ← logged and graded: the chip in the well
- *   │     [F ▾]  │  80 kg  │ 6 reps  │ (✓)│  ← a typed set: its letter, not its number
- *   │        20 + 2×20 + 2×10                │  ← a barbell lift: what goes on the bar
+ *   │      [W]   │  20 kg  │ 8 reps  │ (✓)│  ← a warm-up: no number
+ *   │      [1]   │  80 kg  │ 8 reps  │ (✓)│  ← up next: the lit row, the solid ✓
+ *   │      [2]   │  80 kg  │ 8 reps  │ (✓)│
  *   └────────────┴─────────┴─────────┴────┘
- *   edit mode:  ⋮⋮ [1 ▾] │ 80 kg │ 8 reps │ (−)
+ *   edit mode:  ⋮⋮ [1] │ 80 kg │ 8 reps │ (−)
  *
  * The grid is `lib/setRowLayout.ts` (80 | 1fr | 1fr | 48, gap 6), and the 2.9
  * redesign (#1) is the reason for every part of it:
  *
  *   • A NUMBER THAT DOES SOMETHING LOOKS LIKE IT. The set number, the weight and
  *     the reps are all WELLS (`ValueWell`) — a 40 dp sunken field with a hairline
- *     — where they used to be bare text, two of which were secretly buttons. The
- *     set well carries a ▾, because what it opens (the type and reps-left sheet)
- *     is the one thing on the row nobody would guess from a number.
+ *     — where they used to be bare text, two of which were secretly buttons.
  *   • TAPPING WEIGHT OR REPS ALWAYS OPENS THE INLINE EDITOR — on every row, the
  *     lit up-next one included. The up-next row used to open focus mode instead,
  *     and long-pressing it did too; the row you were about to lift was the one row
  *     whose numbers you could not nudge in place, and nothing on it said so.
  *     Focus mode keeps its two labelled doors (the dock's `Focus` and the card's
  *     `Focus` chip) and no hidden ones. `lib/inlineEditor.ts` holds the rule.
- *   • THE `W` TOGGLE IS ONLY WHERE THE ANSWER CAN STILL BE YES — un-logged, not
- *     typed otherwise, and no working set logged above (`warmupToggleRows`).
- *     Everywhere else the 30 dp slot is an empty spacer rather than nothing, so
- *     the weight well's left edge is the same on every row and never jumps
- *     sideways under the thumb when the toggle goes. Edit mode puts the ⋮⋮ grip
- *     in that same slot for the same reason.
+ *   • THE 30 dp LEAD SLOT IS A SPACER rather than nothing, so the weight well's
+ *     left edge is the same on every row. Edit mode puts the ⋮⋮ grip in it.
  *   • ONE SOLID GREEN THING PER ROW, AT MOST: the up-next row's ✓. Its row is lit
  *     (`acc` at 7 % with an `acc` edge) so the set to do next is findable at arm's
  *     length; a logged ✓ goes soft (`acc` at 14 %) because the log is history and
@@ -37,20 +29,10 @@
  *   • A WARM-UP READS ONE STEP SMALLER (17 against 19) — it is a set that does
  *     not count, out of the volume and the set count, and its numbers step back
  *     with it. Its well reads `W`, and the working sets number around it: W 1 2 3.
- *   • A GRADED SET CARRIES `RIR 2` IN THE REPS WELL, in place of the `reps` unit
- *     — the unit is implied by the chip and the well is 79 dp at 360. Only where a
- *     grade exists; the way to a first grade is the inline editor's `Reps left`.
  *   • THE ✓ IS CAUGHT, AND THE ROW FLASHES — on the transition only, so opening a
  *     finished card is not a light show.
  *   • A TIMED SET grows a ▶ left of the ✓ and keeps the ✓: ▶ is "run the clock",
  *     ✓ is "I did this", and a hold done away from the phone still logs in one tap.
- *   • A BARBELL LIFT gets what goes on the bar on a line under the row, aligned
- *     with the weight. Only for an exercise with a `barWeightKg`, and it INFORMS
- *     AND NEVER ROUNDS: a target the plates cannot make draws no line rather than
- *     the nearest loadable weight. The one thing that makes a row taller than 56.
- *
- * REJECTED: keeping the number-or-badge as bare text and adding a separate ⓘ for
- * the type. Two targets for one question, and the number is where people tap.
  */
 
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -59,15 +41,12 @@ import { Pressable, Text, View, type ViewStyle } from 'react-native';
 import { commit, tap, undo } from '../lib/feedback';
 import type { DraftSet } from '../lib/draft';
 import type { Exercise, UnitSystem } from '../types/models';
-import { describePlates, platesFor } from '../lib/plates';
 import { maxLabel, showsMaxLabel } from '../lib/maxReps';
 import { countUnitLabel, formatCount, formatWeight, unitLabel } from '../lib/units';
-import { describeRir, effortApplies, rirChipLabel } from '../lib/effort';
-import { kindBadge, kindName, setKindOf, setWellFace, type SetKind } from '../lib/setType';
 import { SET_ROW, UNIT_FONT_SIZE, valueFontSize } from '../lib/setRowLayout';
 import { useLanguage, useT } from '../hooks/useT';
 
-import { glass, palette, tint } from '../theme/tokens';
+import { palette, tint } from '../theme/tokens';
 import { Icon } from './Icon';
 import { Flash, Pop } from './motion';
 import { RemoveRowButton, ValueWell } from './primitives';
@@ -81,8 +60,11 @@ interface SetRowProps {
    * Computed by the card (`workingSetLabels`): it depends on the rows above.
    */
   workingNumber: number | null;
-  /** The row's place in the card, 1-based — "Mark set 3 as warm-up". */
-  position: number;
+  /**
+   * The all-out test of a ladder waiting for its max (`isMaxTestSet`): its count
+   * reads `MAX` until reps are entered, exactly like a `MAX` exercise's row.
+   */
+  maxTest?: boolean;
   exercise: Exercise;
   unitSystem: UnitSystem;
   /** THE next set of the whole session. Lights the row — see the file header. */
@@ -93,15 +75,13 @@ interface SetRowProps {
   isTimed?: boolean;
   /** The clock is running for THIS set. */
   isTiming?: boolean;
-  /** The gym's plates, from Settings — a stable store reference (this is memoized). */
-  availablePlatesKg?: readonly number[];
   onFocusField: (field: SetField) => void;
   onToggleComplete: () => void;
   /** Start the clock, or — while it runs — stop it and log what it read. */
   onPressTimer?: () => void;
   /**
    * EDIT MODE. Present = the row is drawn as `⋮⋮ | set | weight | reps | −`: the
-   * grip takes the W toggle's slot, the `−` (`RemoveRowButton`) takes the ✓'s, and
+   * grip takes the lead slot, the `−` (`RemoveRowButton`) takes the ✓'s, and
    * the `−` removes THIS row. Absent everywhere outside edit mode.
    */
   onRemove?: () => void;
@@ -117,40 +97,29 @@ interface SetRowProps {
    * in the 30 dp slot as given. Ignored outside edit mode.
    */
   grip?: ReactNode;
-  /** Open `SetMarksSheet` — the set well's tap. Absent = the well is a label. */
-  onOpenMarks?: () => void;
-  /**
-   * Flip this row between warm-up and working — the `W` toggle. Present only where
-   * the answer can still be yes (`warmupToggleRows`); absent draws the spacer.
-   */
-  onToggleWarmup?: () => void;
 }
 
 function SetRowComponent({
   set,
   workingNumber,
-  position,
+  maxTest = false,
   exercise,
   unitSystem,
   isUpNext = false,
   focusedField,
   isTimed = false,
   isTiming = false,
-  availablePlatesKg,
   onFocusField,
   onToggleComplete,
   onPressTimer,
   onRemove,
   onGripLongPress,
   grip,
-  onOpenMarks,
-  onToggleWarmup,
 }: SetRowProps) {
   const t = useT();
   const lang = useLanguage();
   const done = set.isCompleted;
   const editing = onRemove != null;
-  const kind = setKindOf(set);
   /*
    * THE MOMENT A SET IS LOGGED, as opposed to the fact that it is: the pop and the
    * flash are keyed on the transition, so a row that mounts logged renders at rest.
@@ -164,11 +133,7 @@ function SetRowComponent({
   }, [done]);
   /* A logged set is not "up next" however the card labels it. */
   const lit = isUpNext && !done;
-  const countsMax = showsMaxLabel(exercise, set);
-  const chip =
-    set.rir != null && effortApplies(exercise.countUnit) && !countsMax
-      ? rirChipLabel(set.rir)
-      : null;
+  const countsMax = showsMaxLabel(exercise, set, maxTest);
   /*
    * The states table: logged and lit read full ink at 700; an un-logged row reads
    * muted at 600 — except a value the user has already changed from the carried
@@ -181,15 +146,6 @@ function SetRowComponent({
     fontWeight: strong ? ('700' as const) : ('600' as const),
     color: valueColor,
   };
-
-  /* Null — no line — for a machine, an empty weight, or a target the plates cannot make. */
-  const plateLabel =
-    exercise.barWeightKg != null && set.weightKg != null
-      ? describePlates(
-          exercise.barWeightKg,
-          platesFor(set.weightKg, exercise.barWeightKg, availablePlatesKg),
-        )
-      : null;
 
   const handleComplete = () => {
     // Medium impact on completion, light on undo — the hand can tell them apart.
@@ -222,15 +178,11 @@ function SetRowComponent({
         {/* The flash. First child so everything paints over it; it takes nothing. */}
         {loggedAt != null ? <Flash key={loggedAt} radius={ROW_RADIUS} /> : null}
 
-        {/* THE LEAD COLUMN, 80 dp whatever is in it: toggle / grip / spacer, 6, set well. */}
+        {/* THE LEAD COLUMN, 80 dp whatever is in it: grip / spacer, 6, set well. */}
         <View style={{ width: SET_ROW.toggle, alignItems: 'center' }}>
-          {editing ? (
-            (grip ?? <Grip onLongPress={onGripLongPress} />)
-          ) : onToggleWarmup ? (
-            <WarmupToggle on={set.isWarmup} position={position} onPress={onToggleWarmup} />
-          ) : null}
+          {editing ? (grip ?? <Grip onLongPress={onGripLongPress} />) : null}
         </View>
-        <SetWell kind={kind} workingNumber={workingNumber} lit={lit} onPress={onOpenMarks} />
+        <SetWell warmup={set.isWarmup} workingNumber={workingNumber} lit={lit} />
 
         {exercise.requiresWeight ? (
           <ValueWell
@@ -257,12 +209,10 @@ function SetRowComponent({
           style={WELL_STYLE}
           // `countText`, not the raw count: a timed set's count is seconds, and
           // "90 min" read aloud for a 1:30 hold is a different set.
-          accessibilityLabel={`${countsMax ? maxLabel(lang) : `${countText} ${countUnit}`}${
-            chip && set.rir != null ? `, ${describeRir(set.rir, lang)}` : ''
-          }`}
+          accessibilityLabel={countsMax ? maxLabel(lang) : `${countText} ${countUnit}`}
         >
           <WellValue value={countText} style={valueStyle}>
-            {chip ? <RirChip label={chip} /> : countUnit ? <Unit text={countUnit} /> : null}
+            {countUnit ? <Unit text={countUnit} /> : null}
           </WellValue>
         </ValueWell>
 
@@ -337,121 +287,42 @@ function SetRowComponent({
           )}
         </View>
       </View>
-
-      {/* Reference, not a control: under the weight well's left edge. */}
-      {plateLabel && exercise.requiresWeight ? (
-        <Text
-          numberOfLines={1}
-          className="text-[12.5px] tabular-nums text-ink-faint"
-          style={{ marginLeft: 1 + SET_ROW.lead + SET_ROW.gap + SET_ROW.wellPadding }}
-          accessibilityLabel={t('On the bar: {plates} kilograms', { plates: plateLabel })}
-        >
-          {plateLabel}
-        </Text>
-      ) : null}
     </View>
   );
 }
 
 /**
- * The set well: 44 × 40, the number (or the type's letter) and a ▾.
- *
- * Letters are muted for a warm-up (a set that does not count) and green for drop /
- * failure / AMRAP (working sets of a particular kind); a number is muted, and ink
- * on the lit row, where it is the label of the numbers about to be lifted.
+ * The set well: 44 × 40, the working number, or `W` for a warm-up — muted, since
+ * it is a set that does not count. A number is muted too, and ink on the lit row,
+ * where it is the label of the numbers about to be lifted.
  */
 function SetWell({
-  kind,
+  warmup,
   workingNumber,
   lit,
-  onPress,
 }: {
-  kind: SetKind;
+  warmup: boolean;
   workingNumber: number | null;
   lit: boolean;
-  onPress?: () => void;
 }) {
   const t = useT();
-  const lang = useLanguage();
-  const badge = kindBadge(kind);
-  const label =
-    workingNumber == null
-      ? kindName(kind, lang)
-      : kind === 'working'
-        ? t('Set {n}', { n: workingNumber })
-        : t('Set {n}, {kind}', { n: workingNumber, kind: kindName(kind, lang) });
-  const color = badge && kind !== 'warmup' ? palette.acc : lit ? palette.ink : palette.inkMuted;
+  const label = warmup || workingNumber == null ? t('Warm-up') : t('Set {n}', { n: workingNumber });
   return (
     <ValueWell
       width={SET_ROW.setWell}
-      onPress={onPress}
       emphasis={lit}
       style={{ paddingHorizontal: 4 }}
       accessibilityLabel={label}
-      accessibilityHint={onPress ? t('Opens the set type and reps in reserve') : undefined}
     >
       <Text
         allowFontScaling={false}
         numberOfLines={1}
         className="tabular-nums"
-        style={{ fontSize: 17, fontWeight: '700', color }}
+        style={{ fontSize: 17, fontWeight: '700', color: lit ? palette.ink : palette.inkMuted }}
       >
-        {setWellFace(kind, workingNumber)}
+        {warmup || workingNumber == null ? 'W' : String(workingNumber)}
       </Text>
-      {onPress ? (
-        <View style={{ marginLeft: 2 }}>
-          <Icon name="chevron-down" size={10} color={palette.inkMuted} />
-        </View>
-      ) : null}
     </ValueWell>
-  );
-}
-
-/**
- * The `W` toggle: a 30 dp rounded square. Off, a dashed muted outline and a muted
- * W — present, but plainly not on; on, solid `acc` with the W in ink-on-acc. The
- * hit area reaches 44 through `hitSlop`, so the slot stays 30 and the weight well
- * does not move.
- */
-function WarmupToggle({
-  on,
-  position,
-  onPress,
-}: {
-  on: boolean;
-  position: number;
-  onPress: () => void;
-}) {
-  const t = useT();
-  return (
-    <Pressable
-      onPress={() => {
-        tap();
-        onPress();
-      }}
-      hitSlop={7}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: on }}
-      accessibilityLabel={t('Mark set {n} as warm-up', { n: position })}
-      style={{
-        width: SET_ROW.toggle,
-        height: SET_ROW.toggle,
-        borderRadius: 9,
-        borderWidth: on ? 0 : 1.5,
-        borderStyle: on ? 'solid' : 'dashed',
-        borderColor: palette.inkMuted,
-        backgroundColor: on ? palette.acc : 'transparent',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      <Text
-        allowFontScaling={false}
-        style={{ fontSize: 13, fontWeight: '800', color: on ? palette.onAcc : palette.inkMuted }}
-      >
-        W
-      </Text>
-    </Pressable>
   );
 }
 
@@ -488,7 +359,7 @@ function Grip({ onLongPress }: { onLongPress?: () => void }) {
 }
 
 /**
- * A value and whatever rides beside it (a unit, or the `RIR` chip). The numeral
+ * A value and the unit that rides beside it. The numeral
  * shrinks to fit before anything is cropped — the last resort under the width
  * budget `lib/setRowLayout.ts` tests at 360 dp.
  */
@@ -527,32 +398,6 @@ function Unit({ text }: { text: string }) {
     >
       {text}
     </Text>
-  );
-}
-
-/** `RIR 2`: 22 dp, inside the reps well in the unit's place. */
-function RirChip({ label }: { label: string }) {
-  return (
-    <View
-      style={{
-        height: 22,
-        paddingHorizontal: SET_ROW.chipPadding,
-        borderRadius: 11,
-        borderWidth: 1,
-        borderColor: palette.hairline,
-        backgroundColor: glass.raised,
-        justifyContent: 'center',
-      }}
-    >
-      <Text
-        maxFontSizeMultiplier={1.2}
-        numberOfLines={1}
-        className="tabular-nums"
-        style={{ fontSize: UNIT_FONT_SIZE, fontWeight: '600', color: palette.ink }}
-      >
-        {label}
-      </Text>
-    </View>
   );
 }
 

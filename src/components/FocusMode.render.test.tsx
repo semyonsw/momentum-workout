@@ -8,7 +8,7 @@ import { useActiveWorkout } from '../state/activeWorkoutStore';
 import { useLibrary } from '../state/libraryStore';
 import { useSettings } from '../state/settingsStore';
 import { focusPlan } from '../lib/focusPlan';
-import { seedRoutines, seedUser } from '../data/seed';
+import { seedRoutines } from '../data/seed';
 import type { Exercise, ID } from '../types/models';
 
 /**
@@ -36,7 +36,6 @@ function openFirstRoutine() {
       useLibrary.getState().exercises.map((e) => [e.id, e]),
     ) as Record<ID, Exercise>,
     historyByExerciseId: {},
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,

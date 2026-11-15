@@ -19,8 +19,8 @@ import {
 import { __resetDatabases } from '../../test/expoSqliteStub';
 import { buildDraftSession, type DraftSession } from '../lib/draft';
 import { historyByExerciseId, type CompletedWorkout } from '../lib/completedWorkout';
-import { evaluateOverload } from '../lib/progressiveOverload';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { summarizeSessionSets } from '../lib/history';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { DEFAULT_SETTINGS, useSettings } from './settingsStore';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import type { Exercise, ID } from '../types/models';
@@ -36,7 +36,6 @@ function loggedDraft(startedAt: string, count = 2, weightKg = 40): DraftSession 
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,
@@ -498,8 +497,8 @@ describe('correcting a logged set', () => {
     const after = current(before.id);
     expect(after?.sets.find((r) => r.id === first.id)?.weightKg).toBe(4);
     // Regenerated through the shared shorthand, not patched — and in the language
-    // the app is set to, which is Russian by default.
-    expect(after?.exercises[0].summary).toContain('+4 кг');
+    // the app is set to, which is English by default.
+    expect(after?.exercises[0].summary).toContain('+4 kg');
     expect(after?.exercises[0].summary).not.toBe(before.exercises[0].summary);
   });
 
@@ -512,21 +511,22 @@ describe('correcting a logged set', () => {
     expect(current(before.id)?.exercises[0].totalCount).toBe(before.exercises[0].totalCount + 4);
   });
 
-  it('changes what a later overload verdict sees', () => {
+  it('changes what the history and the records read later', () => {
     /*
      * The reason a correction has to reach the ROWS and not just the rendered
-     * summary: those rows are what every future suggestion reads. A 4 kg typo left
-     * in the log is a plateau the engine can see and the user cannot explain.
+     * summary: those rows are what every future prefill and best reads. A 4 kg
+     * typo left in the log is a top weight the user cannot explain.
      */
     const before = saved(3, 40);
     const exerciseId = before.sets[0].exerciseId;
-    const exercise = { id: exerciseId, requiresWeight: true, countUnit: 'reps' as const };
+    const subject = { countUnit: 'reps' as const, loadMode: 'external' as const };
+    const top = () =>
+      summarizeSessionSets(
+        historyByExerciseId(useWorkoutHistory.getState().workouts)[exerciseId] ?? [],
+        subject,
+      ).topWeightKg;
 
-    const topBefore = evaluateOverload({
-      exercise,
-      history: historyByExerciseId(useWorkoutHistory.getState().workouts)[exerciseId] ?? [],
-      now: new Date('2026-08-18T12:00:00.000Z'),
-    }).currentWeightKg;
+    const topBefore = top();
     expect(topBefore).toBe(40);
 
     // Every set of that session was typed a decimal place out.
@@ -534,12 +534,7 @@ describe('correcting a logged set', () => {
       useWorkoutHistory.getState().updateWorkoutSet(before.id, row.id, { weightKg: 4 });
     }
 
-    const topAfter = evaluateOverload({
-      exercise,
-      history: historyByExerciseId(useWorkoutHistory.getState().workouts)[exerciseId] ?? [],
-      now: new Date('2026-08-18T12:00:00.000Z'),
-    }).currentWeightKg;
-    expect(topAfter).toBe(4);
+    expect(top()).toBe(4);
   });
 
   it('removes a single set and recomputes around it', () => {
@@ -716,7 +711,7 @@ describe('the log survives a round trip through SQLite', () => {
 
   it('has the index models.ts describes', () => {
     /*
-     * `src/types/models.ts` opens by saying progressive-overload analysis is ONE
+     * `src/types/models.ts` opens by saying one exercise's history is ONE
      * indexed range scan over `(exercise_id, performed_at)`, and that is the whole
      * reason `SetHistory` is denormalised the way it is. The index existing is the
      * part of that claim this test can check; that it is USED is the query planner's

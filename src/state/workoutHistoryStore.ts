@@ -93,8 +93,6 @@ import {
 } from './historyDb';
 import { currentSettings } from './settingsStore';
 import { bodyweightAt } from '../lib/bodyweightLog';
-import { cleanRir, withRir } from '../lib/effort';
-import { cleanSetType, withKind, type SetKind } from '../lib/setType';
 import {
   addExerciseToWorkout,
   addSetToWorkout,
@@ -126,15 +124,12 @@ function newRowId(workoutId: ID): ID {
 
 /**
  * One correction to a logged set. An absent key means "leave it"; `weightKg: null`
- * is a real value (an unweighted set) and `rir: null` clears the effort.
+ * is a real value (an unweighted set).
  */
 export interface SetCorrection {
   weightKg?: number | null;
   count?: number;
   isWarmup?: boolean;
-  rir?: number | null;
-  /** What the set IS — warm-up, working, drop, failure, AMRAP. Wins over `isWarmup`. */
-  kind?: SetKind;
 }
 
 interface WorkoutHistoryState {
@@ -155,7 +150,7 @@ interface WorkoutHistoryState {
    * failed first read. False only in the window between a module-scope read that
    * threw and `reloadHistory`'s second attempt from `App.tsx`.
    *
-   * It is what Home's skeleton and the launch screen's `workouts` chip wait on:
+   * It is what Home's skeleton and the launch gate in `App.tsx` wait on:
    * an empty log shown in that window is the empty-to-full flash the skeleton
    * exists to prevent, and it is also indistinguishable from never having
    * trained. After the retry it is true whatever the retry found — the screens
@@ -178,7 +173,7 @@ interface WorkoutHistoryState {
   saveSession: (session: DraftSession, endedAt?: Date) => CompletedWorkout | null;
   deleteWorkout: (id: ID) => void;
   /**
-   * Correct one logged set: its weight, its count, its kind or its RIR.
+   * Correct one logged set: its weight, its count, or whether it was a warm-up.
    *
    * The only write in this store that touches a row the user did not just perform,
    * and the only one that needs `recomputeWorkout` — see rule 5. Returns true when
@@ -229,6 +224,13 @@ interface WorkoutHistoryState {
    * does not resurrect a record the user threw away on purpose.
    */
   restoreWorkout: (snapshot: CompletedWorkout) => boolean;
+  /**
+   * Put a workout back that was DELETED — the Undo of an AI card that deleted
+   * it (`state/aiActions.ts`). `restoreWorkout` refuses a deleted one on purpose,
+   * because History's delete asks first and has no Undo; a card's Apply does not
+   * ask, so its one Undo has to be able to take the whole card back.
+   */
+  reinstateWorkout: (snapshot: CompletedWorkout) => boolean;
 
   clearHistory: () => void;
   /**
@@ -463,17 +465,14 @@ export const useWorkoutHistory = create<WorkoutHistoryState>()((set, get) => ({
 
     const sets = workout.sets.map((row) => {
       if (row.id !== setId) return row;
-      const next: SetHistory = {
-        ...(patch.rir !== undefined ? withRir(row, patch.rir) : row),
+      return {
+        ...row,
         // `undefined` means "not in the patch"; `null` is a real weight for an
         // unweighted set, so the two cannot be collapsed.
         ...(patch.weightKg !== undefined ? { weightKg: patch.weightKg } : {}),
         ...(patch.count !== undefined ? { count: Math.max(0, Math.round(patch.count)) } : {}),
         ...(patch.isWarmup !== undefined ? { isWarmup: patch.isWarmup } : {}),
       };
-      if (patch.kind !== undefined) return withKind(next, patch.kind);
-      // A warm-up carries no type — the flag wins (`lib/setType.ts`).
-      return next.isWarmup ? withKind(next, 'warmup') : next;
     });
 
     return writeRecomputed(set, get, workoutId, sets);
@@ -560,6 +559,17 @@ export const useWorkoutHistory = create<WorkoutHistoryState>()((set, get) => ({
   restoreWorkout: (snapshot) => {
     if (!get().workouts.some((w) => w.id === snapshot.id)) return false;
     return writeEdited(set, get, snapshot);
+  },
+
+  reinstateWorkout: (snapshot) => {
+    if (get().workouts.some((w) => w.id === snapshot.id)) return writeEdited(set, get, snapshot);
+    writeWorkouts([snapshot]);
+    set({
+      workouts: [...get().workouts, snapshot].sort(
+        (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+      ),
+    });
+    return true;
   },
 
   clearHistory: () => {
@@ -936,7 +946,7 @@ function sanitizeCompletedExercise(
  * Stricter than the workout around it: these rows are the input to every future
  * suggestion the app makes, and one row with a `NaN` count would poison a verdict
  * rather than break a screen — which is harder to notice and worse. A row missing
- * anything the overload engine or the shorthand indexes into is dropped whole.
+ * anything the records or the shorthand index into is dropped whole.
  *
  * NAMED KEYS, NOT A SPREAD, and that is the change 0.12.0 made here. This used to
  * be a predicate feeding `{ ...row, isCompleted: true }`, which validated the
@@ -979,15 +989,8 @@ function sanitizeSetRow(value: unknown): SetHistory | null {
     ...(typeof row.restTakenSeconds === 'number' && Number.isFinite(row.restTakenSeconds)
       ? { restTakenSeconds: Math.max(0, Math.round(row.restTakenSeconds)) }
       : {}),
-    // Optional since 2.3. Absent on every older row and kept absent; a value off
-    // the scale (RIR 37, NaN) is dropped and the SET is kept — losing a logged set
-    // over a bad annotation would be the wrong way round.
-    ...(cleanRir(row.rir) != null ? { rir: cleanRir(row.rir) } : {}),
-    // Optional since 2.3, and dropped on a warm-up: the flag is the older fact and
-    // the one every reader trusts, so a row claiming both stays a warm-up.
-    ...(cleanSetType(row.setType, row.isWarmup)
-      ? { setType: cleanSetType(row.setType, row.isWarmup) }
-      : {}),
+    // `rir` and `setType` (2.3 to 3.x) are not carried over: listing the keys is
+    // what drops them, so a drop, failure or AMRAP set reads as a working set.
   };
 }
 

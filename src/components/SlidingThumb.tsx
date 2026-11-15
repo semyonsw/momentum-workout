@@ -14,10 +14,11 @@
  * its own background cannot; and it is one native-driven translate instead of a
  * restyle of two segments.
  *
- * `spring` by default — `bezier(.34,1.25,.64,1)`, a slight overshoot — because a
- * thumb that lands is a position being reached, not an event being caught (that
- * is `pop`). Each caller passes its own duration and, where the design gives one,
- * its own curve.
+ * It slides on the base curve in at most `SLIDE_MS` — the calm pass. It used to
+ * take each caller's duration (up to 380 ms) on a slightly overshooting spring;
+ * the slide is kept because it says where the choice went, the bounce and the
+ * dawdle are gone. `duration` and `bezier` are still accepted: a caller can ask
+ * for less time, never more, and the curve is always `motion.ease`.
  *
  * Absolutely positioned inside the caller's track: the track owns the padding
  * and the segments; this owns only the pane. Equal widths by default; the balance
@@ -33,6 +34,10 @@ import { Animated, type StyleProp, type ViewStyle } from 'react-native';
 import { useMotionScale } from '../hooks/useMotionScale';
 import { curve, motion } from '../theme/tokens';
 
+/** The longest a thumb takes to reach its segment. */
+const SLIDE_MS = 160;
+const EASE = curve(motion.ease);
+
 export function SlidingThumb({
   index,
   count,
@@ -41,7 +46,7 @@ export function SlidingThumb({
   gap = 0,
   offsets,
   duration = 380,
-  bezier = motion.spring,
+  bezier: _bezier = motion.ease,
   style,
   children,
 }: {
@@ -94,11 +99,12 @@ export function SlidingThumb({
       top.setValue(y ?? 0);
       return;
     }
-    const easing = curve(bezier);
+    const easing = EASE;
+    const run = Math.min(SLIDE_MS, duration) * scale;
     const moves = [
       Animated.timing(left, {
         toValue: x,
-        duration: duration * scale,
+        duration: run,
         easing,
         useNativeDriver: native,
       }),
@@ -107,27 +113,26 @@ export function SlidingThumb({
       moves.push(
         Animated.timing(size, {
           toValue: width,
-          duration: duration * scale,
+          duration: run,
           easing,
           useNativeDriver: false,
         }),
         Animated.timing(top, {
           toValue: y ?? 0,
-          duration: duration * scale,
+          duration: run,
           easing,
           useNativeDriver: false,
         }),
       );
     }
     Animated.parallel(moves).start();
-    // `bezier` is a module constant at every call site.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `left`/`size`/`top` are stable refs
   }, [x, y, width, duration, scale, trackWidth]);
 
   useEffect(() => {
     Animated.timing(shown, {
       toValue: index == null ? 0 : 1,
-      duration: 200 * scale,
+      duration: 120 * scale,
       useNativeDriver: native,
     }).start();
   }, [index, native, scale, shown]);

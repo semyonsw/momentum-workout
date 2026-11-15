@@ -5,7 +5,7 @@ import { historyTotals, recentSummaries, useWorkoutHistory } from './workoutHist
 import { DEFAULT_SETTINGS, useSettings } from './settingsStore';
 import { buildDraftSession, type DraftSession } from '../lib/draft';
 import type { CompletedWorkout } from '../lib/completedWorkout';
-import { seedExercises, seedRoutine, seedUser } from '../data/seed';
+import { seedExercises, seedRoutine } from '../data/seed';
 import { fixtureHistoryByExerciseId } from '../../test/fixtures/history';
 import { __resetDatabases, __simulateProcessRestart } from '../../test/expoSqliteStub';
 import type { Exercise, ID } from '../types/models';
@@ -35,7 +35,6 @@ function loggedDraft(startedAt: string, count = 3, weightKg = 40): DraftSession 
     routine: seedRoutine,
     exercisesById,
     historyByExerciseId: fixtureHistoryByExerciseId,
-    policy: seedUser.overloadPolicy,
     unitSystem: 'metric',
     defaultRestSeconds: 120,
     defaultTransitionRestSeconds: 150,
