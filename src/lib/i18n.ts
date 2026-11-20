@@ -1453,6 +1453,15 @@ const RU: Record<string, string> = {
   'Exercise type': 'Тип упражнения',
   'Start weight': 'Стартовый вес',
   'Weekly sets · {cluster}': 'Подходов в неделю · {cluster}',
+  // A whole new order on the changes card (`lib/ai/aiOrder.ts`), and the
+  // exercise fields and live-set edit that came with the parity pass.
+  'Exercise order': 'Порядок упражнений',
+  'Step order': 'Порядок шагов',
+  'Hold a row, then slide it to change the order.':
+    'Удержите строку и ведите, чтобы изменить порядок.',
+  'Not logged': 'Не записан',
+  'Set length': 'Длина подхода',
+  Distance: 'Дистанция',
   '{n} suggested changes could not be applied and were left out.':
     'Не удалось применить предложенных изменений: {n} — они пропущены.',
   'Applying removes {n} — Undo is offered right after.':

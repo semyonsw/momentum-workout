@@ -160,6 +160,7 @@ import { SetTimerPill } from '../components/SetTimerPill';
 import { useLanguage, useT } from '../hooks/useT';
 import type { DraftEntry, DraftSession, DraftSet } from '../lib/draft';
 import { celebrate, commit, tap, undo } from '../lib/feedback';
+import { useDragAutoScroll } from '../hooks/useDragAutoScroll';
 import { useDragReorder, type CardLayout } from '../hooks/useDragReorder';
 import { ADVANCE_HOLD_MS, holdsAfterFinishing } from '../lib/cardAdvance';
 import { resolveRest } from '../lib/rest';
@@ -462,29 +463,12 @@ export function ActiveWorkoutScreen({
     [session?.entries],
   );
   /*
-   * THE LIST SCROLLS ITSELF DURING A DRAG — `useDragReorder`'s `autoScroll`. The
-   * offset is tracked here (and set the instant this screen scrolls, not when the
-   * scroll event comes back), because the drop index is only right if the hook
-   * knows how far the content under the finger has moved.
+   * THE LIST SCROLLS ITSELF DURING A DRAG — `useDragReorder`'s `autoScroll`, wired
+   * by `useDragAutoScroll`, the same as every other drag list in the app.
    */
-  const scrollOffset = useRef(0);
-  const contentHeight = useRef(0);
-  const viewportBox = useRef<View>(null);
-  const autoScroll = useMemo(
-    () => ({
-      measureViewport: (done: (viewport: { top: number; height: number }) => void) =>
-        viewportBox.current?.measureInWindow((_x, y, _w, height) => done({ top: y, height })),
-      getOffset: () => scrollOffset.current,
-      getContentHeight: () => contentHeight.current,
-      scrollTo: (y: number) => {
-        scrollOffset.current = y;
-        scrollRef.current?.scrollTo({ y, animated: false });
-      },
-    }),
-    [],
-  );
-  const reorder = useDragReorder(entryIds, cardLayouts, moveEntry, autoScroll);
-  const { lifted, dragY, panHandlers, drop, shiftFor, lift: liftRow } = reorder;
+  const dragScroll = useDragAutoScroll(scrollRef);
+  const reorder = useDragReorder(entryIds, cardLayouts, moveEntry, dragScroll.autoScroll);
+  const { lifted, dragY, panHandlers, listRef, drop, shiftFor, lift: liftRow } = reorder;
   /**
    * A LIFT SHUTS EVERY CARD FIRST. An open card is several screens tall, so with
    * one in the list the slots the finger moves through are wildly uneven and the
@@ -932,17 +916,13 @@ export function ActiveWorkoutScreen({
         */}
         {focusOpen ? null : setTimer ? <SetTimerPill /> : <RestTimerPill />}
 
-        <View ref={viewportBox} collapsable={false} style={{ flex: 1 }}>
+        <View ref={dragScroll.viewportRef} collapsable={false} style={{ flex: 1 }}>
           <KeyboardAwareScrollView
             ref={scrollRef}
             style={{ flex: 1 }}
-            onScroll={(e) => {
-              scrollOffset.current = e.nativeEvent.contentOffset.y;
-            }}
+            onScroll={dragScroll.onScroll}
             scrollEventThrottle={16}
-            onContentSizeChange={(_w, h) => {
-              contentHeight.current = h;
-            }}
+            onContentSizeChange={dragScroll.onContentSizeChange}
             contentContainerStyle={{
               paddingTop: 8,
               // The dock is 64 tall at `PAIR_BOTTOM`; this is what keeps
@@ -953,8 +933,12 @@ export function ActiveWorkoutScreen({
             showsVerticalScrollIndicator={false}
             scrollEnabled={!dimmed && !lifted}
           >
-            {/* The drag surface. Claims a touch only while something is lifted. */}
+            {/* The drag surface. Claims a touch only while something is lifted.
+                `listRef` is what keeps the lifted card under the finger while
+                every card collapses around it — `useDragReorder`'s header. */}
             <View
+              ref={listRef}
+              collapsable={false}
               {...panHandlers}
               onLayout={(e) => {
                 listTop.current = e.nativeEvent.layout.y;

@@ -807,3 +807,174 @@ describe('the weigh-in reminder', () => {
     expect(ru.label).toBe('В какие дни');
   });
 });
+
+describe('a whole new order', () => {
+  it('a routine: its rows in the order named, by item, with the routine on the card', () => {
+    const change = one({
+      target: 'routine',
+      id: 'r_push',
+      field: 'reorder',
+      order: ['ex_row', 'ex_bench', 'ex_pull'],
+    });
+    expect(change).toMatchObject({
+      target: 'order',
+      list: 'routine',
+      id: 'r_push',
+      name: 'Push',
+      order: ['i3', 'i1', 'i2'],
+    });
+    expect(
+      rowsOf([{ target: 'routine', id: 'r_push', field: 'order', order: ['Cable row'] }]),
+    ).toEqual(['Push | Exercise order |  → Cable row, Bench press, Pull-up']);
+  });
+
+  it('the row points at its change, so the card can draw the list to drag', () => {
+    const items = [
+      { target: 'exercise', id: 'ex_bench', field: 'name', text: 'Flat bench' },
+      { target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_row'] },
+    ];
+    const { changes } = report(items);
+    const rows = describeChanges(changes, NOW, 'en');
+    expect(rows[0].reorder).toBeUndefined();
+    expect(rows[1].reorder).toBe(1);
+    expect(changes[1].target).toBe('order');
+  });
+
+  it('the loop: by routine id, a repeated routine matched step by step', () => {
+    // [Push, Legs, Push] → [Legs, Push, Push]
+    const change = one({ target: 'sequence', field: 'reorder', order: ['r_legs', 'r_push'] });
+    expect(change).toMatchObject({ list: 'sequence', order: ['1', '0', '2'] });
+    expect(
+      rowsOf([{ target: 'loop', field: 'reorder', order: ['r_legs', 'r_push', 'r_push'] }]),
+    ).toEqual(['Training sequence | Step order |  → Legs, Push, Push']);
+  });
+
+  it('the workout in flight: by its cards', () => {
+    expect(one({ target: 'live', field: 'reorder', order: ['ex_row', 'ex_bench'] })).toMatchObject({
+      list: 'live',
+      id: '',
+      order: ['e2', 'e1'],
+    });
+    expect(
+      one({ target: 'live', field: 'reorder', order: ['ex_row'] }, { session: null }),
+    ).toBeUndefined();
+  });
+
+  it('is dropped when it changes nothing, names nothing, or the list has one row', () => {
+    expect(
+      one({ target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_bench'] }),
+    ).toBeUndefined();
+    expect(
+      one({ target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_ghost'] }),
+    ).toBeUndefined();
+    expect(one({ target: 'routine', id: 'r_ghost', field: 'reorder', order: [] })).toBeUndefined();
+    expect(one({ target: 'routine', id: 'r_legs', field: 'reorder', order: [] })).toBeUndefined();
+    expect(
+      one(
+        { target: 'sequence', field: 'reorder', order: ['r_push'] },
+        { sequence: { isActive: true, routineIds: ['r_push'], cursor: 0 } },
+      ),
+    ).toBeUndefined();
+  });
+
+  it('two orders for one list on a card: the later one is what the model settled on', () => {
+    const { changes } = report([
+      { target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_row'] },
+      { target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_pull'] },
+    ]);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toMatchObject({ order: ['i2', 'i1', 'i3'] });
+  });
+
+  it('is never drawn as a removal', () => {
+    const change = one({ target: 'routine', id: 'r_push', field: 'reorder', order: ['ex_row'] })!;
+    expect(isDestructive(change)).toBe(false);
+  });
+});
+
+describe('the parity pass', () => {
+  const ROUND = exercise({
+    id: 'ex_round',
+    name: 'Bag round',
+    countUnit: 'rounds',
+    defaultCount: 180,
+  });
+  const RUN = exercise({ id: 'ex_run', name: 'Run', countUnit: 'meters', defaultCount: 400 });
+  const lib = { exercises: [BENCH, PULL, PLANK, ROW, ROUND, RUN] };
+
+  it('a timed exercise: its timer and its set length, through the editor’s draft', () => {
+    const timer = report(
+      [{ target: 'exercise', id: 'ex_plank', field: 'timer', text: 'Countdown' }],
+      lib,
+    ).changes[0] as Extract<AiChange, { target: 'exercise' }>;
+    expect(timer).toMatchObject({ field: 'timer', value: 'countdown' });
+    expect(applyExerciseChange(PLANK, timer).timerMode).toBe('countdown');
+
+    const length = report(
+      [{ target: 'exercise', id: 'ex_plank', field: 'duration_seconds', number: 90 }],
+      lib,
+    ).changes[0] as Extract<AiChange, { target: 'exercise' }>;
+    expect(applyExerciseChange(PLANK, length).defaultCount).toBe(90);
+    const round = report(
+      [{ target: 'exercise', id: 'ex_round', field: 'duration', number: 99999 }],
+      lib,
+    ).changes[0] as Extract<AiChange, { target: 'exercise' }>;
+    expect(round.value).toBe(3600);
+  });
+
+  it('a timer or a length is refused where the editor shows none', () => {
+    const none = (item: Record<string, unknown>) => report([item], lib).changes;
+    expect(none({ target: 'exercise', id: 'ex_bench', field: 'timer', text: 'countdown' })).toEqual(
+      [],
+    );
+    expect(none({ target: 'exercise', id: 'ex_plank', field: 'timer', text: 'sometimes' })).toEqual(
+      [],
+    );
+    // Already manual: no change.
+    expect(none({ target: 'exercise', id: 'ex_plank', field: 'timer', text: 'manual' })).toEqual(
+      [],
+    );
+    expect(
+      none({ target: 'exercise', id: 'ex_row', field: 'duration_seconds', number: 60 }),
+    ).toEqual([]);
+  });
+
+  it('a distance, on metres only', () => {
+    const change = report(
+      [{ target: 'exercise', id: 'ex_run', field: 'distance', number: 812 }],
+      lib,
+    ).changes[0] as Extract<AiChange, { target: 'exercise' }>;
+    expect(change.value).toBe(812);
+    expect(applyExerciseChange(RUN, change).defaultCount).toBe(812);
+    expect(
+      report([{ target: 'exercise', id: 'ex_plank', field: 'distance_m', number: 800 }], lib)
+        .changes,
+    ).toEqual([]);
+    expect(
+      describeChanges([change], { ...NOW, exercises: lib.exercises }, 'en').map(
+        (r) => `${r.label} | ${r.from} → ${r.to}`,
+      ),
+    ).toEqual(['Distance | 400 m → 812 m']);
+  });
+
+  it('a logged live set can be un-ticked; an unlogged one cannot', () => {
+    expect(
+      one({ target: 'live_set', exerciseId: 'ex_bench', field: 'unlog', set: 1 }),
+    ).toMatchObject({ field: 'unlog', setId: 'd1' });
+    expect(
+      one({ target: 'live_set', exerciseId: 'ex_bench', field: 'unlog', set: 2 }),
+    ).toBeUndefined();
+    expect(
+      rowsOf([{ target: 'live_set', exerciseId: 'ex_bench', field: 'uncomplete', number: 1 }]),
+    ).toEqual(['Bench press · This workout | Set 1 | Logged → Not logged']);
+  });
+
+  it('an exercise rename is a plain name change, and the same name is no change', () => {
+    expect(
+      rowsOf([{ target: 'exercise', id: 'ex_row', field: 'rename', text: 'Seated row' }]),
+    ).toEqual(['Cable row | Name | Cable row → Seated row']);
+    expect(
+      one({ target: 'exercise', id: 'ex_row', field: 'name', text: 'Cable row' }),
+    ).toBeUndefined();
+  });
+});

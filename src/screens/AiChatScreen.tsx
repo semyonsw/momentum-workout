@@ -29,6 +29,13 @@
  * raised by something that outlives this screen. Deleting a past chat raises
  * the same toast (`onToast`): the ✕ acts at once and Undo puts the chat back
  * where it was, messages and suggestions and all (U14).
+ *
+ * ── A CARD THAT CAN BE DRAGGED ─────────────────────────────────────────────
+ *
+ * A suggested reorder draws its rows draggable (`AiOrderList`). While one is in
+ * the air the thread stops scrolling — the same rule every drag list keeps —
+ * and does not jump to the newest message under the finger; at the edges it
+ * scrolls for the user (`useDragAutoScroll`).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
@@ -48,13 +55,21 @@ import { GlassBar, GlassSurface, Lamps, type ToastAction } from '../components/g
 import { Icon } from '../components/Icon';
 import { Stagger, pressedStyle } from '../components/motion';
 import { useAiPrompts } from '../hooks/useAiPrompts';
+import { useDragAutoScroll } from '../hooks/useDragAutoScroll';
+import type { DragAutoScroll } from '../hooks/useDragReorder';
 import { useFollow, useKeyboardOverlap } from '../hooks/useKeyboard';
 import { useLanguage, usePlural, useT } from '../hooks/useT';
 import { dayKey, formatShortDay } from '../lib/days';
 import type { AiSection } from '../lib/ai/aiSchema';
 import { tap } from '../lib/feedback';
 import { liftedBottom } from '../lib/keyboard';
-import { chatContext, discardChanges, discardSequence, sendMessage } from '../state/aiActions';
+import {
+  chatContext,
+  discardChanges,
+  discardSequence,
+  reorderChange,
+  sendMessage,
+} from '../state/aiActions';
 import { useAi, type AiMessage } from '../state/aiStore';
 import { glassTier, gradientFill, motion, palette, radius } from '../theme/tokens';
 
@@ -115,6 +130,11 @@ export function AiChatScreen({
   const [showingHistory, setShowingHistory] = useState(false);
   const archived = useAi((s) => s.archive[section]);
   const scrollRef = useRef<ScrollView>(null);
+  /* A reorder card's row in the air: the thread holds still under it. */
+  const [dragging, setDragging] = useState(false);
+  const draggingRef = useRef(false);
+  draggingRef.current = dragging;
+  const dragScroll = useDragAutoScroll(scrollRef);
 
   /* The arrival question, exactly once. */
   const sent = useRef(false);
@@ -217,55 +237,68 @@ export function AiChatScreen({
         </GlassBar>
       </View>
 
-      <ScrollView
-        ref={scrollRef}
-        className="flex-1"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-        contentContainerStyle={{
-          paddingTop: insets.top + 64 + 16,
-          paddingBottom: composerFoot + composerDrawn + chipsHeight + 24,
-          paddingHorizontal: 16,
-          gap: 14,
-        }}
-      >
-        {messages.length === 0 && !pending ? (
-          <EmptyChat
-            title={t(meta.title)}
-            body={t(meta.body)}
-            prompts={prompts.map((p) => ({ key: p.key, label: p.label, hint: p.hint }))}
-            onAsk={ask}
-          />
-        ) : null}
-
-        {messages.map((message, index) => (
-          <Stagger key={message.id} duration={motion.enter}>
-            <Message
-              message={message}
-              proposals={proposals}
-              // Only the LAST error retries: an older one's question has later
-              // turns after it, and its answer would land at the bottom with no
-              // question beside it.
-              onRetry={
-                index === messages.length - 1
-                  ? (m) => void sendMessage(section, m.retry, m.id)
-                  : undefined
-              }
-              onReview={onReview}
-              onAccept={onAccept}
-              onApplySequence={() => onApplySequence(message.id)}
-              onDiscardSequence={() => discardSequence(section, message.id)}
-              onApplyChanges={() => onApplyChanges(message.id)}
-              onDiscardChanges={() => discardChanges(section, message.id)}
+      <View ref={dragScroll.viewportRef} collapsable={false} style={{ flex: 1 }}>
+        <ScrollView
+          ref={scrollRef}
+          className="flex-1"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={!dragging}
+          onScroll={dragScroll.onScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={(width, height) => {
+            dragScroll.onContentSizeChange(width, height);
+            if (!draggingRef.current) scrollRef.current?.scrollToEnd({ animated: true });
+          }}
+          contentContainerStyle={{
+            paddingTop: insets.top + 64 + 16,
+            paddingBottom: composerFoot + composerDrawn + chipsHeight + 24,
+            paddingHorizontal: 16,
+            gap: 14,
+          }}
+        >
+          {messages.length === 0 && !pending ? (
+            <EmptyChat
+              title={t(meta.title)}
+              body={t(meta.body)}
+              prompts={prompts.map((p) => ({ key: p.key, label: p.label, hint: p.hint }))}
+              onAsk={ask}
             />
-          </Stagger>
-        ))}
+          ) : null}
 
-        {pending ? (
-          <Typing caption={retrying ? t('Google is busy — asking again…') : reading} />
-        ) : null}
-      </ScrollView>
+          {messages.map((message, index) => (
+            <Stagger key={message.id} duration={motion.enter}>
+              <Message
+                message={message}
+                proposals={proposals}
+                // Only the LAST error retries: an older one's question has later
+                // turns after it, and its answer would land at the bottom with no
+                // question beside it.
+                onRetry={
+                  index === messages.length - 1
+                    ? (m) => void sendMessage(section, m.retry, m.id)
+                    : undefined
+                }
+                onReview={onReview}
+                onAccept={onAccept}
+                onApplySequence={() => onApplySequence(message.id)}
+                onDiscardSequence={() => discardSequence(section, message.id)}
+                onApplyChanges={() => onApplyChanges(message.id)}
+                onDiscardChanges={() => discardChanges(section, message.id)}
+                onReorder={(changeIndex, order) =>
+                  reorderChange(section, message.id, changeIndex, order)
+                }
+                onDragging={setDragging}
+                autoScroll={dragScroll.autoScroll}
+              />
+            </Stagger>
+          ))}
+
+          {pending ? (
+            <Typing caption={retrying ? t('Google is busy — asking again…') : reading} />
+          ) : null}
+        </ScrollView>
+      </View>
 
       <Animated.View
         style={{
@@ -395,6 +428,9 @@ function Message({
   onDiscardSequence,
   onApplyChanges,
   onDiscardChanges,
+  onReorder,
+  onDragging,
+  autoScroll,
 }: {
   message: AiMessage;
   proposals: ReturnType<typeof useAi.getState>['proposals'];
@@ -405,6 +441,9 @@ function Message({
   onDiscardSequence: () => void;
   onApplyChanges: () => void;
   onDiscardChanges: () => void;
+  onReorder: (changeIndex: number, order: string[]) => void;
+  onDragging: (dragging: boolean) => void;
+  autoScroll: DragAutoScroll;
 }) {
   if (message.role === 'user') return <UserBubble text={message.text} />;
   if (message.role === 'error') {
@@ -437,6 +476,9 @@ function Message({
               block={block}
               onApply={onApplyChanges}
               onDiscard={onDiscardChanges}
+              onReorder={onReorder}
+              onDragging={onDragging}
+              autoScroll={autoScroll}
             />
           );
         }

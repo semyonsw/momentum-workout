@@ -34,6 +34,7 @@ import {
   type CurrentValues,
 } from '../lib/ai/aiChanges';
 import { moveItem, newExercise, patchRoutineItems } from '../lib/ai/aiEdits';
+import { orderRoutineItems, sequenceSwaps, type OrderChange } from '../lib/ai/aiOrder';
 import { suggestionNote, systemPrompt, type SuggestionFate } from '../lib/ai/aiPrompts';
 import { normalizeProposal, planApply, type Library } from '../lib/ai/aiProposal';
 import { validateBlocks, type AiSection } from '../lib/ai/aiSchema';
@@ -673,7 +674,8 @@ export function applyChanges(section: AiSection, messageId: string): Applied | n
       const live = useActiveWorkout.getState();
       // The same session only: a workout started since never held these copies.
       if (session && liveBefore && live.session?.localId === liveBefore.localId) {
-        if (touched('live') || touched('live_set')) {
+        const reorderedLive = ordered.some((c) => c.target === 'order' && c.list === 'live');
+        if (touched('live') || touched('live_set') || reorderedLive) {
           useActiveWorkout.setState({ session });
         } else {
           for (const e of liveBefore.exercises) useActiveWorkout.getState().syncExercise(e.id, e);
@@ -834,6 +836,8 @@ function applyOne(change: AiChange, ctx: ApplyContext): boolean {
     }
     case 'live':
       return applyLive(change, resolve);
+    case 'order':
+      return applyOrder(change);
     case 'live_set': {
       const live = useActiveWorkout.getState();
       const entry = live.session?.entries.find((e) => e.localId === change.entryId);
@@ -842,6 +846,9 @@ function applyOne(change: AiChange, ctx: ApplyContext): boolean {
       if (change.field === 'log') {
         if (set.isCompleted) return false;
         live.completeSet(entry.localId, set.localId);
+      } else if (change.field === 'unlog') {
+        if (!set.isCompleted) return false;
+        live.uncompleteSet(entry.localId, set.localId);
       } else if (change.field === 'remove') {
         live.removeSet(entry.localId, set.localId);
       } else if (change.field === 'weight') {
@@ -1084,6 +1091,53 @@ function applyLive(
   else if (change.field === 'add_set') live.addSet(entry.localId);
   else live.moveEntry(entry.localId, change.value ?? 0);
   return true;
+}
+
+/**
+ * A whole new order — the card's, as the user left it after any drags —
+ * through the move each list's own screen makes: the routine editor's Save
+ * (`updateRoutine`), the Sequence screen's step swaps (`moveSequenceStep`,
+ * which carries the cursor with its step), the session's card drag (`moveEntry`).
+ */
+function applyOrder(change: OrderChange): boolean {
+  if (change.list === 'routine') {
+    const library = useLibrary.getState();
+    const routine = library.routines.find((r) => r.id === change.id);
+    if (!routine) return false;
+    library.updateRoutine(routine.id, {
+      name: routine.name,
+      items: orderRoutineItems(routine.items, change.order),
+    });
+    return true;
+  }
+  if (change.list === 'sequence') {
+    const steps = useLibrary.getState().sequence.routineIds.length;
+    const swaps = sequenceSwaps(steps, change.order);
+    if (!swaps) return false;
+    for (const swap of swaps) useLibrary.getState().moveSequenceStep(swap.index, swap.direction);
+    return true;
+  }
+  const live = useActiveWorkout.getState();
+  if (!live.session) return false;
+  const present = new Set(live.session.entries.map((e) => e.localId));
+  const keys = change.order.filter((key) => present.has(key));
+  if (keys.length === 0) return false;
+  // Each card to its place in turn; cards added since the reply keep theirs after.
+  keys.forEach((key, index) => useActiveWorkout.getState().moveEntry(key, index));
+  return true;
+}
+
+/**
+ * A drag on a reorder card: the pending order, before Apply. Nothing in the
+ * library moves until Apply — the card is the preview the user fixes.
+ */
+export function reorderChange(
+  section: AiSection,
+  messageId: string,
+  changeIndex: number,
+  order: readonly string[],
+): void {
+  useAi.getState().setChangeOrder(section, messageId, changeIndex, order);
 }
 
 export function discardChanges(section: AiSection, messageId: string): void {

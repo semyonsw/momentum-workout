@@ -30,7 +30,15 @@
  *
  * Finishing, saving or discarding a workout, opening one, the rest and set
  * timers, export/import/reset, deleting all history, the backup folder and the
- * AI key. Each is either a moment (a rest that ends before the reply arrives),
+ * AI key. And dragging one SET above another inside a live card (`moveSet`):
+ * the rows are numbered by place, so the model would be moving a row by a
+ * number that the move itself changes — a request nobody makes in words.
+ *
+ * ── A WHOLE ORDER ─────────────────────────────────────────────────────────
+ *
+ * `reorder` on a routine, the loop or the workout in flight is one item holding
+ * the whole new order — `aiOrder.ts`, which also says why the card draws it as
+ * a list the user can still drag before Apply. Each is either a moment (a rest that ends before the reply arrives),
  * a choice the user must make looking at the screen (the Finish sheet), or a
  * whole-app operation that has its own confirmation for a reason.
  *
@@ -52,6 +60,15 @@ import { warmupToggleState } from '../warmup';
 import { clampDurationMinutes } from '../workoutEdit';
 import { t, type Language } from '../i18n';
 import type { ChangeRow } from './aiChanges';
+import {
+  REORDER_FIELDS,
+  orderTokens,
+  orderedRows,
+  resolveOrder,
+  type OrderChange,
+  type OrderList,
+  type OrderRow,
+} from './aiOrder';
 import type {
   CountUnit,
   Exercise,
@@ -255,7 +272,7 @@ export type WorkoutField =
   | 'remove_exercise';
 export type PastSetField = 'weight' | 'reps' | 'delete' | 'add';
 export type LiveField = 'add_exercise' | 'remove_exercise' | 'add_set' | 'move_exercise' | 'warmup';
-export type LiveSetField = 'weight' | 'reps' | 'log' | 'remove';
+export type LiveSetField = 'weight' | 'reps' | 'log' | 'unlog' | 'remove';
 
 /**
  * One edit, already checked. `was` is the value it replaces, read when the reply
@@ -353,7 +370,9 @@ export type EditChange =
       position: number;
       was?: number | null;
       value?: number;
-    };
+    }
+  /** A whole new order for a routine, the loop or the workout in flight — `aiOrder.ts`. */
+  | OrderChange;
 
 /** A change that takes something away — drawn in red, so a delete is never a surprise. */
 export function isDestructive(change: { target: string; field: string; on?: boolean }): boolean {
@@ -472,10 +491,44 @@ export function validateRoutineCreate(
   return ref && name ? { target: 'routine', field: 'create', id: ref, name } : null;
 }
 
+/**
+ * A `reorder` item for one list, or null. A list of one has no order to change —
+ * every screen hides its drag handle then too.
+ */
+function reorder(
+  item: Rec,
+  list: OrderList,
+  rows: OrderRow[],
+  routine?: { id: ID; name: string },
+): OrderChange | null {
+  if (rows.length < 2) return null;
+  const order = resolveOrder(rows, orderTokens(item));
+  if (!order) return null;
+  return {
+    target: 'order',
+    field: 'reorder',
+    list,
+    id: routine?.id ?? '',
+    name: routine?.name ?? '',
+    rows,
+    order,
+  };
+}
+
 function validateRoutine(item: Rec, env: EditEnv): EditChange | null {
   const field = key(item.field) as RoutineField;
   const routine = env.routines.get(idOf(item.id));
   if (!routine) return null;
+  if (REORDER_FIELDS.has(field)) {
+    const rows = [...routine.items]
+      .sort((a, b) => a.order - b.order)
+      .map((i) => ({
+        key: i.id,
+        ref: i.exerciseId,
+        name: env.exercises.get(i.exerciseId)?.name ?? '',
+      }));
+    return reorder(item, 'routine', rows, routine);
+  }
   const base = { target: 'routine' as const, id: routine.id, name: routine.name };
   if (field === 'rename') {
     const value = str(item.text ?? item.name, 40);
@@ -585,6 +638,15 @@ function validateSequence(item: Rec, env: EditEnv): EditChange | null {
           sequence.routineIds.length,
       )
     : undefined;
+  if (REORDER_FIELDS.has(field)) {
+    // Keyed by position: the loop may hold one routine at several steps.
+    const rows = sequence.routineIds.map((id, index) => ({
+      key: String(index),
+      ref: id,
+      name: nameAt(index) ?? '',
+    }));
+    return reorder(item, 'sequence', rows);
+  }
   if (field === 'on' || field === 'active' || field === 'use') {
     const on = typeof item.on === 'boolean' ? item.on : null;
     // A loop with no steps cannot be switched on — the screen's switch refuses too.
@@ -767,6 +829,15 @@ const LIVE_ALIASES: Record<string, LiveField> = {
 
 function validateLive(item: Rec, env: EditEnv): EditChange | null {
   const session = env.session;
+  if (session && REORDER_FIELDS.has(key(item.field))) {
+    // Keyed by the card, not the exercise: one exercise can be in a session twice.
+    const rows = session.entries.map((e) => ({
+      key: e.localId,
+      ref: e.exercise.id,
+      name: e.exercise.name,
+    }));
+    return reorder(item, 'live', rows);
+  }
   const field = LIVE_ALIASES[key(item.field)];
   if (!session || !field) return null;
   const exerciseId = idOf(item.exerciseId);
@@ -810,6 +881,10 @@ const LIVE_SET_ALIASES: Record<string, LiveSetField> = {
   log: 'log',
   done: 'log',
   complete: 'log',
+  unlog: 'unlog',
+  undo_log: 'unlog',
+  uncomplete: 'unlog',
+  not_done: 'unlog',
   remove: 'remove',
   delete: 'remove',
 };
@@ -820,7 +895,9 @@ function validateLiveSet(item: Rec, env: EditEnv): EditChange | null {
   const field = LIVE_SET_ALIASES[key(item.field)];
   if (!session || !field) return null;
   const entry = session.entries.find((e) => e.exercise.id === idOf(item.exerciseId));
-  const position = place(item.set ?? (field === 'log' || field === 'remove' ? item.number : null));
+  const position = place(
+    item.set ?? (field === 'log' || field === 'unlog' || field === 'remove' ? item.number : null),
+  );
   const set = entry && position != null ? entry.sets[position - 1] : undefined;
   if (!entry || !set || position == null) return null;
   const base = {
@@ -832,6 +909,8 @@ function validateLiveSet(item: Rec, env: EditEnv): EditChange | null {
     position,
   };
   if (field === 'log') return set.isCompleted ? null : { ...base, field };
+  // The ✓ tapped again: only a set that is logged has one to take back.
+  if (field === 'unlog') return set.isCompleted ? { ...base, field } : null;
   if (field === 'remove') return { ...base, field };
   const n = num(item.number);
   if (n == null) return null;
@@ -904,6 +983,8 @@ export function editIdentity(change: EditChange, seq: number): string {
       return `live:${change.exerciseId}:${change.field}:${change.field === 'add_set' || change.field === 'add_exercise' ? seq : ''}`;
     case 'live_set':
       return `live_set:${change.setId}:${change.field}`;
+    case 'order':
+      return `order:${change.list}:${change.id}`;
   }
 }
 
@@ -1134,6 +1215,8 @@ export function describeEdit(
       switch (change.field) {
         case 'log':
           return row(subject, setLabel, '', tr('Logged'));
+        case 'unlog':
+          return row(subject, setLabel, tr('Logged'), tr('Not logged'));
         case 'remove':
           return row(subject, setLabel, '', tr('Removed'));
         case 'weight':
@@ -1152,6 +1235,26 @@ export function describeEdit(
           );
       }
       break;
+    }
+    case 'order': {
+      /* The card draws the order itself as rows to drag (`AiChangesCard`); this
+         row is its heading, and `to` the order as filed — what a reader of the
+         stored card, or a test, sees in one line. */
+      const subject =
+        change.list === 'routine'
+          ? change.name
+          : change.list === 'sequence'
+            ? tr('Training sequence')
+            : tr('This workout');
+      const label = change.list === 'sequence' ? tr('Step order') : tr('Exercise order');
+      return row(
+        subject,
+        label,
+        '',
+        orderedRows(change)
+          .map((r) => r.name)
+          .join(', '),
+      );
     }
   }
   return row('', '', '', '');

@@ -43,7 +43,7 @@ import { parseClockTime, weekdayLabels, type Weekday } from '../days';
 import { applyDraftToExercise, exerciseToDraft, findMaxNextWorkout } from '../exerciseDraft';
 import { CLUSTERS } from '../muscles';
 import { clampMax, isAwaitingMax, ladderOf, supportsLadder } from '../repLadder';
-import { TARGET_SETS_LIMITS } from '../routinePlan';
+import { TARGET_COUNT_LIMITS, TARGET_SETS_LIMITS } from '../routinePlan';
 import { REST_LIMITS, clampRest, ownRestSeconds } from '../rest';
 import { formatClock } from '../units';
 import { t, type Language } from '../i18n';
@@ -72,6 +72,7 @@ import type {
   ID,
   MuscleCluster,
   MuscleGroup,
+  TimerMode,
   TrainingSequence,
 } from '../../types/models';
 
@@ -92,7 +93,10 @@ export type ExerciseField =
   | 'muscles'
   | 'kind'
   | 'start_weight'
-  | 'find_max';
+  | 'find_max'
+  | 'timer'
+  | 'duration_seconds'
+  | 'distance_m';
 
 export type SettingField =
   | 'rest_between_sets'
@@ -272,7 +276,37 @@ const EXERCISE_ALIASES: Record<string, ExerciseField> = {
   retest: 'find_max',
   retest_max: 'find_max',
   awaiting_max: 'find_max',
+  timer: 'timer',
+  timer_mode: 'timer',
+  duration_seconds: 'duration_seconds',
+  duration: 'duration_seconds',
+  set_length: 'duration_seconds',
+  hold_seconds: 'duration_seconds',
+  round_seconds: 'duration_seconds',
+  distance_m: 'distance_m',
+  distance: 'distance_m',
+  meters: 'distance_m',
+  metres: 'distance_m',
 };
+
+/** The editor's three timer choices, in the words a model writes for them. */
+const TIMER_ALIASES: Record<string, TimerMode> = {
+  manual: 'manual',
+  off: 'manual',
+  none: 'manual',
+  countdown: 'countdown',
+  count_down: 'countdown',
+  down: 'countdown',
+  countup: 'countup',
+  count_up: 'countup',
+  stopwatch: 'countup',
+  up: 'countup',
+};
+
+/** Only time-counted work has a clock to run — the editor shows `Timer` for nothing else. */
+function isTimeCounted(e: Pick<Exercise, 'requiresWeight' | 'countUnit'>): boolean {
+  return !e.requiresWeight && (e.countUnit === 'seconds' || e.countUnit === 'rounds');
+}
 
 const SETTING_ALIASES: Record<string, SettingField> = {
   rest_between_sets: 'rest_between_sets',
@@ -468,6 +502,29 @@ function validateExerciseItem(item: Rec, exercise: Exercise): AiChange | null {
          editor hides the button then, because there is nothing left to ask. */
       if (!supportsLadder(exercise.countUnit) || isAwaitingMax(ladderOf(exercise))) return null;
       return { target: 'exercise', id, field, value: true };
+    case 'timer': {
+      // `Manual`, `Countdown`, `Count up` — the editor's segmented control.
+      const mode = TIMER_ALIASES[fieldKey(item.text)];
+      if (!isTimeCounted(exercise) || !mode) return null;
+      return mode === (exercise.timerMode ?? 'manual')
+        ? null
+        : { target: 'exercise', id, field, value: mode };
+    }
+    case 'duration_seconds': {
+      // The set's length — a hold, a round — which IS the target of timed work.
+      if (!isTimeCounted(exercise) || n == null) return null;
+      const { min, max } = TARGET_COUNT_LIMITS.seconds;
+      return { target: 'exercise', id, field, value: clamp(Math.round(n), min, max) };
+    }
+    case 'distance_m': {
+      // A ladder's number is its max, said through `ladder` — as for reps.
+      if (exercise.countUnit !== 'meters' || exercise.requiresWeight || ladderOf(exercise)) {
+        return null;
+      }
+      if (n == null) return null;
+      const { min, max } = TARGET_COUNT_LIMITS.meters;
+      return { target: 'exercise', id, field, value: clamp(Math.round(n), min, max) };
+    }
   }
 }
 
@@ -755,6 +812,11 @@ export interface ChangeRow {
   to: string;
   /** It takes something away — the card draws it in red. */
   destructive?: boolean;
+  /**
+   * A whole new order (`aiOrder.ts`): the index of its change in the card's
+   * `changes`, whose `order` the card draws as rows to drag instead of `from → to`.
+   */
+  reorder?: number;
 }
 
 function onOff(value: boolean, lang: Language): string {
@@ -865,6 +927,33 @@ function exerciseRow(
         label: tr('Start weight'),
         from: e.defaultWeightKg != null ? `${e.defaultWeightKg} ${tr('kg')}` : '',
         to: `${String(change.value)} ${tr('kg')}`,
+      };
+    case 'timer': {
+      const words: Record<TimerMode, string> = {
+        manual: 'Manual',
+        countdown: 'Countdown',
+        countup: 'Count up',
+      };
+      return {
+        subject,
+        label: tr('Timer'),
+        from: tr(words[e.timerMode ?? 'manual']),
+        to: tr(words[change.value as TimerMode]),
+      };
+    }
+    case 'duration_seconds':
+      return {
+        subject,
+        label: tr('Set length'),
+        from: e.defaultCount != null ? formatClock(e.defaultCount) : '',
+        to: formatClock(change.value as number),
+      };
+    case 'distance_m':
+      return {
+        subject,
+        label: tr('Distance'),
+        from: e.defaultCount != null ? `${e.defaultCount} m` : '',
+        to: `${String(change.value)} m`,
       };
   }
 }
@@ -990,7 +1079,7 @@ export function describeChanges(
       }),
     );
   }
-  for (const change of changes) {
+  for (const [index, change] of changes.entries()) {
     if (change.target === 'exercise') {
       const exercise = exercises.get(change.id);
       if (exercise)
@@ -1021,7 +1110,8 @@ export function describeChanges(
       });
       continue;
     }
-    rows.push(describeEdit(change as EditChange, lang, dayText));
+    const row = describeEdit(change as EditChange, lang, dayText);
+    rows.push(change.target === 'order' ? { ...row, reorder: index } : row);
   }
   return rows;
 }
@@ -1109,6 +1199,24 @@ export function applyExerciseChange(
          weight the new kind cannot have exactly as `Save` would. */
       return applyDraftToExercise(
         draftWithKind(exerciseToDraft(exercise), change.value as ExerciseKind),
+        exercise,
+      );
+    /* The timer, the set length and the distance, each through the editor's
+       draft too: `draftToExercise` is what folds a length into `defaultCount`
+       and drops the get-ready countdown when the timer goes back to manual. */
+    case 'timer':
+      return applyDraftToExercise(
+        { ...exerciseToDraft(exercise), timerMode: change.value as TimerMode },
+        exercise,
+      );
+    case 'duration_seconds':
+      return applyDraftToExercise(
+        { ...exerciseToDraft(exercise), durationSeconds: change.value as number },
+        exercise,
+      );
+    case 'distance_m':
+      return applyDraftToExercise(
+        { ...exerciseToDraft(exercise), targetCount: change.value as number },
         exercise,
       );
   }

@@ -37,14 +37,29 @@
  * `requestAnimationFrame` loop that runs only while something is lifted. The
  * arithmetic — the velocity for a finger position, the clamped next offset, and
  * the one offset that keeps the row under the finger AND the drop index honest
- * while the content moves beneath both — is `lib/reorder.ts`, tested. Without
- * `autoScroll` (the routine editor) a slide still reaches only as far as the
- * finger does, and `Drop` in the header is the way out.
+ * while the content moves beneath both — is `lib/reorder.ts`, tested. Every drag
+ * list in the app passes it (`hooks/useDragAutoScroll.ts` is the wiring); without
+ * it a slide reaches only as far as the finger does, which on the phone was "the
+ * finger hits the top of the screen with the row still mid-list".
  *
- * The same frame loop also follows the lifted row's own LAYOUT: the session
- * collapses every card on lift, which moves the row the frame after, and the
- * offset it is drawn at is corrected for that rather than leaving it a card's
- * height away from the finger.
+ * ── UNDER THE FINGER, WHATEVER THE SCREEN DOES AROUND IT ────────────────────
+ *
+ * A lift rearranges every screen that has a drag: the session collapses every
+ * card, the routine editor hides its name field above the list and its buttons
+ * below it, every header grows a `position 3 of 7` subtitle. Each of those moves
+ * the row on screen the frame after the lift, and some of them (content shrinking
+ * under a scrolled list) make the platform clamp the scroll — a move nobody here
+ * issued. Predicting the row from known causes (`effectiveDragDy`) missed those,
+ * and on the phone the row hung 5–10 cm off the finger for the whole drag.
+ *
+ * So a caller that attaches `listRef` to the list wrapper gets the row ANCHORED
+ * instead: the wrapper's window top is measured at the lift and on every frame
+ * the list is at rest, and the row is drawn at its lift-time position plus the
+ * finger's travel, whatever moved beneath it (`lib/reorder.anchoredDragDy`).
+ * While the hook itself is scrolling the list, the last measurement is advanced
+ * by the scroll it issued rather than re-measured — see `measurementTrusted`.
+ * Without `listRef` the old prediction is the fallback, so a caller that has not
+ * attached it behaves exactly as before.
  *
  * ── WHY IT IS A HOOK AND NOT A SCREEN'S PRIVATE BUSINESS ────────────────────
  *
@@ -52,7 +67,8 @@
  * routine editor's rows. They were two different interactions for two releases — a
  * drag here, lift-then-TAP-a-row there — which meant the same job had two muscle
  * memories depending on which screen you were on. It is one gesture now, and one
- * implementation, because the second copy is how the two drift apart again.
+ * implementation, because the second copy is how the two drift apart again. The
+ * training sequence's steps use it too.
  *
  * The refs are not an optimisation: `PanResponder.create` is called once (its
  * handlers close over whatever was in scope then), so every handler reads the
@@ -67,13 +83,17 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder } from 'react-native';
+import { Animated, PanResponder, type View } from 'react-native';
 
 import { commit, undo } from '../lib/feedback';
 import {
+  anchoredDragDy,
   autoScrollVelocity,
+  clampScrollOffset,
   dropIndex,
   effectiveDragDy,
+  listTopNow,
+  measurementTrusted,
   liftIndex,
   liftedSlotHeight,
   nextScrollOffset,
@@ -106,6 +126,12 @@ export interface DragReorder {
   /** Where it would land, as an index into the list without it. */
   targetIndex: number;
   panHandlers: ReturnType<typeof PanResponder.create>['panHandlers'];
+  /**
+   * Attach to the same View the `panHandlers` go on (with `collapsable={false}`).
+   * Optional, but it is what keeps the lifted row under the finger when the
+   * screen re-lays itself out around the lift — see the file header.
+   */
+  listRef: React.RefObject<View | null>;
   lift: (id: string) => void;
   drop: () => void;
   /**
@@ -159,6 +185,39 @@ export function useDragReorder(
   const viewportRef = useRef<ScrollViewport | null>(null);
   const frameRef = useRef<number | null>(null);
 
+  /*
+   * The finger anchor: the list wrapper, its window top at the lift plus the
+   * row's `y` (`liftTopRef`), the last trusted measurement of its top and the
+   * scroll offset at that moment, and when the hook last scrolled the list.
+   */
+  const listRef = useRef<View>(null);
+  const liftTopRef = useRef<number | null>(null);
+  const listTopRef = useRef<{ top: number; offset: number } | null>(null);
+  const lastScrollAtRef = useRef<number | null>(null);
+
+  /** The scroll offset, clamped to the content there is — `clampScrollOffset`. */
+  const currentOffset = useCallback((): number => {
+    const scroll = autoScrollRef.current;
+    if (!scroll) return 0;
+    const viewport = viewportRef.current;
+    return viewport
+      ? clampScrollOffset(scroll.getOffset(), scroll.getContentHeight(), viewport.height)
+      : scroll.getOffset();
+  }, []);
+
+  /**
+   * Measure the list wrapper's window top. `measureInWindow` is synchronous on
+   * the new architecture (this app's), so the measurement taken inside `lift`
+   * is of the screen BEFORE it reacted to the lift — which is what the anchor
+   * has to be. A zero-sized box is an unmounted or unlaid-out one: ignored.
+   */
+  const measureList = useCallback((done: (top: number) => void) => {
+    listRef.current?.measureInWindow((_x, y, width, height) => {
+      if (width === 0 && height === 0) return;
+      done(y);
+    });
+  }, []);
+
   const stopFrames = useCallback(() => {
     if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;
@@ -191,22 +250,36 @@ export function useDragReorder(
   const follow = useCallback(() => {
     const id = liftedRef.current;
     if (!id) return;
-    const scroll = autoScrollRef.current;
-    const dy = effectiveDragDy({
-      gestureDy: gestureDyRef.current,
-      scrollDelta: scroll ? scroll.getOffset() - liftOffsetRef.current : 0,
-      liftY: liftYRef.current,
-      currentY: layouts.current[id]?.y ?? null,
-    });
+    const currentY = layouts.current[id]?.y ?? null;
+    const liftTop = liftTopRef.current;
+    const listTop = listTopRef.current;
+    const dy =
+      liftTop != null && listTop != null && currentY != null
+        ? anchoredDragDy({
+            liftTop,
+            gestureDy: gestureDyRef.current,
+            listTop: listTopNow({
+              measuredTop: listTop.top,
+              offsetAtMeasure: listTop.offset,
+              offsetNow: currentOffset(),
+            }),
+            rowY: currentY,
+          })
+        : effectiveDragDy({
+            gestureDy: gestureDyRef.current,
+            scrollDelta: autoScrollRef.current ? currentOffset() - liftOffsetRef.current : 0,
+            liftY: liftYRef.current,
+            currentY,
+          });
     dragY.setValue(dy);
     const next = targetFor(dy);
     if (next !== targetRef.current) {
       targetRef.current = next;
       setTargetIndex(next);
     }
-  }, [dragY, layouts, targetFor]);
+  }, [currentOffset, dragY, layouts, targetFor]);
 
-  /** The frame loop: auto-scroll when the finger is in an edge band, then follow. */
+  /** The frame loop: re-measure while at rest, auto-scroll in an edge band, follow. */
   const startFrames = useCallback(() => {
     stopFrames();
     let last: number | null = null;
@@ -218,12 +291,23 @@ export function useDragReorder(
       const dt = last == null ? 16 : now - last;
       last = now;
       const scroll = autoScrollRef.current;
+      const id = liftedRef.current;
+      // The screen has had a frame to react to the lift (or to anything else):
+      // believe where the list now is — unless the hook has just scrolled it.
+      if (measurementTrusted(Date.now(), lastScrollAtRef.current)) {
+        measureList((top) => {
+          if (liftedRef.current === id) listTopRef.current = { top, offset: currentOffset() };
+        });
+        scroll?.measureViewport((viewport) => {
+          if (liftedRef.current === id && viewport.height > 0) viewportRef.current = viewport;
+        });
+      }
       const viewport = viewportRef.current;
       const fingerY = fingerYRef.current;
       if (scroll && viewport && fingerY != null) {
         const velocity = autoScrollVelocity(fingerY, viewport);
         if (velocity !== 0) {
-          const offset = scroll.getOffset();
+          const offset = currentOffset();
           const next = nextScrollOffset({
             offset,
             velocity,
@@ -231,14 +315,17 @@ export function useDragReorder(
             contentHeight: scroll.getContentHeight(),
             viewportHeight: viewport.height,
           });
-          if (next !== offset) scroll.scrollTo(next);
+          if (next !== offset) {
+            scroll.scrollTo(next);
+            lastScrollAtRef.current = Date.now();
+          }
         }
       }
       follow();
       frameRef.current = requestAnimationFrame(tick);
     };
     frameRef.current = requestAnimationFrame(tick);
-  }, [follow, stopFrames]);
+  }, [currentOffset, follow, measureList, stopFrames]);
 
   const lift = useCallback(
     (id: string) => {
@@ -249,19 +336,30 @@ export function useDragReorder(
       targetRef.current = index;
       gestureDyRef.current = 0;
       fingerYRef.current = null;
-      liftYRef.current = layouts.current[id]?.y ?? null;
+      const liftY = layouts.current[id]?.y ?? null;
+      liftYRef.current = liftY;
       const scroll = autoScrollRef.current;
-      liftOffsetRef.current = scroll ? scroll.getOffset() : 0;
       viewportRef.current = null;
+      liftOffsetRef.current = scroll ? scroll.getOffset() : 0;
+      lastScrollAtRef.current = null;
+      liftTopRef.current = null;
+      listTopRef.current = null;
+      // The anchor: where the row is on screen NOW, before this lift re-renders
+      // anything. Synchronous on Fabric, so it cannot see the screen it causes.
+      measureList((top) => {
+        if (liftedRef.current !== id || liftY == null) return;
+        liftTopRef.current = top + liftY;
+        listTopRef.current = { top, offset: liftOffsetRef.current };
+      });
       scroll?.measureViewport((viewport) => {
-        if (liftedRef.current === id) viewportRef.current = viewport;
+        if (liftedRef.current === id && viewport.height > 0) viewportRef.current = viewport;
       });
       setTargetIndex(index);
       setLifted(id);
       dragY.setValue(0);
       startFrames();
     },
-    [dragY, layouts, startFrames],
+    [dragY, layouts, measureList, startFrames],
   );
 
   const drop = useCallback(() => {
@@ -334,6 +432,7 @@ export function useDragReorder(
     dragY,
     targetIndex,
     panHandlers: responder.panHandlers,
+    listRef,
     lift,
     drop,
     shiftFor,

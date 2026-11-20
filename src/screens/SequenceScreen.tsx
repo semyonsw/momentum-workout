@@ -69,6 +69,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { Sheet, SheetCancel } from '../components/Sheet';
 import { pressedStyle } from '../components/motion';
 import { AddRow, Kicker, ListCard, Separator, TextButton, Toggle } from '../components/primitives';
+import { useDragAutoScroll } from '../hooks/useDragAutoScroll';
 import { useDragReorder, type CardLayout } from '../hooks/useDragReorder';
 import { commit, tap, undo } from '../lib/feedback';
 import { stepIndexOf, stepKey, swapsToMove } from '../lib/sequenceSteps';
@@ -144,10 +145,13 @@ export function SequenceScreen({
     },
     [keys.length, onMoveStep],
   );
-  const { lifted, dragY, targetIndex, panHandlers, lift, drop, shiftFor } = useDragReorder(
+  /* A sequence longer than the screen scrolls itself while a step is held at an edge. */
+  const dragScroll = useDragAutoScroll();
+  const { lifted, dragY, targetIndex, panHandlers, listRef, lift, drop, shiftFor } = useDragReorder(
     keys,
     rowLayouts,
     move,
+    dragScroll.autoScroll,
   );
   const liftedIndex = lifted ? stepIndexOf(lifted) : -1;
   const liftedName =
@@ -176,137 +180,157 @@ export function SequenceScreen({
         action={lifted ? { label: t('Drop'), onPress: drop } : undefined}
       />
 
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ paddingTop: 24, paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={!lifted}
-      >
-        <ListCard className="mx-lg">
-          {/* `min-h`, not `h-row`: the helper wraps to two lines in Russian, and a
+      <View ref={dragScroll.viewportRef} collapsable={false} style={{ flex: 1 }}>
+        <ScrollView
+          ref={dragScroll.scrollRef}
+          className="flex-1"
+          contentContainerStyle={{ paddingTop: 24, paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={!lifted}
+          onScroll={dragScroll.onScroll}
+          scrollEventThrottle={16}
+          onContentSizeChange={dragScroll.onContentSizeChange}
+        >
+          <ListCard className="mx-lg">
+            {/* `min-h`, not `h-row`: the helper wraps to two lines in Russian, and a
               fixed 56 drew it over the separator below. `SwitchRow`'s rule. */}
-          <View className="min-h-[56px] flex-row items-center px-lg py-md">
-            <View className="flex-1 pr-md">
-              <Text className="text-body font-medium text-ink">{t('Use this sequence')}</Text>
-              <Text className="mt-[2px] text-label text-ink-faint">
-                {steps.length === 0
-                  ? t('Add at least one step to turn it on')
-                  : t('Suggests the next routine on the home screen')}
-              </Text>
+            <View className="min-h-[56px] flex-row items-center px-lg py-md">
+              <View className="flex-1 pr-md">
+                <Text className="text-body font-medium text-ink">{t('Use this sequence')}</Text>
+                <Text className="mt-[2px] text-label text-ink-faint">
+                  {steps.length === 0
+                    ? t('Add at least one step to turn it on')
+                    : t('Suggests the next routine on the home screen')}
+                </Text>
+              </View>
+              <Toggle
+                value={sequence.isActive}
+                onChange={(value) => {
+                  tap();
+                  onSetActive(value);
+                }}
+                accessibilityLabel={t('Use this sequence')}
+              />
             </View>
-            <Toggle
-              value={sequence.isActive}
-              onChange={(value) => {
-                tap();
-                onSetActive(value);
-              }}
-              accessibilityLabel={t('Use this sequence')}
-            />
-          </View>
-        </ListCard>
+          </ListCard>
 
-        {routines.length > 0 || steps.length > 0 ? (
-          <>
-            {steps.length > 0 ? (
-              <Kicker className="mx-lg mb-sm mt-xl">
-                {t('The order')} · {stepCount}
-              </Kicker>
-            ) : null}
-            {/* The drag surface, around the card rather than on it — `ListCard`
+          {routines.length > 0 || steps.length > 0 ? (
+            <>
+              {steps.length > 0 ? (
+                <Kicker className="mx-lg mb-sm mt-xl">
+                  {t('The order')} · {stepCount}
+                </Kicker>
+              ) : null}
+              {/* The drag surface, around the card rather than on it — `ListCard`
                 drops props it does not know. It claims a touch only while a row
                 is lifted. */}
-            <View {...panHandlers} className={steps.length > 0 ? '' : 'mt-xl'}>
-              <ListCard className="mx-lg" clip={!lifted}>
-                {steps.map((routineId, index) => {
-                  const routine = byId.get(routineId);
-                  const key = stepKey(index);
-                  return (
-                    <ReorderRow
-                      key={`${routineId}-${index}`}
-                      lifted={lifted === key}
-                      dragging={lifted != null}
-                      dragY={dragY}
-                      shift={shiftFor(key)}
-                      onLayout={(e) => {
-                        const { y, height } = e.nativeEvent.layout;
-                        rowLayouts.current[key] = { y, height };
-                      }}
-                    >
-                      {index > 0 ? <Separator inset={40} /> : null}
-                      <StepRow
-                        position={index + 1}
-                        name={routine?.name ?? t('Deleted routine')}
-                        detail={
-                          routine
-                            ? t('{exercises} exercises · {sets} sets', {
-                                exercises: routine.items.length,
-                                sets: routine.items.reduce((n, item) => n + item.targetSets, 0),
-                              })
-                            : undefined
-                        }
-                        isNext={index === sequence.cursor}
-                        isLifted={lifted === key}
-                        dimmed={lifted != null && lifted !== key}
-                        /* Both need a routine that still exists: a step whose
+              <View
+                ref={listRef}
+                collapsable={false}
+                {...panHandlers}
+                className={steps.length > 0 ? '' : 'mt-xl'}
+              >
+                <ListCard className="mx-lg" clip={!lifted}>
+                  {steps.map((routineId, index) => {
+                    const routine = byId.get(routineId);
+                    const key = stepKey(index);
+                    return (
+                      <ReorderRow
+                        key={`${routineId}-${index}`}
+                        lifted={lifted === key}
+                        dragging={lifted != null}
+                        dragY={dragY}
+                        shift={shiftFor(key)}
+                        onLayout={(e) => {
+                          const { y, height } = e.nativeEvent.layout;
+                          rowLayouts.current[key] = { y, height };
+                        }}
+                      >
+                        {index > 0 ? <Separator inset={40} /> : null}
+                        <StepRow
+                          position={index + 1}
+                          name={routine?.name ?? t('Deleted routine')}
+                          detail={
+                            routine
+                              ? t('{exercises} exercises · {sets} sets', {
+                                  exercises: routine.items.length,
+                                  sets: routine.items.reduce((n, item) => n + item.targetSets, 0),
+                                })
+                              : undefined
+                          }
+                          isNext={index === sequence.cursor}
+                          isLifted={lifted === key}
+                          dimmed={lifted != null && lifted !== key}
+                          /* Both need a routine that still exists: a step whose
                            routine was deleted has nothing to open or copy. */
-                        onOpen={routine ? () => onEditStep(routineId) : undefined}
-                        onVary={
-                          routine && (uses[routineId] ?? 0) > 1
-                            ? () => onVaryStep(index)
-                            : undefined
-                        }
-                        /* One step has nowhere to go. */
-                        onLift={steps.length > 1 ? () => lift(key) : undefined}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < steps.length - 1}
-                        onMoveOne={(direction) => {
-                          commit();
-                          onMoveStep(index, direction);
-                        }}
-                        onMakeNext={() => {
-                          tap();
-                          onSetCursor(index);
-                        }}
-                        onRemove={() => {
-                          undo();
-                          onRemoveStep(index);
-                        }}
-                      />
-                    </ReorderRow>
-                  );
-                })}
+                          onOpen={routine ? () => onEditStep(routineId) : undefined}
+                          onVary={
+                            routine && (uses[routineId] ?? 0) > 1
+                              ? () => onVaryStep(index)
+                              : undefined
+                          }
+                          /* One step has nowhere to go. */
+                          onLift={steps.length > 1 ? () => lift(key) : undefined}
+                          canMoveUp={index > 0}
+                          canMoveDown={index < steps.length - 1}
+                          onMoveOne={(direction) => {
+                            commit();
+                            onMoveStep(index, direction);
+                          }}
+                          onMakeNext={() => {
+                            tap();
+                            onSetCursor(index);
+                          }}
+                          onRemove={() => {
+                            undo();
+                            onRemoveStep(index);
+                          }}
+                        />
+                      </ReorderRow>
+                    );
+                  })}
 
-                {lifted || routines.length === 0 ? null : (
-                  <>
-                    {steps.length > 0 ? <Separator inset={0} /> : null}
-                    <AddRow label={t('Add a step')} onPress={() => setAdding(true)} />
-                  </>
-                )}
-              </ListCard>
+                  {lifted || routines.length === 0 ? null : (
+                    <>
+                      {steps.length > 0 ? <Separator inset={0} /> : null}
+                      <AddRow label={t('Add a step')} onPress={() => setAdding(true)} />
+                    </>
+                  )}
+                </ListCard>
+              </View>
+            </>
+          ) : null}
+
+          {routines.length === 0 ? (
+            <Text className="mx-lg mt-xl text-body text-ink-muted">
+              {t(
+                'There are no routines to put in a sequence yet. Make one in Routines, at the foot of the workout screen, first.',
+              )}
+            </Text>
+          ) : null}
+
+          {/* Gone while a step is up, but still taking its room: unmounting it
+              shrank the content, and a list scrolled to its end was clamped back
+              by the platform — the list jumping under the lifted step. */}
+          {steps.length > 1 && sequence.cursor > 0 ? (
+            <View
+              className="mx-lg mt-xl"
+              pointerEvents={lifted ? 'none' : 'auto'}
+              style={lifted ? { opacity: 0 } : undefined}
+              accessibilityElementsHidden={lifted != null}
+              importantForAccessibility={lifted ? 'no-hide-descendants' : 'auto'}
+            >
+              <TextButton
+                label={t('Start the sequence over')}
+                onPress={() => {
+                  undo();
+                  onSetCursor(0);
+                }}
+              />
             </View>
-          </>
-        ) : null}
-
-        {routines.length === 0 ? (
-          <Text className="mx-lg mt-xl text-body text-ink-muted">
-            {t(
-              'There are no routines to put in a sequence yet. Make one in Routines, at the foot of the workout screen, first.',
-            )}
-          </Text>
-        ) : null}
-
-        {!lifted && steps.length > 1 && sequence.cursor > 0 ? (
-          <View className="mx-lg mt-xl">
-            <TextButton
-              label={t('Start the sequence over')}
-              onPress={() => {
-                undo();
-                onSetCursor(0);
-              }}
-            />
-          </View>
-        ) : null}
-      </ScrollView>
+          ) : null}
+        </ScrollView>
+      </View>
 
       {adding ? (
         <Sheet title={t('Add a step')} onDismiss={() => setAdding(false)}>

@@ -31,7 +31,9 @@
  * and drag every drop target up with it; skipping it means the drop index is
  * computed from what is actually known, which is also what the user can see.
  *
- * Dragging past the screen edge (auto-scroll) is at the bottom of this file.
+ * Dragging past the screen edge (auto-scroll), and keeping the row under the
+ * finger while the screen rearranges itself around the lift, are at the bottom
+ * of this file.
  *
  * Pure, and over layouts and a finger offset rather than over a component — so the
  * expanded-card case, the ends of the list, the unmeasured card and the
@@ -346,4 +348,107 @@ export function effectiveDragDy(params: {
   const { gestureDy, scrollDelta, liftY, currentY } = params;
   const layoutShift = liftY != null && currentY != null ? liftY - currentY : 0;
   return gestureDy + scrollDelta + layoutShift;
+}
+
+/* ------------------------------------------------------------------ */
+/* Anchored on the finger                                              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * `effectiveDragDy` PREDICTS where the row went, from the three moves it knows
+ * about — and the lift moves things it does not know about. Shipped on the phone
+ * as "the row hangs 5–10 cm off the finger and follows it at that distance":
+ *
+ *   • the routine editor hides the name field and drops a margin ABOVE the list,
+ *     so the whole list wrapper moves up — and a row's `y` is measured from that
+ *     wrapper, so its "layout shift" reads zero;
+ *   • the header grows a subtitle (`position 3 of 7`), moving the ScrollView;
+ *   • things below the list hide (`Add exercise`, `Delete routine`), the content
+ *     shrinks, and a list scrolled near its end is CLAMPED back by the platform —
+ *     a scroll nobody issued, so no `scrollDelta` and, without `autoScroll`, no
+ *     offset to read at all;
+ *   • the session collapses every card, which clamps the scroll by thousands.
+ *
+ * Every one of those is a move of the LIST in the window. So instead of adding up
+ * causes, the hook measures the result: the list wrapper's window top
+ * (`measureInWindow`), at the lift and again after. The row is then drawn where
+ * it was at the lift plus however far the finger has travelled, whatever moved
+ * underneath — the one statement that is true by construction:
+ *
+ *     drawn top = top at the lift + finger travel
+ *     layout top = list top now + row y now
+ *     ⇒ offset  = (top at the lift + finger travel) − layout top
+ *
+ * Both window tops come from the same measurement, so whatever frame of reference
+ * that has (a screen sliding in, a status bar) cancels; the finger's own window
+ * position is never compared with a measurement — only its travel is used.
+ */
+
+/** How long after the hook last scrolled the list a measurement is trusted again. */
+export const MEASURE_SETTLE_MS = 200;
+
+/**
+ * The lifted row's offset from its CURRENT layout slot, so it sits where it was at
+ * the lift plus the finger's travel. Feed it to the transform and `dropIndex`.
+ *
+ * @param liftTop   the row's window top at the lift (list top + row y, measured
+ *                  before anything on screen reacted to the lift).
+ * @param listTop   the list wrapper's window top now — see `listTopNow`.
+ * @param rowY      the row's layout `y` in the list now.
+ */
+export function anchoredDragDy(params: {
+  liftTop: number;
+  gestureDy: number;
+  listTop: number;
+  rowY: number;
+}): number {
+  const { liftTop, gestureDy, listTop, rowY } = params;
+  return liftTop + gestureDy - (listTop + rowY);
+}
+
+/**
+ * The list wrapper's window top, from the last measurement and the scrolling the
+ * hook has done since.
+ *
+ * A measurement is only taken while the list is at rest (`measurementTrusted`):
+ * right after a programmatic `scrollTo` the layout tree may not have the new
+ * offset yet, and a stale measurement there would jerk the row by a frame's worth
+ * of scroll. While the hook is scrolling, the scroll IT issued is exact, so the
+ * list has moved by exactly that much since the last good measurement.
+ */
+export function listTopNow(params: {
+  measuredTop: number;
+  offsetAtMeasure: number;
+  offsetNow: number;
+}): number {
+  const { measuredTop, offsetAtMeasure, offsetNow } = params;
+  return measuredTop - (offsetNow - offsetAtMeasure);
+}
+
+/** Whether a fresh `measureInWindow` can be believed this frame. */
+export function measurementTrusted(
+  nowMs: number,
+  lastScrollMs: number | null,
+  settleMs: number = MEASURE_SETTLE_MS,
+): boolean {
+  return lastScrollMs == null || nowMs - lastScrollMs >= settleMs;
+}
+
+/**
+ * The scroll offset the platform can actually be at: a tracked offset clamped to
+ * the content there is.
+ *
+ * Content that shrinks under a scrolled list (cards collapsing on lift, rows
+ * hiding) pulls the scroll back to its new end without anyone calling `scrollTo`
+ * — and whether that clamp reaches `onScroll` is up to the platform. Read
+ * unclamped, a stale 1500 on content that now ends at 100 would make the first
+ * auto-scroll frame a 1400 dp lurch in the list-top estimate above.
+ */
+export function clampScrollOffset(
+  offset: number,
+  contentHeight: number,
+  viewportHeight: number,
+): number {
+  if (!(contentHeight > 0) || !(viewportHeight > 0)) return Math.max(0, offset);
+  return Math.min(Math.max(0, contentHeight - viewportHeight), Math.max(0, offset));
 }

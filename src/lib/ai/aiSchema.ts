@@ -333,6 +333,14 @@ export const responseSchema = {
                       description: 'For workout_set / live_set: the set, 1 = the first.',
                     },
                     name: { type: 'string', description: 'For field "create": the name.' },
+                    /* A whole order is a LIST, and structured output only lets the
+                       model write the keys named here — so it is named. */
+                    order: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description:
+                        'For field "reorder": the ids in the whole new order — exerciseIds for a routine or the workout in progress, routineIds for the sequence (a routine at two steps listed twice).',
+                    },
                     muscle: { type: 'string', enum: [...MUSCLE_GROUPS] },
                     kind: {
                       type: 'string',

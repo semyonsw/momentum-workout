@@ -163,6 +163,8 @@ function exerciseSettings(e: Exercise): string {
   if (e.requiresWeight && e.incrementKg != null) out.push(`step ${e.incrementKg} kg`);
   if (e.countUnit !== 'reps' && e.prepareSeconds != null)
     out.push(`get-ready ${e.prepareSeconds}s`);
+  // The editor's `Timer` — only said when it runs a clock, which is when it differs.
+  if (e.timerMode === 'countdown' || e.timerMode === 'countup') out.push(`timer ${e.timerMode}`);
   return out.join(', ');
 }
 
@@ -594,7 +596,16 @@ export function buildWorkoutContext(input: WorkoutContextInput): WorkoutContext 
           next: steps[((input.sequence.cursor % steps.length) + steps.length) % steps.length].name,
           note: 'the user trains these routines in this order and then starts over',
         }
-      : { on: false, note: 'no training sequence is set; the user picks a routine each time' };
+      : steps.length > 0
+        ? {
+            /* Switched off, but its steps are kept — and still the Sequence
+               screen's to reorder, so a "reorder" item has to be able to name them. */
+            on: false,
+            order: steps.map((step) => step.name),
+            routineIds: steps.map((step) => step.id),
+            note: 'the training sequence is switched off; these are its saved steps, in order',
+          }
+        : { on: false, note: 'no training sequence is set; the user picks a routine each time' };
 
   const base = {
     today: dayKey(now),

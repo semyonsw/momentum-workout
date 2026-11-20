@@ -50,6 +50,7 @@ import {
   type TextBlock,
 } from '../lib/ai/aiSchema';
 import type { AiChange, ChangeRow } from '../lib/ai/aiChanges';
+import { isPermutationOf, sanitizeOrderChange } from '../lib/ai/aiOrder';
 import type { ProposalRow, ReviewProposal } from '../lib/ai/aiProposal';
 import type { ID } from '../types/models';
 
@@ -223,6 +224,17 @@ interface AiState extends AiValue {
   setSequenceStatus: (section: AiSection, messageId: string, status: ProposalStatus) => void;
   /** The same for a settings-changes card. */
   setChangesStatus: (section: AiSection, messageId: string, status: ProposalStatus) => void;
+  /**
+   * The user dragged a reorder card's rows: `changes[changeIndex].order` becomes
+   * `order` — only on a card still pending, and only when `order` holds exactly
+   * the change's own rows, so Apply never meets a key it cannot place.
+   */
+  setChangeOrder: (
+    section: AiSection,
+    messageId: string,
+    changeIndex: number,
+    order: readonly string[],
+  ) => void;
 
   markRoutineAi: (routineId: ID) => void;
   markRoutineSeen: (routineId: ID) => void;
@@ -400,6 +412,28 @@ export const useAi = create<AiState>()(
         set((state) => markBlocks(state, section, messageId, 'sequence', status)),
       setChangesStatus: (section, messageId, status) =>
         set((state) => markBlocks(state, section, messageId, 'changes', status)),
+      setChangeOrder: (section, messageId, changeIndex, order) =>
+        set((state) => {
+          let changed = false;
+          const messages = state.chats[section].map((message) => {
+            if (message.id !== messageId || message.role !== 'model') return message;
+            return {
+              ...message,
+              blocks: message.blocks.map((block) => {
+                if (block.type !== 'changes' || block.status !== 'pending') return block;
+                const change = block.changes[changeIndex];
+                if (change?.target !== 'order') return block;
+                const keys = change.rows.map((r) => r.key);
+                if (!isPermutationOf(keys, order)) return block;
+                changed = true;
+                const changes = [...block.changes];
+                changes[changeIndex] = { ...change, order: [...order] };
+                return { ...block, changes };
+              }),
+            };
+          });
+          return changed ? { chats: { ...state.chats, [section]: messages } } : {};
+        }),
       importChats: (raw) => {
         const clean = sanitizeAi(raw);
         set({ chats: clean.chats, archive: clean.archive, proposals: clean.proposals });
@@ -521,6 +555,7 @@ const CHANGE_TARGETS = new Set([
   'workout',
   'live',
   'live_set',
+  'order',
 ]);
 
 /**
@@ -535,26 +570,33 @@ const CHANGE_TARGETS = new Set([
  * drawn for changes that would apply nothing.
  */
 function sanitizeChangesBlock(raw: Rec): ChangesChatBlock | null {
-  const changes = (Array.isArray(raw.changes) ? raw.changes : []).filter(
-    (c): c is AiChange =>
-      isRec(c) &&
-      typeof c.target === 'string' &&
-      CHANGE_TARGETS.has(c.target) &&
-      typeof c.field === 'string',
-  );
-  const rows = (Array.isArray(raw.rows) ? raw.rows : []).flatMap((r): ChangeRow[] =>
-    isRec(r) && typeof r.label === 'string' && typeof r.to === 'string'
-      ? [
-          {
-            subject: str(r.subject) ?? '',
-            label: r.label,
-            from: str(r.from) ?? '',
-            to: r.to,
-            ...(r.destructive === true ? { destructive: true } : {}),
-          },
-        ]
-      : [],
-  );
+  /* A reorder is checked whole (`sanitizeOrderChange`): its order must still be
+     a permutation of its rows. And a row points at its change BY INDEX, so the
+     indices are re-counted over what survived. */
+  const changes: AiChange[] = [];
+  const newIndex = new Map<number, number>();
+  (Array.isArray(raw.changes) ? raw.changes : []).forEach((c: unknown, index: number) => {
+    if (!isRec(c) || typeof c.target !== 'string' || !CHANGE_TARGETS.has(c.target)) return;
+    if (typeof c.field !== 'string') return;
+    const change = c.target === 'order' ? sanitizeOrderChange(c) : (c as AiChange);
+    if (!change) return;
+    newIndex.set(index, changes.length);
+    changes.push(change);
+  });
+  const rows = (Array.isArray(raw.rows) ? raw.rows : []).flatMap((r): ChangeRow[] => {
+    if (!isRec(r) || typeof r.label !== 'string' || typeof r.to !== 'string') return [];
+    const reorder = typeof r.reorder === 'number' ? newIndex.get(r.reorder) : undefined;
+    return [
+      {
+        subject: str(r.subject) ?? '',
+        label: r.label,
+        from: str(r.from) ?? '',
+        to: r.to,
+        ...(r.destructive === true ? { destructive: true } : {}),
+        ...(reorder != null && changes[reorder]?.target === 'order' ? { reorder } : {}),
+      },
+    ];
+  });
   if (rows.length === 0) return null;
   let status: ProposalStatus =
     raw.status === 'accepted' || raw.status === 'discarded' ? raw.status : 'pending';

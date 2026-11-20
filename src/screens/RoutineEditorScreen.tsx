@@ -96,7 +96,9 @@
  * and leaves it lifted, so a finger that slips does not drop the row somewhere
  * nobody chose, and `Drop` in the header is always a way out. While a row is up:
  * the list dims to half and loses its chevrons, because nothing in it is tappable;
- * the ScrollView stops scrolling, so the two gestures cannot fight; and the header
+ * the ScrollView stops taking the thumb, so the two gestures cannot fight (it
+ * scrolls ITSELF while the row is held at the top or bottom edge, so a long
+ * routine can still be reordered end to end); and the header
  * reads the position the row would land in, because the list does not shuffle
  * underneath the finger to show it.
  *
@@ -143,6 +145,7 @@ import {
   Separator,
   TextButton,
 } from '../components/primitives';
+import { useDragAutoScroll } from '../hooks/useDragAutoScroll';
 import { useDragReorder, type CardLayout } from '../hooks/useDragReorder';
 import { useLanguage, useT, type Translate } from '../hooks/useT';
 import type { Language } from '../lib/i18n';
@@ -365,10 +368,13 @@ export function RoutineEditorScreen({
     );
   };
 
-  const { lifted, dragY, targetIndex, panHandlers, lift, drop, shiftFor } = useDragReorder(
+  /* A routine longer than the screen scrolls itself while a row is held at an edge. */
+  const dragScroll = useDragAutoScroll();
+  const { lifted, dragY, targetIndex, panHandlers, listRef, lift, drop, shiftFor } = useDragReorder(
     itemIds,
     rowLayouts,
     commitMove,
+    dragScroll.autoScroll,
   );
   const liftedExercise = lifted
     ? (exercisesById[items.find((i) => i.id === lifted)?.exerciseId ?? ''] ?? null)
@@ -515,17 +521,29 @@ export function RoutineEditorScreen({
           action={lifted ? { label: t('Drop'), onPress: drop } : undefined}
         />
 
-        <KeyboardAwareScrollView
-          style={{ flex: 1 }}
-          keyboardShouldPersistTaps="never"
-          // Clears the floating Save.
-          contentContainerStyle={{ paddingTop: 24, paddingBottom: pushedSlot.clearance }}
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={!lifted && !dimmed}
-        >
-          {/* The name field hides while reordering: one thing at a time. */}
-          {lifted ? null : (
-            <>
+        <View ref={dragScroll.viewportRef} collapsable={false} style={{ flex: 1 }}>
+          <KeyboardAwareScrollView
+            ref={dragScroll.scrollRef}
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="never"
+            // Clears the floating Save.
+            contentContainerStyle={{ paddingTop: 24, paddingBottom: pushedSlot.clearance }}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!lifted && !dimmed}
+            onScroll={dragScroll.onScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={dragScroll.onContentSizeChange}
+          >
+            {/* The name field steps back while reordering — one thing at a time —
+                but it keeps its SPACE. It used to unmount, which moved the whole
+                list up under a finger that had just lifted a row: the row stayed
+                put (the hook anchors it) and the list slid a slot away beneath
+                it, so a drop without moving moved the exercise. Dimmed and inert
+                instead, like the rows that are not in the air. */}
+            <View
+              pointerEvents={lifted ? 'none' : 'auto'}
+              style={lifted ? { opacity: 0.5 } : undefined}
+            >
               <Kicker className="mx-lg mb-sm">{t('Routine name')}</Kicker>
               <View className="mx-lg">
                 <FieldWell
@@ -539,16 +557,15 @@ export function RoutineEditorScreen({
                   accessibilityLabel={t('Routine name')}
                 />
               </View>
-            </>
-          )}
+            </View>
 
-          {rollFailed ? (
-            <Text className="mx-lg mt-md text-label text-ink-faint">
-              {t('Nothing to roll — the library is empty.')}
-            </Text>
-          ) : null}
+            {rollFailed ? (
+              <Text className="mx-lg mt-md text-label text-ink-faint">
+                {t('Nothing to roll — the library is empty.')}
+              </Text>
+            ) : null}
 
-          {/* While the reel spins it stands IN PLACE OF the list, and everything
+            {/* While the reel spins it stands IN PLACE OF the list, and everything
               under it goes with it.
 
               Both halves matter. Leaving the old list on screen under a spinning
@@ -557,118 +574,133 @@ export function RoutineEditorScreen({
               reachable means a tap can commit the PRE-ROLL draft and navigate
               away while the reel is still counting down to overwrite it — the
               roll then lands on a screen that has gone. */}
-          {rolling ? (
-            <View className="mx-lg mt-xl">
-              <ShuffleReel
-                key={rolling.exercises.map((e) => e.id).join('-')}
-                pool={drawablePool(library, randomSpec.clusters).map((e) => e.name)}
-                result={rolling.exercises.map((e) => e.name)}
-                onSettled={() => {
-                  settle(rolling);
-                  setRolling(null);
-                }}
-              />
-            </View>
-          ) : null}
+            {rolling ? (
+              <View className="mx-lg mt-xl">
+                <ShuffleReel
+                  key={rolling.exercises.map((e) => e.id).join('-')}
+                  pool={drawablePool(library, randomSpec.clusters).map((e) => e.name)}
+                  result={rolling.exercises.map((e) => e.name)}
+                  onSettled={() => {
+                    settle(rolling);
+                    setRolling(null);
+                  }}
+                />
+              </View>
+            ) : null}
 
-          {rolling ? null : (
-            <Kicker className={`mx-lg mb-sm ${lifted ? '' : 'mt-xl'}`}>
-              {t('Exercises')} · {items.length}
-            </Kicker>
-          )}
+            {rolling ? null : (
+              <Kicker className="mx-lg mb-sm mt-xl">
+                {t('Exercises')} · {items.length}
+              </Kicker>
+            )}
 
-          {/* The drag surface — its own View around the card rather than the card
+            {/* The drag surface — its own View around the card rather than the card
               itself, because `ListCard` takes props it understands and would drop
               these on the floor. It claims a touch only while a row is lifted, so
               every tap, every chip and the scroll itself are untouched until then.
               `clip={false}` only while one is up: see the file header. */}
-          <View {...panHandlers} style={rolling ? HIDDEN_WHILE_ROLLING : undefined}>
-            <ListCard className="mx-lg" clip={!lifted}>
-              {items.map((item, index) => {
-                const exercise = exercisesById[item.exerciseId];
-                if (!exercise) return null;
-                const isLifted = item.id === lifted;
+            <View
+              ref={listRef}
+              collapsable={false}
+              {...panHandlers}
+              style={rolling ? HIDDEN_WHILE_ROLLING : undefined}
+            >
+              <ListCard className="mx-lg" clip={!lifted}>
+                {items.map((item, index) => {
+                  const exercise = exercisesById[item.exerciseId];
+                  if (!exercise) return null;
+                  const isLifted = item.id === lifted;
 
-                return (
-                  <ReorderRow
-                    key={item.id}
-                    lifted={isLifted}
-                    dragging={lifted != null}
-                    dragY={dragY}
-                    // The rows above and below open the gap while the finger is
-                    // still over it, so you can see which two exercises you are
-                    // dropping between before you let go.
-                    shift={shiftFor(item.id)}
-                    onLayout={(e) => {
-                      const { y, height } = e.nativeEvent.layout;
-                      rowLayouts.current[item.id] = { y, height };
-                    }}
-                  >
-                    {/* Hairlines inset 40 — past the handle, so the rule starts
+                  return (
+                    <ReorderRow
+                      key={item.id}
+                      lifted={isLifted}
+                      dragging={lifted != null}
+                      dragY={dragY}
+                      // The rows above and below open the gap while the finger is
+                      // still over it, so you can see which two exercises you are
+                      // dropping between before you let go.
+                      shift={shiftFor(item.id)}
+                      onLayout={(e) => {
+                        const { y, height } = e.nativeEvent.layout;
+                        rowLayouts.current[item.id] = { y, height };
+                      }}
+                    >
+                      {/* Hairlines inset 40 — past the handle, so the rule starts
                     where the text does. */}
-                    {index > 0 ? <Separator inset={40} /> : null}
-                    <RoutineRow
-                      exercise={exercise}
-                      dimmed={lifted != null && !isLifted}
-                      isLifted={isLifted}
-                      isOpen={openId === item.id}
-                      summary={summarizeItem(item, exercise, defaultRestSeconds, t, lang)}
-                      onPress={() => {
-                        tap();
-                        setOpenId((current) => (current === item.id ? null : item.id));
-                      }}
-                      // One exercise cannot be reordered, and the gesture would only
-                      // ever end where it started.
-                      onLongPress={items.length > 1 ? () => handleLift(item) : undefined}
-                      onRemove={() => {
-                        tap();
-                        setRemoving(item);
-                      }}
-                    />
-
-                    {openId === item.id && !lifted ? (
-                      <ItemEditor
-                        item={item}
+                      {index > 0 ? <Separator inset={40} /> : null}
+                      <RoutineRow
                         exercise={exercise}
-                        settingsRestSeconds={defaultRestSeconds}
-                        onPatch={(fn) => patchItem(item.id, fn)}
-                        onPatchExercise={(fn) => onPatchExercise(exercise.id, fn)}
-                        onOpenHistory={() => onOpenItem(item, draft())}
+                        dimmed={lifted != null && !isLifted}
+                        isLifted={isLifted}
+                        isOpen={openId === item.id}
+                        summary={summarizeItem(item, exercise, defaultRestSeconds, t, lang)}
+                        onPress={() => {
+                          tap();
+                          setOpenId((current) => (current === item.id ? null : item.id));
+                        }}
+                        // One exercise cannot be reordered, and the gesture would only
+                        // ever end where it started.
+                        onLongPress={items.length > 1 ? () => handleLift(item) : undefined}
+                        onRemove={() => {
+                          tap();
+                          setRemoving(item);
+                        }}
                       />
-                    ) : null}
-                  </ReorderRow>
-                );
-              })}
 
-              {lifted ? null : (
-                <>
-                  <Separator inset={0} />
-                  <AddRow label={t('Add exercise')} onPress={() => onAddExercise(draft())} />
-                </>
-              )}
-            </ListCard>
-          </View>
+                      {openId === item.id && !lifted ? (
+                        <ItemEditor
+                          item={item}
+                          exercise={exercise}
+                          settingsRestSeconds={defaultRestSeconds}
+                          onPatch={(fn) => patchItem(item.id, fn)}
+                          onPatchExercise={(fn) => onPatchExercise(exercise.id, fn)}
+                          onOpenHistory={() => onOpenItem(item, draft())}
+                        />
+                      ) : null}
+                    </ReorderRow>
+                  );
+                })}
 
-          {lifted || rolling ? null : (
-            <View className="mx-lg mt-xl">
-              {/* Above `Delete`, and separated from it by its own row: the two are
+                {lifted ? null : (
+                  <>
+                    <Separator inset={0} />
+                    <AddRow label={t('Add exercise')} onPress={() => onAddExercise(draft())} />
+                  </>
+                )}
+              </ListCard>
+            </View>
+
+            {/* Gone while a row is up, but still taking its room: unmounting it
+                shrank the content, and a list scrolled to its end was clamped
+                back by the platform — the list jumping under the lifted row. */}
+            {rolling ? null : (
+              <View
+                className="mx-lg mt-xl"
+                pointerEvents={lifted ? 'none' : 'auto'}
+                style={lifted ? { opacity: 0 } : undefined}
+                accessibilityElementsHidden={lifted != null}
+                importantForAccessibility={lifted ? 'no-hide-descendants' : 'auto'}
+              >
+                {/* Above `Delete`, and separated from it by its own row: the two are
                   opposite in every way except that they both live at the bottom of
                   the screen, and a mis-tap between them is not symmetrical. */}
-              {onDuplicate && items.length > 0 ? (
-                <View className="mb-lg">
-                  <TextButton
-                    label={t('Duplicate this routine')}
-                    onPress={() => onDuplicate(draft())}
-                  />
-                </View>
-              ) : null}
-              <DangerFootAction
-                label={t('Delete routine')}
-                onPress={() => setConfirmingDelete(true)}
-              />
-            </View>
-          )}
-        </KeyboardAwareScrollView>
+                {onDuplicate && items.length > 0 ? (
+                  <View className="mb-lg">
+                    <TextButton
+                      label={t('Duplicate this routine')}
+                      onPress={() => onDuplicate(draft())}
+                    />
+                  </View>
+                ) : null}
+                <DangerFootAction
+                  label={t('Delete routine')}
+                  onPress={() => setConfirmingDelete(true)}
+                />
+              </View>
+            )}
+          </KeyboardAwareScrollView>
+        </View>
       </View>
 
       {/* THE COMMIT, in the floating slot like every other one (U5). It was

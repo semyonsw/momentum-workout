@@ -3,9 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   AUTO_SCROLL_EDGE,
   AUTO_SCROLL_MAX_SPEED,
+  MEASURE_SETTLE_MS,
+  anchoredDragDy,
   autoScrollVelocity,
+  clampScrollOffset,
   dropIndex,
   effectiveDragDy,
+  listTopNow,
+  measurementTrusted,
   nextScrollOffset,
   liftIndex,
   liftedSlotHeight,
@@ -383,5 +388,96 @@ describe('auto-scroll while a card is in the air', () => {
     // under the finger, not a card's height away from it.
     expect(effectiveDragDy({ gestureDy: 0, scrollDelta: 0, liftY: 620, currentY: 320 })).toBe(300);
     expect(effectiveDragDy({ gestureDy: 12, scrollDelta: 0, liftY: null, currentY: 320 })).toBe(12);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Anchored on the finger                                              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The phone bug: lift a row and it hangs 5–10 cm off the finger for the whole
+ * drag. Every case below is a way the screen moved the LIST on the lift that the
+ * old three-term prediction could not see. Window coordinates throughout: the
+ * viewport starts at 100, rows are 64 tall and stacked from the list's top.
+ */
+describe('the lifted row stays under the finger', () => {
+  const ids = ['a', 'b', 'c', 'd', 'e', 'f'];
+  const stacked = (): Record<string, CardLayout> =>
+    Object.fromEntries(ids.map((id, i) => [id, { y: i * 64, height: 64 }]));
+
+  /** Where the row is DRAWN in the window: its layout top plus the offset. */
+  const drawnTop = (listTop: number, rowY: number, dy: number) => listTop + rowY + dy;
+
+  it('does not move when the content ABOVE the list hides on lift', () => {
+    // Routine editor: the list starts at 260 with the name field above it; the
+    // lift hides the field and a margin, and the list jumps up to 140.
+    const layouts = stacked();
+    const liftTop = 260 + layouts.d.y;
+    const dy = anchoredDragDy({ liftTop, gestureDy: 0, listTop: 140, rowY: layouts.d.y });
+    expect(drawnTop(140, layouts.d.y, dy)).toBe(liftTop);
+    // The old prediction saw no layout shift (the row's y within the list is
+    // unchanged) and left the row 120 dp off — the reported bug.
+    const old = effectiveDragDy({ gestureDy: 0, scrollDelta: 0, liftY: 192, currentY: 192 });
+    expect(drawnTop(140, layouts.d.y, old)).toBe(liftTop - 120);
+    // And the drop index, handed the same number, says where the row is DRAWN:
+    // the list slid 120 up under a still finger, so the row is now over 'e'.
+    expect(dy).toBe(120);
+    expect(dropIndex({ ids, liftedId: 'd', layouts, dy, fallbackIndex: 3 })).toBe(4);
+  });
+
+  it('does not move when shrinking content clamps the scroll', () => {
+    // Scrolled 600 down; the lift hides 400 dp of buttons below the list, the
+    // platform pulls the scroll back to 200 — and nobody called scrollTo, so no
+    // offset tracker knows. The list moved DOWN 400 in the window.
+    const rowY = 5 * 64;
+    const liftTop = 100 - 600 + 80 + rowY;
+    const listTop = 100 - 200 + 80;
+    const dy = anchoredDragDy({ liftTop, gestureDy: 0, listTop, rowY });
+    expect(dy).toBe(-400);
+    expect(drawnTop(listTop, rowY, dy)).toBe(liftTop);
+  });
+
+  it('follows the finger exactly, through a collapse above the row', () => {
+    // The session: an open card above collapses on lift, the row jumps up 900
+    // within the list AND the scroll clamps by 700. Only the sum is measured.
+    const liftTop = 100 - 1500 + 1800;
+    const listTop = 100 - 800;
+    const rowY = 900;
+    for (const gestureDy of [-150, 0, 37, 220]) {
+      const dy = anchoredDragDy({ liftTop, gestureDy, listTop, rowY });
+      expect(drawnTop(listTop, rowY, dy)).toBe(liftTop + gestureDy);
+    }
+  });
+
+  it('keeps the row under a still finger while the hook scrolls the list', () => {
+    // Measured at rest: list top 40, offset 300. The hook then scrolls up 250.
+    const measured = { measuredTop: 40, offsetAtMeasure: 300 };
+    const listTop = listTopNow({ ...measured, offsetNow: 50 });
+    expect(listTop).toBe(290); // content came down 250
+    const layouts = stacked();
+    const liftTop = 40 + layouts.f.y; // lifted at rest, finger never moved
+    const dy = anchoredDragDy({ liftTop, gestureDy: 0, listTop, rowY: layouts.f.y });
+    expect(drawnTop(listTop, layouts.f.y, dy)).toBe(liftTop);
+    // 250 dp of content passed under it: the centre of 'f' (352) is now at 102,
+    // past only 'a' and 'b' (midpoints 32 and 96) — it lands at index 2.
+    expect(dropIndex({ ids, liftedId: 'f', layouts, dy, fallbackIndex: 5 })).toBe(2);
+  });
+
+  it('believes a measurement only once the hook has stopped scrolling', () => {
+    expect(measurementTrusted(1000, null)).toBe(true);
+    expect(measurementTrusted(1000, 1000 - MEASURE_SETTLE_MS + 1)).toBe(false);
+    expect(measurementTrusted(1000, 1000 - MEASURE_SETTLE_MS)).toBe(true);
+  });
+
+  it('clamps a stale tracked offset to the content that is left', () => {
+    // 1500 tracked, content collapsed to 800 in a 700 viewport: the platform is at 100.
+    expect(clampScrollOffset(1500, 800, 700)).toBe(100);
+    expect(clampScrollOffset(50, 800, 700)).toBe(50);
+    expect(clampScrollOffset(-20, 800, 700)).toBe(0);
+    // Shorter than the viewport: nothing to scroll.
+    expect(clampScrollOffset(300, 500, 700)).toBe(0);
+    // Unmeasured: trust the tracker rather than zeroing it.
+    expect(clampScrollOffset(300, 0, 700)).toBe(300);
   });
 });

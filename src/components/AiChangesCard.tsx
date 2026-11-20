@@ -26,16 +26,22 @@
  * the only confirm such a delete gets, so it has to read as one. Items the
  * model wrote that could not be applied are counted under the card rather than
  * silently missing.
+ *
+ * A row that is a WHOLE NEW ORDER (`row.reorder`, `lib/ai/aiOrder.ts`) draws the
+ * order itself instead of `from → to` — as rows the user can still drag before
+ * Apply (`AiOrderList` says why this one field is editable on the card).
  */
 
 import { Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
+import { AiOrderList } from './AiOrderList';
 import { BubblePressable } from './bubbles';
 import { GlassSurface, SpecularEdge } from './glass';
 import { Icon } from './Icon';
 import { pressedStyle } from './motion';
 import { useT } from '../hooks/useT';
+import type { DragAutoScroll } from '../hooks/useDragReorder';
 import type { ChangesChatBlock } from '../state/aiStore';
 import { danger, gradientFill, palette, radius, specularHeavy } from '../theme/tokens';
 
@@ -43,10 +49,18 @@ export function AiChangesCard({
   block,
   onApply,
   onDiscard,
+  onReorder,
+  onDragging,
+  autoScroll,
 }: {
   block: ChangesChatBlock;
   onApply: () => void;
   onDiscard: () => void;
+  /** A drag on a reorder row: change `changeIndex`'s pending order. */
+  onReorder?: (changeIndex: number, order: string[]) => void;
+  /** A reorder row is in the air — the chat stops scrolling. */
+  onDragging?: (dragging: boolean) => void;
+  autoScroll?: DragAutoScroll;
 }) {
   const t = useT();
   const pending = block.status === 'pending';
@@ -83,43 +97,67 @@ export function AiChangesCard({
           </View>
 
           <View className="mt-md" style={{ gap: 10 }}>
-            {block.rows.map((row, index) => (
-              <View key={`${index}-${row.subject}-${row.label}`}>
-                <Text numberOfLines={1} className="text-micro text-ink-faint">
-                  {row.subject}
-                </Text>
-                <View className="flex-row items-center" style={{ gap: 8 }}>
-                  <Text
-                    numberOfLines={1}
-                    className="flex-1 text-label font-medium text-ink"
-                    style={row.destructive ? { color: danger } : undefined}
-                  >
-                    {row.label}
+            {block.rows.map((row, index) => {
+              const change = row.reorder != null ? block.changes[row.reorder] : undefined;
+              if (change?.target === 'order') {
+                const changeIndex = row.reorder as number;
+                return (
+                  <View key={`${index}-order`}>
+                    <Text numberOfLines={1} className="text-micro text-ink-faint">
+                      {row.subject}
+                    </Text>
+                    <Text numberOfLines={1} className="mb-xs text-label font-medium text-ink">
+                      {row.label}
+                    </Text>
+                    <AiOrderList
+                      rows={change.rows}
+                      order={change.order}
+                      editable={pending && onReorder != null}
+                      onReorder={(order) => onReorder?.(changeIndex, order)}
+                      onDragging={onDragging}
+                      autoScroll={autoScroll}
+                    />
+                  </View>
+                );
+              }
+              return (
+                <View key={`${index}-${row.subject}-${row.label}`}>
+                  <Text numberOfLines={1} className="text-micro text-ink-faint">
+                    {row.subject}
                   </Text>
-                  <View className="flex-row items-center" style={{ flexShrink: 1 }}>
-                    {row.from ? (
-                      <>
-                        <Text
-                          numberOfLines={1}
-                          style={{ textDecorationLine: 'line-through', flexShrink: 1 }}
-                          className="text-label tabular-nums text-ink-faint"
-                        >
-                          {row.from}
-                        </Text>
-                        <Text className="mx-xs text-label text-ink-faint">→</Text>
-                      </>
-                    ) : null}
+                  <View className="flex-row items-center" style={{ gap: 8 }}>
                     <Text
                       numberOfLines={1}
-                      style={[{ flexShrink: 1 }, row.destructive ? { color: danger } : null]}
-                      className="text-label font-semibold tabular-nums text-green-bright"
+                      className="flex-1 text-label font-medium text-ink"
+                      style={row.destructive ? { color: danger } : undefined}
                     >
-                      {row.to}
+                      {row.label}
                     </Text>
+                    <View className="flex-row items-center" style={{ flexShrink: 1 }}>
+                      {row.from ? (
+                        <>
+                          <Text
+                            numberOfLines={1}
+                            style={{ textDecorationLine: 'line-through', flexShrink: 1 }}
+                            className="text-label tabular-nums text-ink-faint"
+                          >
+                            {row.from}
+                          </Text>
+                          <Text className="mx-xs text-label text-ink-faint">→</Text>
+                        </>
+                      ) : null}
+                      <Text
+                        numberOfLines={1}
+                        style={[{ flexShrink: 1 }, row.destructive ? { color: danger } : null]}
+                        className="text-label font-semibold tabular-nums text-green-bright"
+                      >
+                        {row.to}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           {block.why ? (
